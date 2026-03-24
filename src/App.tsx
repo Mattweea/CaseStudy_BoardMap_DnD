@@ -12,7 +12,8 @@ import { useBattleMapState } from './hooks/useBattleMapState';
 import avernusImage from '../media/images/avernus.jpeg';
 
 const FULLSCREEN_TRANSITION_MS = 260;
-const MANUAL_PDF_PATH = '/media/pdfs/Manuale%20del%20Giocatore%205.0.pdf';
+const MANUAL_PDF_PATH =
+  'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
 
 interface DiceResultScene {
   flavor: string;

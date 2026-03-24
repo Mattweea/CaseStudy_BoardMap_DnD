@@ -43,7 +43,7 @@ Il progetto e utile come riferimento pratico per:
 - aggiunta, modifica, rimozione e localizzazione rapida degli elementi
 - tracker iniziativa con ordinamento, drag reorder sui pareggi e token attivo
 - dice roller con vantaggio, svantaggio, modificatori, log e reveal animato del risultato
-- apertura del manuale PDF dentro modale
+- apertura del manuale in preview embedded dentro modale
 - persistenza automatica di zoom, elementi, iniziativa e log tiri
 
 ## Avvio locale
@@ -97,7 +97,6 @@ src/
   main.tsx
 media/
   images/
-  pdfs/
 ```
 
 ## Architettura in breve
@@ -111,7 +110,7 @@ media/
 
 ## Documentazione funzionale
 
-Per una spiegazione operativa completa di tutte le funzionalita della mappa, consulta [HOWITROKS.md](./HOWITWORKS.md).
+Per una spiegazione operativa completa di tutte le funzionalita della mappa, consulta [HOWITWORKS.md](./HOWITWORKS.md).
 
 ## Note tecniche
 
@@ -119,4 +118,5 @@ Per una spiegazione operativa completa di tutte le funzionalita della mappa, con
 - Il drag e implementato con Pointer Events, non con HTML5 drag and drop.
 - I mezzi mantengono coerenti occupanti, affiliazione e posizione tramite normalizzazione lato stato.
 - Il random dei dadi usa `crypto.getRandomValues`, cosi ogni faccia valida ha probabilita uniforme.
+- Il manuale viene visualizzato tramite preview embedded di Google Drive dentro una modale.
 - I dati vengono recuperati e normalizzati da `localStorage` all'avvio.

@@ -56,7 +56,9 @@ Lo stato dell'app viene salvato automaticamente in `localStorage`, quindi al ref
 
 ### Manuale
 
-- Il pulsante `Manuale` apre il PDF del manuale dentro una modale con `iframe`.
+- Il pulsante `Manuale` apre il manuale dentro una modale con `iframe`.
+- La visualizzazione usa una preview embedded di Google Drive.
+- L'utente resta dentro l'app e non viene spostato automaticamente su Drive.
 
 ## Tipi di elemento supportati
 
