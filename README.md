@@ -1,27 +1,50 @@
 # D&D Battle Map
 
-Web app locale per usare una battle map interattiva di Dungeons & Dragons nel browser.
+Applicazione web locale per gestire una battle map di Dungeons & Dragons direttamente nel browser.
+
+Questo repository va letto come un **case study React + TypeScript**: l'obiettivo non e solo offrire una mappa interattiva per il Dungeon Master, ma mostrare anche come strutturare un'app frontend con stato centralizzato, componenti separati, logica domain-driven e persistenza locale senza backend.
+
+## Obiettivo del progetto
+
+Il progetto mette insieme tre aree in un'unica interfaccia:
+
+- gestione della mappa tattica
+- gestione di elementi, mezzi e occupanti
+- strumenti di supporto al DM come dice roller, log tiri e tracker iniziativa
 
 ## Stack
 
 - React 18
 - TypeScript
 - Vite
+- CSS custom
+- Persistenza locale con `localStorage`
 - Nessun backend
-- Persistenza con `localStorage`
 
-## Funzionalita principali
+## Perche è un case study React TypeScript
 
-- Board con griglia navigabile tramite pan, senza limiti pratici di esplorazione
-- Zoom con rotellina del mouse
-- PG, nemici e oggetti gestiti tramite modali dedicate
-- Taglie D&D reali: minuscola, piccola, media, grande, enorme, mastodontica
-- Drag and drop con snap alla cella piu vicina
-- Evidenziazione della cella target durante il drag
-- Localizzazione rapida di un elemento con pulsante a icona occhio
-- Salvataggio automatico di elementi, posizioni e zoom
-- Dice roller con log risultati
-- Tracker iniziativa con tiro o inserimento manuale
+Il progetto e utile come riferimento pratico per:
+
+- organizzazione di uno state container custom con hook dedicato
+- modellazione di tipi TypeScript per token, mezzi, iniziativa e dadi
+- gestione di drag, selezione e pan tramite Pointer Events
+- modali e pannelli coordinati senza librerie esterne
+- persistenza e normalizzazione dei dati lato client
+- separazione tra `components`, `hooks`, `utils`, `types` e `constants`
+
+## Funzionalita coperte
+
+- board virtuale con griglia navigabile
+- zoom progressivo con wheel
+- selezione singola, multiselezione e selezione ad area
+- drag and drop di uno o piu elementi con snap a griglia
+- gestione di PG, nemici, oggetti e mezzi
+- supporto ai mezzi con occupanti e sincronizzazione delle posizioni
+- aggiunta, modifica, rimozione e localizzazione rapida degli elementi
+- tracker iniziativa con ordinamento, drag reorder sui pareggi e token attivo
+- dice roller con vantaggio, svantaggio, modificatori, log e reveal animato del risultato
+- apertura del manuale PDF dentro modale
+- persistenza automatica di zoom, elementi, iniziativa e log tiri
 
 ## Avvio locale
 
@@ -30,22 +53,37 @@ npm install
 npm run dev
 ```
 
-Poi apri nel browser l'URL mostrato da Vite, di solito `http://localhost:5173`.
+Build di produzione:
 
-## Struttura progetto
+```bash
+npm run build
+```
+
+Preview locale della build:
+
+```bash
+npm run preview
+```
+
+## Struttura del progetto
 
 ```text
 src/
   components/
     Board.tsx
+    DiceIcons.tsx
+    DiceLogModal.tsx
     DicePanel.tsx
+    DiceResultModal.tsx
     ElementModals.tsx
     InitiativePanel.tsx
+    InitiativeRollModal.tsx
     Modal.tsx
     Token.tsx
   constants/
     board.ts
   hooks/
+    useAnimatedPresence.ts
     useBattleMapState.ts
   styles/
     index.css
@@ -53,21 +91,32 @@ src/
     index.ts
   utils/
     board.ts
+    dice.ts
     tokens.ts
   App.tsx
   main.tsx
+media/
+  images/
+  pdfs/
 ```
+
+## Architettura in breve
+
+- `App.tsx` orchestra sidebar, board, modali e overlay.
+- `useBattleMapState.ts` centralizza tutte le operazioni sullo stato persistito.
+- `Board.tsx` gestisce camera, zoom, drag, pan e selezione.
+- `ElementModals.tsx` incapsula creazione, modifica e lista degli elementi.
+- `utils/tokens.ts` contiene preset e regole di dominio per token e mezzi.
+- `utils/dice.ts` contiene la logica dei tiri e il generatore casuale uniforme.
+
+## Documentazione funzionale
+
+Per una spiegazione operativa completa di tutte le funzionalita della mappa, consulta [HOWITROKS.md](./HOWITWORKS.md).
 
 ## Note tecniche
 
-- La board usa una camera virtuale con pan, cosi puoi continuare a esplorare la mappa in qualsiasi direzione.
-- Il drag non usa l'HTML5 drag and drop nativo: usa Pointer Events, cosi il calcolo delle coordinate resta coerente anche con zoom e pan.
-- Il pan manuale della mappa avviene con `Ctrl + drag`.
-- La conversione mouse -> cella passa sempre da:
-  1. coordinate viewport
-  2. offset rispetto al board rect
-  3. compensazione dello zoom
-  4. applicazione dell'offset camera
-  5. snap su cella con `Math.floor`
-- Le taglie seguono l'ingombro standard D&D: grande 2x2, enorme 3x3, mastodontica 4x4.
-- Lo stato viene centralizzato in un hook dedicato per tenere leggibili persistenza e operazioni sugli elementi della mappa.
+- La mappa usa una camera virtuale, quindi non e limitata a un'unica schermata fissa.
+- Il drag e implementato con Pointer Events, non con HTML5 drag and drop.
+- I mezzi mantengono coerenti occupanti, affiliazione e posizione tramite normalizzazione lato stato.
+- Il random dei dadi usa `crypto.getRandomValues`, cosi ogni faccia valida ha probabilita uniforme.
+- I dati vengono recuperati e normalizzati da `localStorage` all'avvio.
