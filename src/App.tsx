@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AuthScreen } from './components/AuthScreen';
 import { Board } from './components/Board';
 import { DiceLogModal } from './components/DiceLogModal';
 import { DicePanel } from './components/DicePanel';
@@ -7,8 +8,9 @@ import { EditElementModal, ElementsListModal, NewElementModal } from './componen
 import { InitiativeRollModal } from './components/InitiativeRollModal';
 import { InitiativePanel } from './components/InitiativePanel';
 import { Modal } from './components/Modal';
-import type { DiceRollLog } from './types';
+import { useAuthSession } from './hooks/useAuthSession';
 import { useBattleMapState } from './hooks/useBattleMapState';
+import type { DiceRollLog } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
 
 const FULLSCREEN_TRANSITION_MS = 260;
@@ -21,7 +23,9 @@ interface DiceResultScene {
 }
 
 function App() {
+  const { user, isLoading, isSubmitting, error, login, logout } = useAuthSession();
   const {
+    isReady: isBattleMapReady,
     state,
     addTokens,
     addDiceLog,
@@ -51,6 +55,7 @@ function App() {
   const [boardFullscreenPhase, setBoardFullscreenPhase] = useState<
     'closed' | 'opening' | 'open' | 'closing'
   >('closed');
+  const canManageBattleMap = user?.role === 'master';
 
   useEffect(() => {
     setSelectedTokenIds((current) =>
@@ -96,6 +101,10 @@ function App() {
   };
 
   const openEditTokenModal = (tokenId: string) => {
+    if (!canManageBattleMap) {
+      return;
+    }
+
     locateToken(tokenId);
     setIsElementsListModalOpen(false);
     setEditingTokenId(tokenId);
@@ -106,9 +115,45 @@ function App() {
     state.tokens.find((token) => token.id === selectedTokenIds[0]) ?? null;
   const isBoardFullscreenVisible = boardFullscreenPhase !== 'closed';
 
+  if (isLoading && !user) {
+    return (
+      <div className="auth-shell auth-shell--loading">
+        <p className="auth-copy">Connessione al server di sessione...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthScreen error={error} isLoading={isSubmitting} onLogin={login} />;
+  }
+
+  if (!isBattleMapReady) {
+    return (
+      <div className="auth-shell auth-shell--loading">
+        <p className="auth-copy">Sincronizzazione della sessione condivisa...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
+        <section className="sidebar__section session-panel">
+          <div>
+            <p className="eyebrow">Sessione</p>
+            <h2>{user.displayName}</h2>
+            <p className="sidebar__copy">
+              Accesso come <strong>{user.role}</strong>.
+            </p>
+            {!canManageBattleMap ? (
+              <p className="panel-note">Il profilo adventurer puo consultare la board ma non modificarla.</p>
+            ) : null}
+          </div>
+          <button type="button" className="secondary-button secondary-button--small" onClick={() => void logout()}>
+            Logout
+          </button>
+        </section>
+
         <DicePanel
           logsCount={state.diceLogs.length}
           rollerName={primarySelectedToken?.name ?? null}
@@ -121,10 +166,23 @@ function App() {
           tokens={state.tokens}
           initiatives={state.initiatives}
           activeTurnTokenId={state.activeTurnTokenId}
-          onOpenRollModal={() => setIsInitiativeModalOpen(true)}
+          canManageInitiative={canManageBattleMap}
+          onOpenRollModal={() => {
+            if (canManageBattleMap) {
+              setIsInitiativeModalOpen(true);
+            }
+          }}
           onSetActiveTurnToken={setActiveTurnToken}
-          onClearInitiatives={clearInitiatives}
-          onReorderInitiatives={reorderInitiatives}
+          onClearInitiatives={() => {
+            if (canManageBattleMap) {
+              clearInitiatives();
+            }
+          }}
+          onReorderInitiatives={(fromIndex, toIndex) => {
+            if (canManageBattleMap) {
+              reorderInitiatives(fromIndex, toIndex);
+            }
+          }}
           onLocateToken={locateToken}
           onOpenEditTokenModal={openEditTokenModal}
         />
@@ -136,12 +194,21 @@ function App() {
           zoom={state.zoom}
           selectedTokenIds={selectedTokenIds}
           focusRequest={focusRequest}
+          canManageTokens={canManageBattleMap}
           onToggleFullscreen={() => setBoardFullscreenPhase('opening')}
           onOpenManual={() => setIsManualModalOpen(true)}
-          onOpenNewElementModal={() => setIsNewElementModalOpen(true)}
+          onOpenNewElementModal={() => {
+            if (canManageBattleMap) {
+              setIsNewElementModalOpen(true);
+            }
+          }}
           onOpenElementsListModal={() => setIsElementsListModalOpen(true)}
           onOpenEditTokenModal={openEditTokenModal}
-          onMoveTokens={moveTokens}
+          onMoveTokens={(moves) => {
+            if (canManageBattleMap) {
+              moveTokens(moves);
+            }
+          }}
           onSelectionChange={setSelectedTokenIds}
           onZoomChange={setZoom}
         />
@@ -157,44 +224,62 @@ function App() {
             selectedTokenIds={selectedTokenIds}
             focusRequest={focusRequest}
             isFullscreen
+            canManageTokens={canManageBattleMap}
             onToggleFullscreen={() => setBoardFullscreenPhase('closing')}
             onOpenManual={() => setIsManualModalOpen(true)}
-            onOpenNewElementModal={() => setIsNewElementModalOpen(true)}
+            onOpenNewElementModal={() => {
+              if (canManageBattleMap) {
+                setIsNewElementModalOpen(true);
+              }
+            }}
             onOpenElementsListModal={() => setIsElementsListModalOpen(true)}
             onOpenEditTokenModal={openEditTokenModal}
-            onMoveTokens={moveTokens}
+            onMoveTokens={(moves) => {
+              if (canManageBattleMap) {
+                moveTokens(moves);
+              }
+            }}
             onSelectionChange={setSelectedTokenIds}
             onZoomChange={setZoom}
           />
         </div>
       ) : null}
 
-      <NewElementModal
-        isOpen={isNewElementModalOpen}
-        tokens={state.tokens}
-        tokenCount={state.tokens.length}
-        onClose={() => setIsNewElementModalOpen(false)}
-        onAddTokens={addTokens}
-      />
+      {canManageBattleMap ? (
+        <>
+          <NewElementModal
+            isOpen={isNewElementModalOpen}
+            tokens={state.tokens}
+            tokenCount={state.tokens.length}
+            onClose={() => setIsNewElementModalOpen(false)}
+            onAddTokens={addTokens}
+          />
 
-      <EditElementModal
-        isOpen={editingToken !== null}
-        token={editingToken}
-        tokens={state.tokens}
-        onClose={() => setEditingTokenId(null)}
-        onAddTokens={addTokens}
-        onSaveToken={updateToken}
-        onRemoveToken={(tokenId) => {
-          removeToken(tokenId);
-          setEditingTokenId(null);
-        }}
-      />
+          <EditElementModal
+            isOpen={editingToken !== null}
+            token={editingToken}
+            tokens={state.tokens}
+            onClose={() => setEditingTokenId(null)}
+            onAddTokens={addTokens}
+            onSaveToken={updateToken}
+            onRemoveToken={(tokenId) => {
+              removeToken(tokenId);
+              setEditingTokenId(null);
+            }}
+          />
+        </>
+      ) : null}
 
       <ElementsListModal
         isOpen={isElementsListModalOpen}
         tokens={state.tokens}
+        readOnly={!canManageBattleMap}
         onClose={() => setIsElementsListModalOpen(false)}
-        onRemoveToken={removeToken}
+        onRemoveToken={(tokenId) => {
+          if (canManageBattleMap) {
+            removeToken(tokenId);
+          }
+        }}
         onLocateToken={locateToken}
         onEditToken={openEditTokenModal}
       />
@@ -225,9 +310,18 @@ function App() {
         isOpen={isInitiativeModalOpen}
         tokens={state.tokens}
         initiatives={state.initiatives}
+        canManage={canManageBattleMap}
         onClose={() => setIsInitiativeModalOpen(false)}
-        onSetInitiative={setInitiative}
-        onClearInitiative={clearInitiative}
+        onSetInitiative={(entry) => {
+          if (canManageBattleMap) {
+            setInitiative(entry);
+          }
+        }}
+        onClearInitiative={(tokenId) => {
+          if (canManageBattleMap) {
+            clearInitiative(tokenId);
+          }
+        }}
         onLocateToken={locateToken}
       />
 

@@ -1,6 +1,12 @@
-import { useEffect, useState } from 'react';
-import { BOARD_CONFIG, STORAGE_KEY } from '../constants/board';
-import type { BattleMapState, DiceRollLog, InitiativeEntry, UnitToken } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import { BOARD_CONFIG } from '../constants/board';
+import type {
+  BattleMapSharedState,
+  BattleMapState,
+  DiceRollLog,
+  InitiativeEntry,
+  UnitToken,
+} from '../types';
 import { clampZoom } from '../utils/board';
 import {
   DEFAULT_TOKEN_COLORS,
@@ -8,6 +14,10 @@ import {
   defaultVehicleColor,
   isCreature,
 } from '../utils/tokens';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
+const EVENTS_URL = import.meta.env.VITE_EVENTS_URL ?? '/api/battle-map/stream';
+const ZOOM_STORAGE_KEY = 'dnd-battle-map-zoom';
 
 function normalizeVehicleLinks(tokens: UnitToken[]): UnitToken[] {
   const clonedTokens = tokens.map((token) => ({
@@ -81,8 +91,7 @@ function applyVehicleAwareUpdates(tokens: UnitToken[]): UnitToken[] {
   });
 }
 
-const initialState: BattleMapState = {
-  zoom: 1,
+const initialSharedState: BattleMapSharedState = {
   tokens: [
     {
       id: 'sample-player-1',
@@ -142,89 +151,270 @@ const initialState: BattleMapState = {
   activeTurnTokenId: null,
 };
 
-function readStoredState(): BattleMapState {
+function readStoredZoom() {
   if (typeof window === 'undefined') {
-    return initialState;
+    return 1;
   }
 
-  try {
-    const rawValue = window.localStorage.getItem(STORAGE_KEY);
-    if (!rawValue) {
-      return initialState;
-    }
+  const rawValue = window.localStorage.getItem(ZOOM_STORAGE_KEY);
+  return clampZoom(rawValue ? Number(rawValue) : 1);
+}
 
-    const parsed = JSON.parse(rawValue) as Partial<BattleMapState>;
-    const tokens = Array.isArray(parsed.tokens)
-      ? parsed.tokens.map((token) => {
-          const type = token.type ?? 'object';
-          const affiliation =
-            token.affiliation ??
-            (type === 'enemy' ? 'enemy' : type === 'player' ? 'player' : null);
-          const fallbackColor =
+function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): BattleMapSharedState {
+  const tokens = Array.isArray(parsed?.tokens)
+    ? parsed.tokens.map((token) => {
+        const type = token.type ?? 'object';
+        const affiliation =
+          token.affiliation ??
+          (type === 'enemy' ? 'enemy' : type === 'player' ? 'player' : null);
+        const fallbackColor =
+          type === 'vehicle'
+            ? defaultVehicleColor(affiliation === 'enemy' ? 'enemy' : 'player')
+            : DEFAULT_TOKEN_COLORS[type];
+
+        return {
+          ...token,
+          type,
+          size: token.size ?? (token.vehicleKind ? VEHICLE_PRESETS[token.vehicleKind].size : 'medium'),
+          color: token.color ?? fallbackColor,
+          initiativeModifier:
+            typeof token.initiativeModifier === 'number' ? token.initiativeModifier : 0,
+          affiliation,
+          vehicleKind: token.vehicleKind ?? null,
+          vehicleOccupantIds: Array.isArray(token.vehicleOccupantIds) ? token.vehicleOccupantIds : [],
+          showVehicleOccupants:
             type === 'vehicle'
-              ? defaultVehicleColor(affiliation === 'enemy' ? 'enemy' : 'player')
-              : DEFAULT_TOKEN_COLORS[type];
+              ? typeof token.showVehicleOccupants === 'boolean'
+                ? token.showVehicleOccupants
+                : true
+              : undefined,
+          containedInVehicleId:
+            typeof token.containedInVehicleId === 'string' ? token.containedInVehicleId : null,
+          conditions: Array.isArray(token.conditions) ? token.conditions : [],
+        };
+      })
+    : initialSharedState.tokens;
+  const initiatives = Array.isArray(parsed?.initiatives)
+    ? parsed.initiatives.filter((entry) => tokens.some((token) => token.id === entry.tokenId))
+    : [];
 
-          return {
-            ...token,
-            type,
-            size: token.size ?? (token.vehicleKind ? VEHICLE_PRESETS[token.vehicleKind].size : 'medium'),
-            color: token.color ?? fallbackColor,
-            initiativeModifier:
-              typeof token.initiativeModifier === 'number' ? token.initiativeModifier : 0,
-            affiliation,
-            vehicleKind: token.vehicleKind ?? null,
-            vehicleOccupantIds: Array.isArray(token.vehicleOccupantIds) ? token.vehicleOccupantIds : [],
-            showVehicleOccupants:
-              type === 'vehicle'
-                ? typeof token.showVehicleOccupants === 'boolean'
-                  ? token.showVehicleOccupants
-                  : true
-                : undefined,
-            containedInVehicleId:
-              typeof token.containedInVehicleId === 'string' ? token.containedInVehicleId : null,
-            conditions: Array.isArray(token.conditions) ? token.conditions : [],
-          };
-        })
-      : initialState.tokens;
-    const initiatives = Array.isArray(parsed.initiatives)
-      ? parsed.initiatives.filter((entry) => tokens.some((token) => token.id === entry.tokenId))
-      : [];
+  return {
+    tokens: applyVehicleAwareUpdates(tokens),
+    diceLogs: Array.isArray(parsed?.diceLogs)
+      ? parsed.diceLogs.map((log) => ({
+          ...log,
+          formula: log.formula ?? log.label,
+        }))
+      : [],
+    initiatives,
+    activeTurnTokenId:
+      typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null,
+  };
+}
 
-    return {
-      zoom: clampZoom(parsed.zoom ?? initialState.zoom),
-      tokens: applyVehicleAwareUpdates(tokens),
-      diceLogs: Array.isArray(parsed.diceLogs)
-        ? parsed.diceLogs.map((log) => ({
-            ...log,
-            formula: log.formula ?? log.label,
-          }))
-        : [],
-      initiatives,
-      activeTurnTokenId:
-        typeof parsed.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null,
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+    ...init,
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as T & {
+    message?: string;
+    state?: BattleMapSharedState;
+    version?: number;
+  };
+
+  if (!response.ok) {
+    const error = new Error(payload.message ?? 'Richiesta server fallita.') as Error & {
+      payload?: typeof payload;
+      status?: number;
     };
-  } catch {
-    return initialState;
+    error.payload = payload;
+    error.status = response.status;
+    throw error;
   }
+
+  return payload;
 }
 
 export function useBattleMapState() {
-  const [state, setState] = useState<BattleMapState>(() => readStoredState());
+  const [sharedState, setSharedState] = useState<BattleMapSharedState>(initialSharedState);
+  const [zoom, setZoomState] = useState(readStoredZoom);
+  const [version, setVersion] = useState(0);
+  const [isReady, setIsReady] = useState(false);
+  const sharedStateRef = useRef(sharedState);
+  const versionRef = useRef(version);
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    sharedStateRef.current = sharedState;
+  }, [sharedState]);
 
-  const setZoom = (zoom: number) => {
-    setState((current) => ({
-      ...current,
-      zoom: clampZoom(zoom),
-    }));
+  useEffect(() => {
+    versionRef.current = version;
+  }, [version]);
+
+  useEffect(() => {
+    window.localStorage.setItem(ZOOM_STORAGE_KEY, String(zoom));
+  }, [zoom]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadState = async () => {
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/state',
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        const nextState = normalizeSharedState(payload.state);
+        sharedStateRef.current = nextState;
+        versionRef.current = payload.version;
+        setSharedState(nextState);
+        setVersion(payload.version);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        if (isMounted) {
+          setIsReady(true);
+        }
+      }
+    };
+
+    void loadState();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isReady) {
+      return undefined;
+    }
+
+    // The server pushes the canonical battle map snapshot to every connected client.
+    const eventSource = new EventSource(EVENTS_URL, { withCredentials: true });
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          state: BattleMapSharedState;
+          version: number;
+        };
+        applySnapshot(payload.state, payload.version);
+      } catch (error) {
+        console.error(error);
+      }
+    };
+    eventSource.onerror = () => {
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [isReady]);
+
+  const applySnapshot = (nextState: BattleMapSharedState, nextVersion: number) => {
+    const normalizedState = normalizeSharedState(nextState);
+    sharedStateRef.current = normalizedState;
+    versionRef.current = nextVersion;
+    setSharedState(normalizedState);
+    setVersion(nextVersion);
+  };
+
+  const setOptimisticState = (nextState: BattleMapSharedState) => {
+    sharedStateRef.current = nextState;
+    setSharedState(nextState);
+  };
+
+  const commitSharedState = async (
+    updater: (current: BattleMapSharedState) => BattleMapSharedState,
+  ) => {
+    const nextState = normalizeSharedState(updater(sharedStateRef.current));
+    setOptimisticState(nextState);
+
+    try {
+      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+        '/battle-map/state',
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            baseVersion: versionRef.current,
+            state: nextState,
+          }),
+        },
+      );
+
+      applySnapshot(payload.state, payload.version);
+    } catch (error) {
+      console.error(error);
+
+      const conflictState =
+        error instanceof Error && 'payload' in error
+          ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+          : undefined;
+
+      if (conflictState?.state && typeof conflictState.version === 'number') {
+        applySnapshot(conflictState.state, conflictState.version);
+      }
+    }
+  };
+
+  const addDiceLog = async (log: DiceRollLog) => {
+    const optimisticState = {
+      ...sharedStateRef.current,
+      diceLogs: [log, ...sharedStateRef.current.diceLogs].slice(0, 30),
+    };
+    setOptimisticState(optimisticState);
+
+    try {
+      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+        '/battle-map/dice-logs',
+        {
+          method: 'POST',
+          body: JSON.stringify({ log }),
+        },
+      );
+      applySnapshot(payload.state, payload.version);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const clearDiceLogs = async () => {
+    const optimisticState = {
+      ...sharedStateRef.current,
+      diceLogs: [],
+    };
+    setOptimisticState(optimisticState);
+
+    try {
+      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+        '/battle-map/dice-logs',
+        {
+          method: 'DELETE',
+        },
+      );
+      applySnapshot(payload.state, payload.version);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const setZoom = (nextZoom: number) => {
+    setZoomState(clampZoom(nextZoom));
   };
 
   const moveToken = (tokenId: string, x: number, y: number) => {
-    setState((current) => ({
+    void commitSharedState((current) => ({
       ...current,
       tokens: applyVehicleAwareUpdates(
         current.tokens.map((token) => {
@@ -259,7 +449,7 @@ export function useBattleMapState() {
   const moveTokens = (moves: Array<{ tokenId: string; x: number; y: number }>) => {
     const moveMap = new Map(moves.map((move) => [move.tokenId, move]));
 
-    setState((current) => ({
+    void commitSharedState((current) => ({
       ...current,
       tokens: applyVehicleAwareUpdates(
         current.tokens.map((token) => {
@@ -298,15 +488,15 @@ export function useBattleMapState() {
     }));
   };
 
-  const addTokens = (tokens: BattleMapState['tokens']) => {
-    setState((current) => ({
+  const addTokens = (tokens: BattleMapSharedState['tokens']) => {
+    void commitSharedState((current) => ({
       ...current,
       tokens: applyVehicleAwareUpdates([...current.tokens, ...tokens]),
     }));
   };
 
   const updateToken = (tokenId: string, updates: Partial<UnitToken>) => {
-    setState((current) => ({
+    void commitSharedState((current) => ({
       ...current,
       tokens: applyVehicleAwareUpdates(
         current.tokens.map((token) =>
@@ -322,7 +512,7 @@ export function useBattleMapState() {
   };
 
   const removeToken = (tokenId: string) => {
-    setState((current) => {
+    void commitSharedState((current) => {
       const nextTokens = applyVehicleAwareUpdates(current.tokens.filter((token) => token.id !== tokenId));
       const nextInitiatives = current.initiatives.filter((entry) => entry.tokenId !== tokenId);
 
@@ -336,22 +526,8 @@ export function useBattleMapState() {
     });
   };
 
-  const addDiceLog = (log: DiceRollLog) => {
-    setState((current) => ({
-      ...current,
-      diceLogs: [log, ...current.diceLogs].slice(0, 30),
-    }));
-  };
-
-  const clearDiceLogs = () => {
-    setState((current) => ({
-      ...current,
-      diceLogs: [],
-    }));
-  };
-
   const setInitiative = (entry: InitiativeEntry) => {
-    setState((current) => {
+    void commitSharedState((current) => {
       if (!current.tokens.some((token) => token.id === entry.tokenId && isCreature(token))) {
         return current;
       }
@@ -374,7 +550,7 @@ export function useBattleMapState() {
   };
 
   const reorderInitiatives = (fromIndex: number, toIndex: number) => {
-    setState((current) => {
+    void commitSharedState((current) => {
       if (
         fromIndex < 0 ||
         toIndex < 0 ||
@@ -397,7 +573,7 @@ export function useBattleMapState() {
   };
 
   const clearInitiative = (tokenId: string) => {
-    setState((current) => {
+    void commitSharedState((current) => {
       const nextInitiatives = current.initiatives.filter((entry) => entry.tokenId !== tokenId);
 
       return {
@@ -412,7 +588,7 @@ export function useBattleMapState() {
   };
 
   const clearInitiatives = () => {
-    setState((current) => ({
+    void commitSharedState((current) => ({
       ...current,
       initiatives: [],
       activeTurnTokenId: null,
@@ -420,7 +596,7 @@ export function useBattleMapState() {
   };
 
   const cycleTurn = (direction: 'next' | 'previous') => {
-    setState((current) => {
+    void commitSharedState((current) => {
       if (current.initiatives.length === 0) {
         return current;
       }
@@ -442,7 +618,7 @@ export function useBattleMapState() {
   };
 
   const setActiveTurnToken = (tokenId: string) => {
-    setState((current) => ({
+    void commitSharedState((current) => ({
       ...current,
       activeTurnTokenId: tokenId,
     }));
@@ -450,8 +626,14 @@ export function useBattleMapState() {
 
   const resetZoom = () => setZoom(1);
 
+  const state: BattleMapState = {
+    ...sharedState,
+    zoom,
+  };
+
   return {
     boardConfig: BOARD_CONFIG,
+    isReady,
     state,
     setZoom,
     moveToken,

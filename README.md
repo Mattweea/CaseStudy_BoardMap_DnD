@@ -1,8 +1,8 @@
 # D&D Battle Map
 
-Applicazione web locale per gestire una battle map di Dungeons & Dragons direttamente nel browser.
+Applicazione web per gestire una battle map di Dungeons & Dragons con sessione condivisa tra piu utenti.
 
-Questo repository va letto come un **case study React + TypeScript**: l'obiettivo non e solo offrire una mappa interattiva per il Dungeon Master, ma mostrare anche come strutturare un'app frontend con stato centralizzato, componenti separati, logica domain-driven e persistenza locale senza backend.
+Questo repository va letto come un **case study React + TypeScript + Fastify**: l'obiettivo non e solo offrire una mappa interattiva per il Dungeon Master, ma mostrare anche come strutturare un frontend con stato condiviso server-side, ruoli utente e sincronizzazione realtime leggera.
 
 ## Obiettivo del progetto
 
@@ -17,9 +17,11 @@ Il progetto mette insieme tre aree in un'unica interfaccia:
 - React 18
 - TypeScript
 - Vite
+- Fastify
 - CSS custom
-- Persistenza locale con `localStorage`
-- Nessun backend
+- autenticazione via cookie di sessione
+- sincronizzazione realtime via Server-Sent Events
+- persistenza locale solo per lo zoom utente
 
 ## Perche è un case study React TypeScript
 
@@ -29,7 +31,7 @@ Il progetto e utile come riferimento pratico per:
 - modellazione di tipi TypeScript per token, mezzi, iniziativa e dadi
 - gestione di drag, selezione e pan tramite Pointer Events
 - modali e pannelli coordinati senza librerie esterne
-- persistenza e normalizzazione dei dati lato client
+- sincronizzazione e normalizzazione dei dati tra client e server
 - separazione tra `components`, `hooks`, `utils`, `types` e `constants`
 
 ## Funzionalita coperte
@@ -44,14 +46,22 @@ Il progetto e utile come riferimento pratico per:
 - tracker iniziativa con ordinamento, drag reorder sui pareggi e token attivo
 - dice roller con vantaggio, svantaggio, modificatori, log e reveal animato del risultato
 - apertura del manuale in preview embedded dentro modale
-- persistenza automatica di zoom, elementi, iniziativa e log tiri
+- login con ruolo `master` o `adventurer`
+- sessione condivisa con aggiornamento live di mappa, iniziativa e log tiri
 
 ## Avvio locale
 
 ```bash
 npm install
+npm run dev:server
 npm run dev
 ```
+
+Credenziali demo:
+
+- `master` / `master123`
+- `aria` / `adventurer123`
+- `borin` / `adventurer123`
 
 Build di produzione:
 
@@ -84,6 +94,7 @@ src/
     board.ts
   hooks/
     useAnimatedPresence.ts
+    useAuthSession.ts
     useBattleMapState.ts
   styles/
     index.css
@@ -95,18 +106,22 @@ src/
     tokens.ts
   App.tsx
   main.tsx
+server/
+  index.mjs
 media/
   images/
 ```
 
 ## Architettura in breve
 
-- `App.tsx` orchestra sidebar, board, modali e overlay.
-- `useBattleMapState.ts` centralizza tutte le operazioni sullo stato persistito.
+- `App.tsx` orchestra login, sidebar, board, modali e overlay.
+- `useAuthSession.ts` gestisce sessione, login e logout.
+- `useBattleMapState.ts` legge e aggiorna lo stato condiviso tramite API + SSE.
 - `Board.tsx` gestisce camera, zoom, drag, pan e selezione.
 - `ElementModals.tsx` incapsula creazione, modifica e lista degli elementi.
 - `utils/tokens.ts` contiene preset e regole di dominio per token e mezzi.
 - `utils/dice.ts` contiene la logica dei tiri e il generatore casuale uniforme.
+- `server/index.mjs` espone auth, stato condiviso e stream realtime.
 
 ## Documentazione funzionale
 
@@ -119,4 +134,6 @@ Per una spiegazione operativa completa di tutte le funzionalita della mappa, con
 - I mezzi mantengono coerenti occupanti, affiliazione e posizione tramite normalizzazione lato stato.
 - Il random dei dadi usa `crypto.getRandomValues`, cosi ogni faccia valida ha probabilita uniforme.
 - Il manuale viene visualizzato tramite preview embedded di Google Drive dentro una modale.
-- I dati vengono recuperati e normalizzati da `localStorage` all'avvio.
+- Lo stato della partita e mantenuto in memoria nel server Fastify.
+- Il ruolo `master` puo modificare la battle map; `adventurer` ha accesso in sola consultazione.
+- Solo lo zoom resta locale per utente tramite `localStorage`.

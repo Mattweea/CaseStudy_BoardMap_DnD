@@ -33,6 +33,10 @@ body {
   max-height: 100vh;
 }
 
+a {
+  color: inherit;
+}
+
 button,
 input,
 select {
@@ -64,6 +68,13 @@ button {
   min-width: 0;
 }
 
+.session-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
 .sidebar__section,
 .board-panel {
   background: rgba(44, 15, 18, 0.78);
@@ -88,6 +99,12 @@ button {
 .board-panel__hint {
   margin: 0;
   color: #d1b7a9;
+}
+
+.panel-note {
+  margin: 0.55rem 0 0;
+  color: #ffbf9a;
+  font-size: 0.9rem;
 }
 
 .eyebrow {
@@ -138,6 +155,15 @@ button {
 .secondary-button {
   width: 100%;
   background: #64363b;
+}
+
+.secondary-button:disabled,
+.primary-button:disabled,
+.outline-button:disabled,
+.danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
 }
 
 .primary-button {
@@ -1728,6 +1754,65 @@ button {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+.auth-shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background:
+    radial-gradient(circle at top, rgba(255, 132, 72, 0.18), transparent 30%),
+    linear-gradient(145deg, #15090b 0%, #221015 45%, #381715 100%);
+}
+
+.auth-shell--loading {
+  text-align: center;
+}
+
+.auth-card {
+  width: min(100%, 560px);
+  padding: 1.6rem;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 140, 84, 0.18);
+  background: rgba(36, 13, 15, 0.88);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.32);
+}
+
+.auth-copy {
+  margin: 0.35rem 0 1.2rem;
+  color: #d8b6a1;
+}
+
+.auth-demo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1.15rem;
+}
+
+.auth-demo-card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 16px;
+  background: rgba(86, 30, 25, 0.52);
+  border: 1px solid rgba(255, 127, 79, 0.14);
+  color: #f4ddcf;
+}
+
+.auth-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.auth-error {
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(133, 26, 26, 0.3);
+  color: #ffd4c9;
+  border: 1px solid rgba(255, 110, 110, 0.22);
 }
 
 @media (max-width: 1024px) {

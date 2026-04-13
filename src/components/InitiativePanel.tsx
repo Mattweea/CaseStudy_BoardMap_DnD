@@ -7,6 +7,7 @@ interface InitiativePanelProps {
   tokens: UnitToken[];
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
+  canManageInitiative?: boolean;
   onOpenRollModal: () => void;
   onSetActiveTurnToken: (tokenId: string) => void;
   onClearInitiatives: () => void;
@@ -19,6 +20,7 @@ export function InitiativePanel({
   tokens,
   initiatives,
   activeTurnTokenId,
+  canManageInitiative = true,
   onOpenRollModal,
   onSetActiveTurnToken,
   onClearInitiatives,
@@ -81,14 +83,28 @@ export function InitiativePanel({
           <h2>Ordine dei turni</h2>
         </div>
         <div className="initiative-panel__actions">
-          <button type="button" className="secondary-button secondary-button--small" onClick={onOpenRollModal}>
+          <button
+            type="button"
+            className="secondary-button secondary-button--small"
+            onClick={onOpenRollModal}
+            disabled={!canManageInitiative}
+          >
             Roll for initiative
           </button>
-          <button type="button" className="secondary-button secondary-button--small" onClick={onClearInitiatives}>
+          <button
+            type="button"
+            className="secondary-button secondary-button--small"
+            onClick={onClearInitiatives}
+            disabled={!canManageInitiative}
+          >
             Reset
           </button>
         </div>
       </div>
+
+      {!canManageInitiative ? (
+        <p className="panel-note">Solo il master puo modificare l&apos;ordine dei turni.</p>
+      ) : null}
 
       <div className="turn-order">
         {initiatives.length === 0 ? <p className="empty-state">Nessuna iniziativa impostata.</p> : null}
@@ -105,32 +121,47 @@ export function InitiativePanel({
               key={entry.tokenId}
               className={`turn-order__item ${isActive ? 'turn-order__item--active' : ''}`}
               onClick={() => {
-                onSetActiveTurnToken(entry.tokenId);
+                if (canManageInitiative) {
+                  onSetActiveTurnToken(entry.tokenId);
+                }
                 onLocateToken(entry.tokenId);
               }}
               onContextMenu={(event) => {
                 event.preventDefault();
-                onOpenEditTokenModal(entry.tokenId);
+                if (canManageInitiative) {
+                  onOpenEditTokenModal(entry.tokenId);
+                }
               }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
-                  onSetActiveTurnToken(entry.tokenId);
+                  if (canManageInitiative) {
+                    onSetActiveTurnToken(entry.tokenId);
+                  }
                   onLocateToken(entry.tokenId);
                 }
               }}
               role="button"
               tabIndex={0}
-              draggable
+              draggable={canManageInitiative}
               onDragStart={() => {
+                if (!canManageInitiative) {
+                  return;
+                }
                 setDraggedIndex(index);
                 setDropPreview(null);
               }}
               onDragOver={(event) => {
+                if (!canManageInitiative) {
+                  return;
+                }
                 event.preventDefault();
                 updateDropPreview(index, event.clientY, event.currentTarget.getBoundingClientRect());
               }}
               onDrop={() => {
+                if (!canManageInitiative) {
+                  return;
+                }
                 const nextIndex = resolveDropIndex();
                 if (nextIndex === null || draggedIndex === null) {
                   setDropPreview(null);
@@ -157,13 +188,17 @@ export function InitiativePanel({
                     className="token-name-button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      onSetActiveTurnToken(entry.tokenId);
+                      if (canManageInitiative) {
+                        onSetActiveTurnToken(entry.tokenId);
+                      }
                       onLocateToken(entry.tokenId);
                     }}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      onOpenEditTokenModal(entry.tokenId);
+                      if (canManageInitiative) {
+                        onOpenEditTokenModal(entry.tokenId);
+                      }
                     }}
                   >
                     {findTokenName(tokens, entry.tokenId)}

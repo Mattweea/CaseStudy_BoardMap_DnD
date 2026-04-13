@@ -18,6 +18,7 @@ interface BoardProps {
   selectedTokenIds: string[];
   focusRequest: { tokenId: string; nonce: number } | null;
   isFullscreen?: boolean;
+  canManageTokens?: boolean;
   onOpenManual: () => void;
   onOpenNewElementModal: () => void;
   onOpenElementsListModal: () => void;
@@ -86,6 +87,7 @@ export function Board({
   selectedTokenIds,
   focusRequest,
   isFullscreen = false,
+  canManageTokens = true,
   onOpenManual,
   onOpenNewElementModal,
   onOpenElementsListModal,
@@ -398,6 +400,18 @@ export function Board({
       return;
     }
 
+    if (!canManageTokens) {
+      const additive = event.shiftKey;
+      onSelectionChange(
+        additive
+          ? selectedTokenIds.includes(token.id)
+            ? selectedTokenIds.filter((tokenId) => tokenId !== token.id)
+            : [...selectedTokenIds, token.id]
+          : [token.id],
+      );
+      return;
+    }
+
     const additive = event.shiftKey;
     const selection =
       additive || selectedTokenIds.includes(token.id)
@@ -511,7 +525,7 @@ export function Board({
           <button type="button" onClick={onToggleFullscreen}>
             🤓 {isFullscreen ? 'Chiudi full screen' : 'Full screen'}
           </button>
-          <button type="button" onClick={onOpenNewElementModal}>
+          <button type="button" onClick={onOpenNewElementModal} disabled={!canManageTokens}>
             ➕ Nuovo elemento
           </button>
           <button type="button" onClick={onOpenElementsListModal}>
@@ -525,7 +539,9 @@ export function Board({
 
       <div className="board-panel__header board-panel__header--subtle">
         <p className="board-panel__hint">
-          Click per selezionare/deselezionare, Shift+click per multiselezione, trascina per muovere i selezionati. Trascina sullo sfondo per una selezione ad area.
+          {canManageTokens
+            ? 'Click per selezionare/deselezionare, Shift+click per multiselezione, trascina per muovere i selezionati. Trascina sullo sfondo per una selezione ad area.'
+            : 'Modalita adventurer: puoi selezionare, zoomare, fare pan e consultare la mappa, ma non modificare token o iniziativa.'}
         </p>
       </div>
 
@@ -602,6 +618,7 @@ export function Board({
                   }}
                   footprint={footprint}
                   zoom={zoom}
+                  canEdit={canManageTokens}
                   onPointerDown={handlePiecePointerDown}
                   onEdit={onOpenEditTokenModal}
                 />

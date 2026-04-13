@@ -10,6 +10,7 @@ interface InitiativeRollModalProps {
   isOpen: boolean;
   tokens: UnitToken[];
   initiatives: InitiativeEntry[];
+  canManage?: boolean;
   onClose: () => void;
   onSetInitiative: (entry: InitiativeEntry) => void;
   onClearInitiative: (tokenId: string) => void;
@@ -20,6 +21,7 @@ export function InitiativeRollModal({
   isOpen,
   tokens,
   initiatives,
+  canManage = true,
   onClose,
   onSetInitiative,
   onClearInitiative,
@@ -78,13 +80,15 @@ export function InitiativeRollModal({
   return (
     <Modal title="Roll for initiative" isOpen={isOpen} onClose={onClose}>
       <div className="initiative-actions initiative-actions--stack">
-        <button type="button" onClick={rollForEveryone}>
+        <button type="button" onClick={rollForEveryone} disabled={!canManage}>
           Roll for everyone
         </button>
-        <button type="button" onClick={applyAllManualInitiatives}>
+        <button type="button" onClick={applyAllManualInitiatives} disabled={!canManage}>
           Save all
         </button>
       </div>
+
+      {!canManage ? <p className="panel-note">Solo il master puo assegnare o resettare l&apos;iniziativa.</p> : null}
 
       <div className="initiative-roster">
         {creatures.map((token) => {
@@ -126,6 +130,7 @@ export function InitiativeRollModal({
                 className="initiative-roster__input"
                 placeholder="Manuale"
                 value={manualValues[token.id] ?? ''}
+                disabled={!canManage}
                 onChange={(event) =>
                   setManualValues((current) => ({
                     ...current,
@@ -135,13 +140,14 @@ export function InitiativeRollModal({
               />
 
               <div className="initiative-roster__actions">
-                <button type="button" onClick={() => applyManualInitiative(token)}>
+                <button type="button" onClick={() => applyManualInitiative(token)} disabled={!canManage}>
                   Salva
                 </button>
 
                 <button
                   type="button"
                   className="outline-button"
+                  disabled={!canManage}
                   onClick={() => {
                     setManualValues((current) => ({
                       ...current,

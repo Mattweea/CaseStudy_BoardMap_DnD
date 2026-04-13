@@ -1,6 +1,6 @@
 # How It Works
 
-Questo documento descrive in dettaglio tutte le funzionalita presenti nella battle map e come usarle.
+Questo documento descrive in dettaglio tutte le funzionalita presenti nella battle map e come usarle in una sessione condivisa.
 
 ## Panoramica
 
@@ -10,13 +10,31 @@ L'app e composta da tre aree principali:
 - area centrale con la mappa interattiva
 - modali di supporto per elementi, log dadi, iniziativa e manuale
 
-Lo stato dell'app viene salvato automaticamente in `localStorage`, quindi al refresh vengono recuperati:
+Lo stato della partita vive sul server Fastify e viene sincronizzato in tempo reale fra i client autenticati. In locale viene salvato solo lo zoom della board.
 
-- zoom
+## Accesso e ruoli
+
+Prima di entrare nella mappa serve fare login.
+
+- `master`: puo modificare token, iniziativa e stato della partita
+- `adventurer`: puo consultare la board, zoomare, fare pan, aprire manuale e vedere gli aggiornamenti live
+
+Credenziali demo:
+
+- `master` / `master123`
+- `aria` / `adventurer123`
+- `borin` / `adventurer123`
+
+## Sincronizzazione
+
+Quando il `master` modifica la partita:
+
 - elementi presenti in mappa
 - log dei dadi
 - iniziative
 - token attivo del turno
+
+gli altri client vedono l'aggiornamento senza refresh.
 
 ## Mappa
 
@@ -47,6 +65,7 @@ Lo stato dell'app viene salvato automaticamente in `localStorage`, quindi al ref
 - Se hai piu elementi selezionati, il drag li muove insieme mantenendo i loro offset reciproci.
 - Il movimento usa snap su griglia.
 - Durante il drag compare un highlight della destinazione.
+- Solo il `master` puo spostare elementi.
 
 ### Full screen
 
@@ -83,6 +102,8 @@ Le taglie occupano piu celle in modo coerente con la griglia.
 ## Aggiungere un elemento
 
 Apri la modale con `Nuovo elemento`.
+
+Solo il `master` puo creare nuovi elementi.
 
 ### Creazione PG, nemici e oggetti
 
@@ -145,6 +166,8 @@ Puoi aprire la modale di modifica in diversi modi:
 - dalla lista `Elementi in mappa`
 - con click destro su un elemento nell'ordine iniziativa
 - dalle azioni dedicate in altri pannelli
+
+Solo il `master` puo aprire la modale di modifica.
 
 ### Modifica di PG e nemici
 
@@ -239,8 +262,8 @@ Per ogni elemento puoi:
 
 - cliccare il nome per localizzarlo sulla mappa
 - usare il pulsante con icona occhio per localizzarlo
-- usare `Modifica`
-- usare `Rimuovi`
+- usare `Modifica` se sei `master`
+- usare `Rimuovi` se sei `master`
 
 Quando localizzi un elemento:
 
@@ -257,6 +280,12 @@ Il sistema supporta relazioni fra mezzo e occupanti.
 - gli oggetti non possono essere occupanti
 - un mezzo non puo contenere altri mezzi
 - gli occupanti seguono sempre la posizione del mezzo
+
+## Iniziativa e dadi
+
+- Il `master` puo tirare o impostare l'iniziativa e riordinare i pareggi.
+- Gli `adventurer` vedono l'ordine aggiornarsi in tempo reale ma non possono modificarlo.
+- I log dadi sono condivisi tra tutti i client autenticati.
 
 ### Visibilita occupanti
 

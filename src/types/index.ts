@@ -1,4 +1,5 @@
 export type TokenType = 'player' | 'enemy' | 'object' | 'vehicle';
+export type UserRole = 'master' | 'adventurer';
 
 export type DndSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan';
 
@@ -41,6 +42,20 @@ export interface BattleMapState {
   diceLogs: DiceRollLog[];
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
+}
+
+export interface BattleMapSharedState {
+  tokens: UnitToken[];
+  diceLogs: DiceRollLog[];
+  initiatives: InitiativeEntry[];
+  activeTurnTokenId: string | null;
+}
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  displayName: string;
+  role: UserRole;
 }
 
 export interface DragState {

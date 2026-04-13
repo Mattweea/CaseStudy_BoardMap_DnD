@@ -50,6 +50,7 @@ interface EditElementModalProps {
 interface ElementsListModalProps {
   isOpen: boolean;
   tokens: UnitToken[];
+  readOnly?: boolean;
   onClose: () => void;
   onRemoveToken: (tokenId: string) => void;
   onLocateToken: (tokenId: string) => void;
@@ -1230,6 +1231,7 @@ export function EditElementModal({
 export function ElementsListModal({
   isOpen,
   tokens,
+  readOnly = false,
   onClose,
   onRemoveToken,
   onLocateToken,
@@ -1332,12 +1334,16 @@ export function ElementsListModal({
                         <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
                       </svg>
                     </button>
-                    <button type="button" className="secondary-button secondary-button--small" onClick={() => onEditToken(token.id)}>
-                      Modifica
-                    </button>
-                    <button type="button" className="danger-button" onClick={() => onRemoveToken(token.id)}>
-                      Rimuovi
-                    </button>
+                    {!readOnly ? (
+                      <>
+                        <button type="button" className="secondary-button secondary-button--small" onClick={() => onEditToken(token.id)}>
+                          Modifica
+                        </button>
+                        <button type="button" className="danger-button" onClick={() => onRemoveToken(token.id)}>
+                          Rimuovi
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 </li>
               ))}

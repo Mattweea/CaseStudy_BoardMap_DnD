@@ -13,6 +13,7 @@ interface TokenProps {
   displayPosition?: UnitToken['position'];
   footprint: { width: number; height: number };
   zoom: number;
+  canEdit?: boolean;
   onPointerDown: (event: PointerEvent<HTMLButtonElement>, token: UnitToken) => void;
   onEdit: (tokenId: string) => void;
 }
@@ -25,6 +26,7 @@ export function Token({
   displayPosition,
   footprint,
   zoom,
+  canEdit = true,
   onPointerDown,
   onEdit,
 }: TokenProps) {
@@ -45,7 +47,9 @@ export function Token({
   const handleContextMenu = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    onEdit(token.id);
+    if (canEdit) {
+      onEdit(token.id);
+    }
   };
 
   return (
