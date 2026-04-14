@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent, WheelEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { BOARD_CONFIG } from '../constants/board';
 import type { GridPosition, UnitToken } from '../types';
 import {
@@ -39,6 +39,22 @@ function clampCamera(position: GridPosition): GridPosition {
     x: Math.max(0, position.x),
     y: Math.max(0, position.y),
   };
+}
+
+function isCreatureToken(token: UnitToken) {
+  return token.type === 'player' || token.type === 'enemy';
+}
+
+function tokensOverlap(left: UnitToken, right: UnitToken): boolean {
+  const leftFootprint = getTokenFootprint(left);
+  const rightFootprint = getTokenFootprint(right);
+
+  return !(
+    left.position.x + leftFootprint.width - 1 < right.position.x ||
+    right.position.x + rightFootprint.width - 1 < left.position.x ||
+    left.position.y + leftFootprint.height - 1 < right.position.y ||
+    right.position.y + rightFootprint.height - 1 < left.position.y
+  );
 }
 
 type PanInteraction = {
@@ -131,6 +147,22 @@ export function Board({
     return () => observer.disconnect();
   }, [zoom]);
 
+  useEffect(() => {
+    const node = shellRef.current;
+    if (!node) {
+      return undefined;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const delta = event.deltaY < 0 ? BOARD_CONFIG.zoomStep : -BOARD_CONFIG.zoomStep;
+      onZoomChange(clampZoom(zoom + delta));
+    };
+
+    node.addEventListener('wheel', handleWheel, { passive: false });
+    return () => node.removeEventListener('wheel', handleWheel);
+  }, [onZoomChange, zoom]);
+
   const { width, height } = boardPixelSize(viewportCells.columns, viewportCells.rows);
 
   useEffect(() => {
@@ -167,6 +199,34 @@ export function Board({
       ]),
     );
   }, [interaction]);
+
+  const hasInvalidDragOverlap = useMemo(() => {
+    if (interaction?.mode !== 'drag') {
+      return false;
+    }
+
+    const simulatedTokens = tokens.map((token) => {
+      const draggedPosition = draggedPositions.get(token.id);
+      return draggedPosition ? { ...token, position: draggedPosition } : token;
+    });
+
+    const visibleCreatures = simulatedTokens.filter(
+      (token) => isCreatureToken(token) && !token.containedInVehicleId,
+    );
+
+    for (let index = 0; index < visibleCreatures.length; index += 1) {
+      const current = visibleCreatures[index];
+
+      for (let comparisonIndex = index + 1; comparisonIndex < visibleCreatures.length; comparisonIndex += 1) {
+        const other = visibleCreatures[comparisonIndex];
+        if (tokensOverlap(current, other)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }, [draggedPositions, interaction, tokens]);
 
   useEffect(() => {
     if (!interaction) {
@@ -486,12 +546,6 @@ export function Board({
     });
   };
 
-  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const delta = event.deltaY < 0 ? BOARD_CONFIG.zoomStep : -BOARD_CONFIG.zoomStep;
-    onZoomChange(clampZoom(zoom + delta));
-  };
-
   const topLabels = Array.from({ length: viewportCells.columns }, (_, index) => camera.x + index);
   const leftLabels = Array.from({ length: viewportCells.rows }, (_, index) => camera.y + index);
   const orderedTokens = useMemo(() => {
@@ -548,11 +602,29 @@ export function Board({
         <p className="board-panel__hint">
           {canManageTokens
             ? 'Click per selezionare/deselezionare, Shift+click per multiselezione, trascina per muovere i selezionati. Trascina sullo sfondo per una selezione ad area.'
-            : 'Modalita adventurer: puoi muovere solo il tuo personaggio entro il movimento residuo del round, oltre a selezionare, zoomare e fare pan.'}
+            : 'Modalita adventurer: puoi muovere solo il tuo personaggio, oltre a selezionare, zoomare e fare pan. Il limite di movimento si applica solo quando l’iniziativa e attiva.'}
         </p>
       </div>
 
-      <div ref={shellRef} className="board-shell" onWheel={handleWheel}>
+      <div ref={shellRef} className="board-shell">
+        <div className="board-zoom-controls">
+          <button
+            type="button"
+            className="board-zoom-button"
+            onClick={() => onZoomChange(clampZoom(zoom - BOARD_CONFIG.zoomStep))}
+            aria-label="Zoom out"
+          >
+            -
+          </button>
+          <button
+            type="button"
+            className="board-zoom-button"
+            onClick={() => onZoomChange(clampZoom(zoom + BOARD_CONFIG.zoomStep))}
+            aria-label="Zoom in"
+          >
+            +
+          </button>
+        </div>
         <div className="board-corner" aria-hidden="true" />
         <div className="board-axis board-axis--top" aria-hidden="true">
           {topLabels.map((value, index) => (
@@ -596,7 +668,7 @@ export function Board({
           >
             {interaction?.mode === 'drag' ? (
               <div
-                className="board-highlight"
+                className={`board-highlight ${hasInvalidDragOverlap ? 'board-highlight--invalid' : ''}`}
                 style={{
                   width: sizeToCells(tokens.find((item) => item.id === interaction.anchorTokenId)?.size ?? 'medium') * BOARD_CONFIG.cellSize * zoom,
                   height: sizeToCells(tokens.find((item) => item.id === interaction.anchorTokenId)?.size ?? 'medium') * BOARD_CONFIG.cellSize * zoom,

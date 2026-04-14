@@ -36,7 +36,7 @@ export const VEHICLE_PRESETS: Record<
 > = {
   'infernal-bike': { label: 'Biruote infernale', size: 'large', capacity: 1, icon: '🏍️' },
   tormentor: { label: 'Tormentatore', size: 'huge', capacity: 4, icon: '🚙' },
-  'demon-grinder': { label: 'Tritademoni', size: 'gargantuan', capacity: 6, icon: '🚂' },
+  'demon-grinder': { label: 'Tritademoni', size: 'gargantuan', capacity: 8, icon: '🚂' },
 };
 
 export const CREATURE_CONDITIONS: TokenCondition[] = ['dead', 'prone', 'conditioned', 'inspired'];

@@ -24,9 +24,9 @@ const DEFAULT_TOKEN_COLORS = {
 };
 
 const VEHICLE_PRESETS = {
-  'infernal-bike': { size: 'large' },
-  tormentor: { size: 'huge' },
-  'demon-grinder': { size: 'gargantuan' },
+  'infernal-bike': { size: 'large', capacity: 1 },
+  tormentor: { size: 'huge', capacity: 4 },
+  'demon-grinder': { size: 'gargantuan', capacity: 8 },
 };
 
 const demoUsers = CHARACTER_PROFILES.map((profile) => ({
@@ -118,10 +118,28 @@ function normalizeVehicleLinks(tokens) {
       seen.add(occupantId);
       dedupedOccupants.push(occupantId);
       occupant.containedInVehicleId = token.id;
-      occupant.position = { ...token.position };
     });
 
     token.vehicleOccupantIds = dedupedOccupants;
+    const footprint = getTokenFootprint(token);
+    const cells = [];
+    for (let row = 0; row < footprint.height; row += 1) {
+      for (let column = 0; column < footprint.width; column += 1) {
+        cells.push({
+          x: token.position.x + column,
+          y: token.position.y + row,
+        });
+      }
+    }
+
+    dedupedOccupants.forEach((occupantId, index) => {
+      const occupant = tokenMap.get(occupantId);
+      if (!occupant) {
+        return;
+      }
+
+      occupant.position = cells[index] ?? { ...token.position };
+    });
   });
 
   return clonedTokens;
@@ -150,7 +168,7 @@ function applyVehicleAwareUpdates(tokens) {
 
     return {
       ...token,
-      position: { ...vehicle.position },
+      position: { ...token.position },
     };
   });
 }
@@ -238,6 +256,108 @@ function gridDistance(from, to) {
   return Math.max(Math.abs(from.x - to.x), Math.abs(from.y - to.y));
 }
 
+function sizeToCells(size) {
+  switch (size) {
+    case 'large':
+      return 2;
+    case 'huge':
+      return 3;
+    case 'gargantuan':
+      return 4;
+    case 'tiny':
+    case 'small':
+    case 'medium':
+    default:
+      return 1;
+  }
+}
+
+function getTokenFootprint(token) {
+  const cells = sizeToCells(token.size);
+  return { width: cells, height: cells };
+}
+
+function isCreatureToken(token) {
+  return token.type === 'player' || token.type === 'enemy';
+}
+
+function tokensOverlap(left, right) {
+  const leftFootprint = getTokenFootprint(left);
+  const rightFootprint = getTokenFootprint(right);
+
+  return !(
+    left.position.x + leftFootprint.width - 1 < right.position.x ||
+    right.position.x + rightFootprint.width - 1 < left.position.x ||
+    left.position.y + leftFootprint.height - 1 < right.position.y ||
+    right.position.y + rightFootprint.height - 1 < left.position.y
+  );
+}
+
+function findCreatureOverlap(tokens) {
+  const visibleCreatures = tokens.filter(
+    (token) => isCreatureToken(token) && !token.containedInVehicleId,
+  );
+
+  for (let index = 0; index < visibleCreatures.length; index += 1) {
+    const current = visibleCreatures[index];
+
+    for (let comparisonIndex = index + 1; comparisonIndex < visibleCreatures.length; comparisonIndex += 1) {
+      const other = visibleCreatures[comparisonIndex];
+      if (tokensOverlap(current, other)) {
+        return { current, other };
+      }
+    }
+  }
+
+  return null;
+}
+
+function validateSharedState(nextState) {
+  const overlap = findCreatureOverlap(nextState.tokens);
+  if (overlap) {
+    return {
+      status: 400,
+      message: `${overlap.current.name} e ${overlap.other.name} non possono sovrapporsi fuori da un veicolo.`,
+    };
+  }
+
+  const vehicles = nextState.tokens.filter((token) => token.type === 'vehicle');
+  for (const vehicle of vehicles) {
+    const occupantCount = (vehicle.vehicleOccupantIds ?? []).length;
+    const seatCapacity = VEHICLE_PRESETS[vehicle.vehicleKind ?? 'infernal-bike'].capacity;
+
+    if (occupantCount > seatCapacity) {
+      return {
+        status: 400,
+        message: `${vehicle.name} supera i posti disponibili del mezzo.`,
+      };
+    }
+  }
+
+  return null;
+}
+
+function findUserControlledVehicle(user) {
+  if (!user) {
+    return null;
+  }
+
+  const playerToken =
+    battleMapState.tokens.find((token) => token.ownerUserId === user.id && token.type === 'player') ?? null;
+  if (!playerToken) {
+    return null;
+  }
+
+  return (
+    battleMapState.tokens.find(
+      (token) =>
+        token.type === 'vehicle' &&
+        Array.isArray(token.vehicleOccupantIds) &&
+        token.vehicleOccupantIds.includes(playerToken.id),
+    ) ?? null
+  );
+}
+
 function nextSnapshot() {
   return {
     state: battleMapState,
@@ -262,7 +382,16 @@ function broadcastSnapshot() {
 }
 
 function replaceBattleMapState(nextState) {
-  battleMapState = normalizeSharedState(nextState);
+  const normalizedState = normalizeSharedState(nextState);
+  const validationError = validateSharedState(normalizedState);
+  if (validationError) {
+    return {
+      ...validationError,
+      ...nextSnapshot(),
+    };
+  }
+
+  battleMapState = normalizedState;
   bumpBattleMapVersion();
   broadcastSnapshot();
   return nextSnapshot();
@@ -324,21 +453,26 @@ function moveOwnedToken(user, tokenId, x, y) {
   }
 
   const token = battleMapState.tokens[tokenIndex];
-  if (user.role !== 'master' && token.ownerUserId !== user.id) {
-    return { status: 403, message: 'Puoi muovere solo il tuo personaggio.' };
+  const controlledVehicle = findUserControlledVehicle(user);
+  const isOwnedPlayer = token.ownerUserId === user.id && token.type === 'player';
+  const isControlledVehicle = token.type === 'vehicle' && controlledVehicle?.id === token.id;
+
+  if (user.role !== 'master' && !isOwnedPlayer && !isControlledVehicle) {
+    return { status: 403, message: 'Puoi muovere solo il tuo personaggio o il mezzo a cui sei assegnato.' };
   }
 
-  if (token.type !== 'player') {
-    return { status: 400, message: 'Il movimento tracciato e disponibile solo per i personaggi giocanti.' };
-  }
-
-  const movementCells = typeof token.movementCells === 'number' ? token.movementCells : 0;
-  const usedCells = battleMapState.movementUsedByTokenId[tokenId] ?? 0;
-  const hasDashed = battleMapState.dashUsedByTokenId[tokenId] === true;
+  const hasInitiativeOrder = battleMapState.initiatives.length > 0;
+  const movementSourceToken = isControlledVehicle
+    ? battleMapState.tokens.find((candidate) => candidate.ownerUserId === user.id && candidate.type === 'player') ?? null
+    : token;
+  const movementSourceId = movementSourceToken?.id ?? tokenId;
+  const movementCells = typeof movementSourceToken?.movementCells === 'number' ? movementSourceToken.movementCells : 0;
+  const usedCells = battleMapState.movementUsedByTokenId[movementSourceId] ?? 0;
+  const hasDashed = battleMapState.dashUsedByTokenId[movementSourceId] === true;
   const movementBudget = movementCells * (hasDashed ? 2 : 1);
   const moveDistance = gridDistance(token.position, { x, y });
 
-  if (user.role !== 'master' && usedCells + moveDistance > movementBudget) {
+  if (hasInitiativeOrder && user.role !== 'master' && usedCells + moveDistance > movementBudget) {
     return {
       status: 400,
       message: `Movimento insufficiente: restano ${Math.max(0, movementBudget - usedCells)} caselle in questo round.`,
@@ -352,15 +486,26 @@ function moveOwnedToken(user, tokenId, x, y) {
     ),
   );
 
-  battleMapState = normalizeSharedState({
+  const nextState = normalizeSharedState({
     ...battleMapState,
     tokens: nextTokens,
-    movementUsedByTokenId: {
-      ...battleMapState.movementUsedByTokenId,
-      [tokenId]: usedCells + moveDistance,
-    },
+    movementUsedByTokenId: hasInitiativeOrder
+      ? {
+          ...battleMapState.movementUsedByTokenId,
+          [movementSourceId]: usedCells + moveDistance,
+        }
+      : battleMapState.movementUsedByTokenId,
     dashUsedByTokenId: battleMapState.dashUsedByTokenId,
   });
+  const validationError = validateSharedState(nextState);
+  if (validationError) {
+    return {
+      ...validationError,
+      snapshot: nextSnapshot(),
+    };
+  }
+
+  battleMapState = nextState;
   bumpBattleMapVersion();
   broadcastSnapshot();
   return { status: 200, snapshot: nextSnapshot() };

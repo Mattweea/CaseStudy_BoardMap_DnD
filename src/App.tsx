@@ -40,6 +40,7 @@ function App() {
     removeToken,
     setActiveTurnToken,
     setInitiative,
+    setInitiatives,
     useDashAction,
     updateToken,
     setZoom,
@@ -65,18 +66,28 @@ function App() {
     state.tokens.find((token) => token.ownerUserId === user?.id) ??
     state.tokens.find((token) => token.id === user?.playerTokenId) ??
     null;
+  const sessionVehicle =
+    sessionToken
+      ? state.tokens.find(
+          (token) =>
+            token.type === 'vehicle' &&
+            Array.isArray(token.vehicleOccupantIds) &&
+            token.vehicleOccupantIds.includes(sessionToken.id),
+        ) ?? null
+      : null;
   const movementUsed = sessionToken ? state.movementUsedByTokenId[sessionToken.id] ?? 0 : 0;
   const movementMax = sessionToken?.movementCells ?? user?.movementCells ?? null;
   const dashUsed = sessionToken ? state.dashUsedByTokenId[sessionToken.id] === true : false;
+  const hasInitiativeOrder = state.initiatives.length > 0;
   const movementBudget =
-    typeof movementMax === 'number' ? movementMax * (dashUsed ? 2 : 1) : null;
+    hasInitiativeOrder && typeof movementMax === 'number' ? movementMax * (dashUsed ? 2 : 1) : null;
   const movementRemaining =
     typeof movementBudget === 'number' ? Math.max(0, movementBudget - movementUsed) : null;
   const isPlayersTurn = Boolean(sessionToken && state.activeTurnTokenId === sessionToken.id);
   const movableTokenIds = canManageBattleMap
     ? state.tokens.map((token) => token.id)
     : sessionToken
-      ? [sessionToken.id]
+      ? [sessionToken.id, ...(sessionVehicle ? [sessionVehicle.id] : [])]
       : [];
 
   useEffect(() => {
@@ -182,17 +193,25 @@ function App() {
             </p>
             {!canManageBattleMap ? (
               <>
-                <p className="panel-note">Il profilo adventurer puo muovere solo il proprio personaggio entro il movimento massimo del round.</p>
+                <p className="panel-note">
+                  {hasInitiativeOrder
+                    ? 'Il profilo adventurer puo muovere solo il proprio personaggio entro il movimento massimo del round.'
+                    : 'Il profilo adventurer puo muovere solo il proprio personaggio. Senza iniziativa attiva il movimento e libero.'}
+                </p>
                 <p className="panel-note">
                   {user.movement ? `Movimento: ${user.movement}. ` : ''}
                   {user.darkvision ? `Visione: ${user.darkvision}.` : 'Visione: nessuna scurovisione.'}
                 </p>
                 {typeof movementMax === 'number' ? (
-                  <p className="panel-note">
-                    Movimento round: {movementUsed}/{movementBudget} caselle usate, {movementRemaining} rimaste.
-                  </p>
+                  typeof movementBudget === 'number' ? (
+                    <p className="panel-note">
+                      Movimento round: {movementUsed}/{movementBudget} caselle usate, {movementRemaining} rimaste.
+                    </p>
+                  ) : (
+                    <p className="panel-note">Movimento libero finche non viene impostata l'iniziativa.</p>
+                  )
                 ) : null}
-                {isPlayersTurn && sessionToken ? (
+                {hasInitiativeOrder && isPlayersTurn && sessionToken ? (
                   <button
                     type="button"
                     className="secondary-button secondary-button--small"
@@ -272,7 +291,11 @@ function App() {
           onMoveTokens={(moves) => {
             if (canManageBattleMap) {
               moveTokens(moves);
-            } else if (sessionToken && moves.length === 1 && moves[0].tokenId === sessionToken.id) {
+            } else if (
+              sessionToken &&
+              moves.length === 1 &&
+              (moves[0].tokenId === sessionToken.id || moves[0].tokenId === sessionVehicle?.id)
+            ) {
               void moveOwnedToken(moves[0].tokenId, moves[0].x, moves[0].y);
             }
           }}
@@ -305,7 +328,11 @@ function App() {
             onMoveTokens={(moves) => {
               if (canManageBattleMap) {
                 moveTokens(moves);
-              } else if (sessionToken && moves.length === 1 && moves[0].tokenId === sessionToken.id) {
+              } else if (
+                sessionToken &&
+                moves.length === 1 &&
+                (moves[0].tokenId === sessionToken.id || moves[0].tokenId === sessionVehicle?.id)
+              ) {
                 void moveOwnedToken(moves[0].tokenId, moves[0].x, moves[0].y);
               }
             }}
@@ -385,6 +412,11 @@ function App() {
         onSetInitiative={(entry) => {
           if (canManageBattleMap) {
             setInitiative(entry);
+          }
+        }}
+        onSetInitiatives={(entries) => {
+          if (canManageBattleMap) {
+            setInitiatives(entries);
           }
         }}
         onClearInitiative={(tokenId) => {

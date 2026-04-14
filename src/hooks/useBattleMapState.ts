@@ -4,10 +4,11 @@ import type {
   BattleMapSharedState,
   BattleMapState,
   DiceRollLog,
+  GridPosition,
   InitiativeEntry,
   UnitToken,
 } from '../types';
-import { clampZoom } from '../utils/board';
+import { clampZoom, getTokenFootprint } from '../utils/board';
 import {
   DEFAULT_TOKEN_COLORS,
   VEHICLE_PRESETS,
@@ -52,10 +53,28 @@ function normalizeVehicleLinks(tokens: UnitToken[]): UnitToken[] {
       seen.add(occupantId);
       dedupedOccupants.push(occupantId);
       occupant.containedInVehicleId = token.id;
-      occupant.position = { ...token.position };
     });
 
     token.vehicleOccupantIds = dedupedOccupants;
+    const footprint = getTokenFootprint(token);
+    const cells: GridPosition[] = [];
+    for (let row = 0; row < footprint.height; row += 1) {
+      for (let column = 0; column < footprint.width; column += 1) {
+        cells.push({
+          x: token.position.x + column,
+          y: token.position.y + row,
+        });
+      }
+    }
+
+    dedupedOccupants.forEach((occupantId, index) => {
+      const occupant = tokenMap.get(occupantId);
+      if (!occupant) {
+        return;
+      }
+
+      occupant.position = cells[index] ?? { ...token.position };
+    });
   });
 
   return clonedTokens;
@@ -84,7 +103,7 @@ function applyVehicleAwareUpdates(tokens: UnitToken[]): UnitToken[] {
 
     return {
       ...token,
-      position: { ...vehicle.position },
+      position: { ...token.position },
     };
   });
 }
@@ -341,6 +360,8 @@ export function useBattleMapState() {
   const commitSharedState = async (
     updater: (current: BattleMapSharedState) => BattleMapSharedState,
   ) => {
+    const previousState = sharedStateRef.current;
+    const previousVersion = versionRef.current;
     const nextState = normalizeSharedState(updater(sharedStateRef.current));
     setOptimisticState(nextState);
 
@@ -367,6 +388,8 @@ export function useBattleMapState() {
 
       if (conflictState?.state && typeof conflictState.version === 'number') {
         applySnapshot(conflictState.state, conflictState.version);
+      } else {
+        applySnapshot(previousState, previousVersion);
       }
     }
   };
@@ -499,6 +522,7 @@ export function useBattleMapState() {
       return;
     }
 
+    const hasInitiativeOrder = previousState.initiatives.length > 0;
     const optimisticDistance = Math.max(
       Math.abs(optimisticToken.position.x - x),
       Math.abs(optimisticToken.position.y - y),
@@ -510,10 +534,12 @@ export function useBattleMapState() {
           token.id === tokenId ? { ...token, position: { x, y } } : token,
         ),
       ),
-      movementUsedByTokenId: {
-        ...previousState.movementUsedByTokenId,
-        [tokenId]: (previousState.movementUsedByTokenId[tokenId] ?? 0) + optimisticDistance,
-      },
+      movementUsedByTokenId: hasInitiativeOrder
+        ? {
+            ...previousState.movementUsedByTokenId,
+            [tokenId]: (previousState.movementUsedByTokenId[tokenId] ?? 0) + optimisticDistance,
+          }
+        : previousState.movementUsedByTokenId,
       dashUsedByTokenId: previousState.dashUsedByTokenId,
     });
     setOptimisticState(optimisticState);
@@ -594,6 +620,40 @@ export function useBattleMapState() {
       } else {
         nextEntries.splice(insertIndex, 0, entry);
       }
+
+      return {
+        ...current,
+        initiatives: nextEntries,
+        activeTurnTokenId: current.activeTurnTokenId ?? nextEntries[0]?.tokenId ?? null,
+        movementUsedByTokenId: current.movementUsedByTokenId,
+        dashUsedByTokenId: current.dashUsedByTokenId,
+      };
+    });
+  };
+
+  const setInitiatives = (entries: InitiativeEntry[]) => {
+    void commitSharedState((current) => {
+      const validEntries = entries.filter((entry) =>
+        current.tokens.some((token) => token.id === entry.tokenId && isCreature(token)),
+      );
+
+      if (validEntries.length === 0) {
+        return current;
+      }
+
+      const nextEntries = current.initiatives.filter(
+        (item) => !validEntries.some((entry) => entry.tokenId === item.tokenId),
+      );
+
+      validEntries.forEach((entry) => {
+        const insertIndex = nextEntries.findIndex((item) => item.value < entry.value);
+
+        if (insertIndex === -1) {
+          nextEntries.push(entry);
+        } else {
+          nextEntries.splice(insertIndex, 0, entry);
+        }
+      });
 
       return {
         ...current,
@@ -746,6 +806,7 @@ export function useBattleMapState() {
     addDiceLog,
     clearDiceLogs,
     setInitiative,
+    setInitiatives,
     reorderInitiatives,
     clearInitiative,
     clearInitiatives,

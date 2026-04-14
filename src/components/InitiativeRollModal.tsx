@@ -13,6 +13,7 @@ interface InitiativeRollModalProps {
   canManage?: boolean;
   onClose: () => void;
   onSetInitiative: (entry: InitiativeEntry) => void;
+  onSetInitiatives: (entries: InitiativeEntry[]) => void;
   onClearInitiative: (tokenId: string) => void;
   onLocateToken: (tokenId: string) => void;
 }
@@ -24,6 +25,7 @@ export function InitiativeRollModal({
   canManage = true,
   onClose,
   onSetInitiative,
+  onSetInitiatives,
   onClearInitiative,
   onLocateToken,
 }: InitiativeRollModalProps) {
@@ -52,33 +54,42 @@ export function InitiativeRollModal({
   };
 
   const applyAllManualInitiatives = () => {
-    creatures.forEach((token) => {
+    const nextEntries = creatures.flatMap((token) => {
       const parsedValue = Number(manualValues[token.id]);
       if (!Number.isFinite(parsedValue)) {
-        return;
+        return [];
       }
 
-      onSetInitiative({
+      return [{
         tokenId: token.id,
         value: parsedValue,
-        source: 'manual',
-      });
+        source: 'manual' as const,
+      }];
     });
+
+    onSetInitiatives(nextEntries);
   };
 
   const rollForEveryone = () => {
-    creatures.forEach((token) => {
+    const nextEntries = creatures.map((token) => {
       const d20Value =
         token.initiativeMode === 'advantage'
           ? rollDice(20, 1, 0, 'advantage').keptRolls[0] ?? rollSingleDie(20)
           : rollSingleDie(20);
-      const rolledValue = d20Value + token.initiativeModifier;
-      onSetInitiative({
+      return {
         tokenId: token.id,
-        value: rolledValue,
+        value: d20Value + token.initiativeModifier,
         source: 'rolled',
-      });
+      } satisfies InitiativeEntry;
     });
+
+    setManualValues(
+      nextEntries.reduce<Record<string, string>>((accumulator, entry) => {
+        accumulator[entry.tokenId] = String(entry.value);
+        return accumulator;
+      }, {}),
+    );
+    onSetInitiatives(nextEntries);
   };
 
   return (

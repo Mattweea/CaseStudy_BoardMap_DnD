@@ -7,12 +7,15 @@ interface AuthResponse {
 }
 
 async function requestAuth(path: string, init?: RequestInit) {
+  const hasBody = init?.body !== undefined;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers: hasBody
+      ? {
+          'Content-Type': 'application/json',
+          ...(init?.headers ?? {}),
+        }
+      : init?.headers,
     ...init,
   });
 
@@ -72,17 +75,20 @@ export function useAuthSession() {
   };
 
   const logout = async () => {
+    const previousUser = user;
     setIsSubmitting(true);
+    setUser(null);
+    setError(null);
 
     try {
       await requestAuth('/auth/logout', {
         method: 'POST',
+        body: '{}',
       });
-      setUser(null);
-      setError(null);
     } catch (requestError) {
       const message =
         requestError instanceof Error ? requestError.message : 'Logout non riuscito.';
+      setUser(previousUser);
       setError(message);
     } finally {
       setIsSubmitting(false);

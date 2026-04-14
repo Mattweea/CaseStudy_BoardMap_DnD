@@ -7,6 +7,16 @@ BACKEND_PORT="${BACKEND_PORT:-3001}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 NGROK_API_URL="${NGROK_API_URL:-http://127.0.0.1:4040/api/tunnels}"
 
+get_demo_credentials() {
+  node --input-type=module <<'EOF'
+import { CHARACTER_PROFILES } from './server/characters.mjs';
+
+for (const profile of CHARACTER_PROFILES) {
+  console.log(`  ${profile.username} / ${profile.username}123`);
+}
+EOF
+}
+
 if ! command -v npm >/dev/null 2>&1; then
   echo "npm non trovato nel PATH."
   exit 1
@@ -106,9 +116,7 @@ Link pubblico:
   ${PUBLIC_URL}
 
 Credenziali demo:
-  master / master123
-  aria / adventurer123
-  borin / adventurer123
+$(get_demo_credentials)
 
 Se hai esportato AUTH_USERS_JSON prima di lanciare lo script, il backend usera quegli utenti.
 
