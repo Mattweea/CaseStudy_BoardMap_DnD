@@ -14,9 +14,7 @@ import {
   defaultVehicleColor,
   isCreature,
 } from '../utils/tokens';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
-const EVENTS_URL = import.meta.env.VITE_EVENTS_URL ?? '/api/battle-map/stream';
+import { API_BASE_URL, EVENTS_URL } from '../utils/api';
 const ZOOM_STORAGE_KEY = 'dnd-battle-map-zoom';
 
 function normalizeVehicleLinks(tokens: UnitToken[]): UnitToken[] {
