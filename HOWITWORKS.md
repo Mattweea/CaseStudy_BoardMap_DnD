@@ -36,6 +36,146 @@ Quando il `master` modifica la partita:
 
 gli altri client vedono l'aggiornamento senza refresh.
 
+## Live session con ngrok
+
+Se vuoi usare la mappa con la compagnia senza fare deploy, la strada piu semplice e aprire un tunnel HTTPS verso il frontend Vite. Il backend Fastify resta locale e viene raggiunto dal frontend tramite il proxy `/api`.
+
+### Script rapido consigliato
+
+Se vuoi evitare i passaggi manuali, usa lo script incluso nel repository:
+
+```bash
+./start-live-session.sh
+```
+
+Lo script:
+
+- avvia `npm run dev:server`
+- apre `ngrok http 5173`
+- legge l'URL pubblico da ngrok
+- avvia Vite con `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` gia valorizzato
+- stampa il link pubblico da condividere
+
+Se vuoi utenti personalizzati, esporta prima `AUTH_USERS_JSON` e poi lancia lo script.
+
+### Prerequisiti
+
+Ti servono:
+
+- Node.js 18 o superiore
+- `npm install` eseguito nel repository
+- un account ngrok
+- il client ngrok installato localmente
+
+### Setup iniziale ngrok
+
+Dopo l'installazione del client:
+
+```bash
+ngrok config add-authtoken <IL_TUO_TOKEN>
+```
+
+Il token si recupera dalla dashboard ngrok.
+
+### Avvio locale della sessione
+
+In un primo terminale avvia il backend:
+
+```bash
+npm run dev:server
+```
+
+In un secondo terminale avvia temporaneamente il frontend:
+
+```bash
+npm run dev
+```
+
+In un terzo terminale apri il tunnel:
+
+```bash
+ngrok http 5173
+```
+
+ngrok ti mostrera un URL pubblico simile a:
+
+```text
+https://abc123.ngrok-free.app
+```
+
+Copialo: ti serve nel passaggio successivo.
+
+### Riavvio del frontend con host ngrok autorizzato
+
+Vite filtra gli host ammessi. Per permettere al dominio ngrok di raggiungere il dev server, ferma il frontend e riavvialo cosi:
+
+```bash
+__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=abc123.ngrok-free.app npm run dev
+```
+
+Se usi piu host, puoi passarli separati da virgola.
+
+### URL da condividere
+
+Condividi ai giocatori l'URL HTTPS di ngrok del frontend, per esempio:
+
+```text
+https://abc123.ngrok-free.app
+```
+
+Non serve esporre direttamente la porta `3001`.
+
+### Credenziali per la sessione
+
+Per test veloci puoi usare gli utenti demo:
+
+- `master` / `master123`
+- `aria` / `adventurer123`
+- `borin` / `adventurer123`
+
+Per una sessione reale conviene sovrascriverli con `AUTH_USERS_JSON` prima di avviare il backend:
+
+```bash
+export AUTH_USERS_JSON='[
+  {"id":"master","username":"dm","password":"una-password-forte","displayName":"DM","role":"master"},
+  {"id":"p1","username":"aria","password":"pwd-aria","displayName":"Aria","role":"adventurer"},
+  {"id":"p2","username":"borin","password":"pwd-borin","displayName":"Borin","role":"adventurer"}
+]'
+```
+
+Poi riavvia:
+
+```bash
+npm run dev:server
+```
+
+### Flusso consigliato per il giorno della sessione
+
+1. Apri un terminale.
+2. Se vuoi utenti reali, esporta `AUTH_USERS_JSON`.
+3. Lancia `./start-live-session.sh`.
+4. Apri tu stesso il link ngrok stampato dallo script.
+5. Verifica login, board e sincronizzazione.
+6. Condividi il link con i giocatori.
+
+### Flusso manuale
+
+Se preferisci controllare ogni processo a mano, puoi ancora usare la procedura manuale descritta sotto.
+
+### Limiti attuali
+
+- Lo stato condiviso vive in memoria nel processo Fastify: se il server si chiude o si riavvia, la partita si perde.
+- Se il dominio ngrok cambia, devi riavviare il frontend aggiornando `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`.
+- Chiunque abbia il link e credenziali valide puo entrare nella sessione.
+- Se chi ospita spegne il PC o perde connessione, la sessione finisce.
+
+### Troubleshooting rapido
+
+- Pagina bianca o errore host: controlla `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`.
+- Login non riuscito: verifica che `npm run dev:server` sia attivo.
+- Dati che non si aggiornano: controlla che il tunnel punti alla porta `5173` e non alla `3001`.
+- Sessione persa dopo restart: e previsto, perche oggi non c'e persistenza su file o database.
+
 ## Mappa
 
 ### Navigazione della board

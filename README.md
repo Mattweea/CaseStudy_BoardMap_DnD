@@ -57,6 +57,12 @@ npm run dev:server
 npm run dev
 ```
 
+Per una sessione live rapida con un solo comando:
+
+```bash
+./start-live-session.sh
+```
+
 Credenziali demo:
 
 - `master` / `master123`
@@ -74,6 +80,8 @@ Preview locale della build:
 ```bash
 npm run preview
 ```
+
+Per una sessione live rapida con ngrok, inclusa la procedura con `./start-live-session.sh`, consulta la sezione dedicata in [HOWITWORKS.md](./HOWITWORKS.md).
 
 ## Struttura del progetto
 
