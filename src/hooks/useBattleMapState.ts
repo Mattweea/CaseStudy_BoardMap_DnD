@@ -92,32 +92,6 @@ function applyVehicleAwareUpdates(tokens: UnitToken[]): UnitToken[] {
 const initialSharedState: BattleMapSharedState = {
   tokens: [
     {
-      id: 'sample-player-1',
-      name: 'Aria',
-      type: 'player',
-      size: 'medium',
-      position: { x: 4, y: 4 },
-      color: DEFAULT_TOKEN_COLORS.player,
-      initiativeModifier: 0,
-      affiliation: 'player',
-      vehicleKind: null,
-      showVehicleOccupants: undefined,
-      conditions: [],
-    },
-    {
-      id: 'sample-player-2',
-      name: 'Borin',
-      type: 'player',
-      size: 'medium',
-      position: { x: 6, y: 5 },
-      color: DEFAULT_TOKEN_COLORS.player,
-      initiativeModifier: 0,
-      affiliation: 'player',
-      vehicleKind: null,
-      showVehicleOccupants: undefined,
-      conditions: [],
-    },
-    {
       id: 'sample-enemy-1',
       name: 'Goblin A',
       type: 'enemy',
@@ -147,6 +121,9 @@ const initialSharedState: BattleMapSharedState = {
   diceLogs: [],
   initiatives: [],
   activeTurnTokenId: null,
+  roundNumber: 1,
+  movementUsedByTokenId: {},
+  dashUsedByTokenId: {},
 };
 
 function readStoredZoom() {
@@ -160,7 +137,7 @@ function readStoredZoom() {
 
 function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): BattleMapSharedState {
   const tokens = Array.isArray(parsed?.tokens)
-    ? parsed.tokens.map((token) => {
+    ? parsed.tokens.map<UnitToken>((token) => {
         const type = token.type ?? 'object';
         const affiliation =
           token.affiliation ??
@@ -169,6 +146,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           type === 'vehicle'
             ? defaultVehicleColor(affiliation === 'enemy' ? 'enemy' : 'player')
             : DEFAULT_TOKEN_COLORS[type];
+        const initiativeMode = token.initiativeMode === 'advantage' ? 'advantage' : 'normal';
 
         return {
           ...token,
@@ -177,6 +155,9 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           color: token.color ?? fallbackColor,
           initiativeModifier:
             typeof token.initiativeModifier === 'number' ? token.initiativeModifier : 0,
+          initiativeMode,
+          movementCells:
+            typeof token.movementCells === 'number' ? token.movementCells : null,
           affiliation,
           vehicleKind: token.vehicleKind ?? null,
           vehicleOccupantIds: Array.isArray(token.vehicleOccupantIds) ? token.vehicleOccupantIds : [],
@@ -188,6 +169,9 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
               : undefined,
           containedInVehicleId:
             typeof token.containedInVehicleId === 'string' ? token.containedInVehicleId : null,
+          imageUrl: typeof token.imageUrl === 'string' ? token.imageUrl : null,
+          ownerUserId: typeof token.ownerUserId === 'string' ? token.ownerUserId : null,
+          characterKey: typeof token.characterKey === 'string' ? token.characterKey : null,
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
         };
       })
@@ -207,6 +191,27 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
     initiatives,
     activeTurnTokenId:
       typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null,
+    roundNumber: typeof parsed?.roundNumber === 'number' && parsed.roundNumber > 0 ? parsed.roundNumber : 1,
+    movementUsedByTokenId:
+      parsed?.movementUsedByTokenId && typeof parsed.movementUsedByTokenId === 'object'
+        ? Object.fromEntries(
+            Object.entries(parsed.movementUsedByTokenId).filter(
+              ([tokenId, used]) =>
+                tokens.some((token) => token.id === tokenId) &&
+                typeof used === 'number' &&
+                used >= 0,
+            ),
+          )
+        : {},
+    dashUsedByTokenId:
+      parsed?.dashUsedByTokenId && typeof parsed.dashUsedByTokenId === 'object'
+        ? Object.fromEntries(
+            Object.entries(parsed.dashUsedByTokenId).filter(
+              ([tokenId, used]) =>
+                tokens.some((token) => token.id === tokenId) && typeof used === 'boolean',
+            ),
+          )
+        : {},
   };
 }
 
@@ -486,6 +491,57 @@ export function useBattleMapState() {
     }));
   };
 
+  const moveOwnedToken = async (tokenId: string, x: number, y: number) => {
+    const previousState = sharedStateRef.current;
+    const previousVersion = versionRef.current;
+    const optimisticToken = previousState.tokens.find((token) => token.id === tokenId);
+    if (!optimisticToken) {
+      return;
+    }
+
+    const optimisticDistance = Math.max(
+      Math.abs(optimisticToken.position.x - x),
+      Math.abs(optimisticToken.position.y - y),
+    );
+    const optimisticState = normalizeSharedState({
+      ...previousState,
+      tokens: applyVehicleAwareUpdates(
+        previousState.tokens.map((token) =>
+          token.id === tokenId ? { ...token, position: { x, y } } : token,
+        ),
+      ),
+      movementUsedByTokenId: {
+        ...previousState.movementUsedByTokenId,
+        [tokenId]: (previousState.movementUsedByTokenId[tokenId] ?? 0) + optimisticDistance,
+      },
+      dashUsedByTokenId: previousState.dashUsedByTokenId,
+    });
+    setOptimisticState(optimisticState);
+
+    try {
+      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+        '/battle-map/move',
+        {
+          method: 'POST',
+          body: JSON.stringify({ tokenId, x, y }),
+        },
+      );
+      applySnapshot(payload.state, payload.version);
+    } catch (error) {
+      console.error(error);
+      const payload =
+        error instanceof Error && 'payload' in error
+          ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+          : undefined;
+
+      if (payload?.state && typeof payload.version === 'number') {
+        applySnapshot(payload.state, payload.version);
+      } else {
+        applySnapshot(previousState, previousVersion);
+      }
+    }
+  };
+
   const addTokens = (tokens: BattleMapSharedState['tokens']) => {
     void commitSharedState((current) => ({
       ...current,
@@ -543,6 +599,8 @@ export function useBattleMapState() {
         ...current,
         initiatives: nextEntries,
         activeTurnTokenId: current.activeTurnTokenId ?? nextEntries[0]?.tokenId ?? null,
+        movementUsedByTokenId: current.movementUsedByTokenId,
+        dashUsedByTokenId: current.dashUsedByTokenId,
       };
     });
   };
@@ -590,6 +648,9 @@ export function useBattleMapState() {
       ...current,
       initiatives: [],
       activeTurnTokenId: null,
+      roundNumber: 1,
+      movementUsedByTokenId: {},
+      dashUsedByTokenId: {},
     }));
   };
 
@@ -602,17 +663,58 @@ export function useBattleMapState() {
       const activeIndex = current.initiatives.findIndex(
         (entry) => entry.tokenId === current.activeTurnTokenId,
       );
-      const startIndex = activeIndex >= 0 ? activeIndex : 0;
+      const startIndex =
+        activeIndex >= 0 ? activeIndex : direction === 'next' ? -1 : 0;
       const nextIndex =
         direction === 'next'
           ? (startIndex + 1) % current.initiatives.length
           : (startIndex - 1 + current.initiatives.length) % current.initiatives.length;
+      const wrappedRound =
+        (direction === 'next' && startIndex === current.initiatives.length - 1) ||
+        (direction === 'previous' && startIndex === 0);
 
       return {
         ...current,
         activeTurnTokenId: current.initiatives[nextIndex]?.tokenId ?? null,
+        roundNumber: wrappedRound
+          ? Math.max(1, current.roundNumber + (direction === 'next' ? 1 : -1))
+          : current.roundNumber,
+        movementUsedByTokenId: wrappedRound ? {} : current.movementUsedByTokenId,
+        dashUsedByTokenId: wrappedRound ? {} : current.dashUsedByTokenId,
       };
     });
+  };
+
+  const useDashAction = async (tokenId: string) => {
+    const optimisticState = normalizeSharedState({
+      ...sharedStateRef.current,
+      dashUsedByTokenId: {
+        ...sharedStateRef.current.dashUsedByTokenId,
+        [tokenId]: true,
+      },
+    });
+    setOptimisticState(optimisticState);
+
+    try {
+      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+        '/battle-map/dash',
+        {
+          method: 'POST',
+          body: JSON.stringify({ tokenId }),
+        },
+      );
+      applySnapshot(payload.state, payload.version);
+    } catch (error) {
+      console.error(error);
+      const payload =
+        error instanceof Error && 'payload' in error
+          ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+          : undefined;
+
+      if (payload?.state && typeof payload.version === 'number') {
+        applySnapshot(payload.state, payload.version);
+      }
+    }
   };
 
   const setActiveTurnToken = (tokenId: string) => {
@@ -636,6 +738,8 @@ export function useBattleMapState() {
     setZoom,
     moveToken,
     moveTokens,
+    moveOwnedToken,
+    useDashAction,
     addTokens,
     updateToken,
     removeToken,

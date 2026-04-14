@@ -1,5 +1,15 @@
 export type TokenType = 'player' | 'enemy' | 'object' | 'vehicle';
 export type UserRole = 'master' | 'adventurer';
+export type CharacterKey =
+  | 'master'
+  | 'ilthar'
+  | 'thalendir'
+  | 'ragnar'
+  | 'hunter'
+  | 'sylas'
+  | 'vesuth';
+export type RollMode = 'normal' | 'advantage' | 'disadvantage';
+export type InitiativeMode = Extract<RollMode, 'normal' | 'advantage'>;
 
 export type DndSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan';
 
@@ -28,11 +38,16 @@ export interface UnitToken {
   position: GridPosition;
   color: string;
   initiativeModifier: number;
+  initiativeMode?: InitiativeMode;
+  movementCells?: number | null;
   affiliation?: TokenAffiliation | null;
   vehicleKind?: VehicleKind | null;
   vehicleOccupantIds?: string[];
   showVehicleOccupants?: boolean;
   containedInVehicleId?: string | null;
+  imageUrl?: string | null;
+  ownerUserId?: string | null;
+  characterKey?: CharacterKey | null;
   conditions: TokenCondition[];
 }
 
@@ -42,6 +57,9 @@ export interface BattleMapState {
   diceLogs: DiceRollLog[];
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
+  roundNumber: number;
+  movementUsedByTokenId: Record<string, number>;
+  dashUsedByTokenId: Record<string, boolean>;
 }
 
 export interface BattleMapSharedState {
@@ -49,6 +67,9 @@ export interface BattleMapSharedState {
   diceLogs: DiceRollLog[];
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
+  roundNumber: number;
+  movementUsedByTokenId: Record<string, number>;
+  dashUsedByTokenId: Record<string, boolean>;
 }
 
 export interface AuthUser {
@@ -56,6 +77,13 @@ export interface AuthUser {
   username: string;
   displayName: string;
   role: UserRole;
+  characterKey?: CharacterKey | null;
+  playerTokenId?: string | null;
+  initiativeModifier?: number | null;
+  initiativeMode?: InitiativeMode | null;
+  movement?: string | null;
+  movementCells?: number | null;
+  darkvision?: string | null;
 }
 
 export interface DragState {
@@ -65,8 +93,6 @@ export interface DragState {
 }
 
 export type DiceType = 4 | 6 | 8 | 10 | 12 | 20 | 100;
-
-export type RollMode = 'normal' | 'advantage' | 'disadvantage';
 
 export interface DiceRollLog {
   id: string;

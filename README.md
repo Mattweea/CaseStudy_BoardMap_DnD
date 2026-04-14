@@ -1,16 +1,18 @@
 # D&D Battle Map
 
-Applicazione web per gestire una battle map di Dungeons & Dragons con sessione condivisa tra piu utenti.
+Applicazione web per gestire una battle map condivisa di Dungeons & Dragons con React, TypeScript, Vite e un backend Fastify leggero.
 
-Questo repository va letto come un **case study React + TypeScript + Fastify**: l'obiettivo non e solo offrire una mappa interattiva per il Dungeon Master, ma mostrare anche come strutturare un frontend con stato condiviso server-side, ruoli utente e sincronizzazione realtime leggera.
+Il repository e pensato come case study tecnico, ma oggi include anche un flusso di sessione piu vicino a una partita reale: roster fisso dei personaggi, login per ruolo, token del party che spawnano in mappa, tracker iniziativa condiviso e permessi distinti tra master e avventurieri.
 
-## Obiettivo del progetto
+## Obiettivo
 
-Il progetto mette insieme tre aree in un'unica interfaccia:
+L'app unisce in un'unica interfaccia:
 
-- gestione della mappa tattica
-- gestione di elementi, mezzi e occupanti
-- strumenti di supporto al DM come dice roller, log tiri e tracker iniziativa
+- battle map tattica sincronizzata fra piu client
+- gestione di token, nemici, oggetti e mezzi
+- login a ruoli con sessione autenticata via cookie
+- dice roller condiviso con log storico
+- tracker iniziativa con turno attivo controllato dal master
 
 ## Stack
 
@@ -19,35 +21,34 @@ Il progetto mette insieme tre aree in un'unica interfaccia:
 - Vite
 - Fastify
 - CSS custom
-- autenticazione via cookie di sessione
-- sincronizzazione realtime via Server-Sent Events
-- persistenza locale solo per lo zoom utente
+- cookie di sessione HTTP-only
+- Server-Sent Events per la sincronizzazione realtime
+- `localStorage` solo per lo zoom locale della board
 
-## Perche è un case study React TypeScript
+## Funzionalita principali
 
-Il progetto e utile come riferimento pratico per:
+- login tramite selezione di un profilo fisso: `master`, `Ilthar Neramyst`, `Thalendir`, `Ragnar`, `Hunter`, `Sylas Elveris`, `Vesuth Ronavior`
+- password predefinita per ogni profilo: `username + 123`
+- spawn automatico del personaggio in mappa al login, con immagine associata presa da `media/images`
+- token giocatore legato all'utente autenticato in sessione
+- dice roller associato al profilo online, non al token selezionato
+- log dadi condiviso fra tutti i client
+- iniziativa centralizzata: solo il master puo tirarla per tutti, modificarla e resettarla
+- turno attivo condiviso con selezione manuale, `Next`, `Prev` e wrap automatico a fine round
+- permessi mappa: solo il master puo aggiungere, modificare, rimuovere o spostare elementi
+- visione live per gli avventurieri, che possono consultare board, manuale, log e ordine turni
 
-- organizzazione di uno state container custom con hook dedicato
-- modellazione di tipi TypeScript per token, mezzi, iniziativa e dadi
-- gestione di drag, selezione e pan tramite Pointer Events
-- modali e pannelli coordinati senza librerie esterne
-- sincronizzazione e normalizzazione dei dati tra client e server
-- separazione tra `components`, `hooks`, `utils`, `types` e `constants`
+## Roster attuale
 
-## Funzionalita coperte
-
-- board virtuale con griglia navigabile
-- zoom progressivo con wheel
-- selezione singola, multiselezione e selezione ad area
-- drag and drop di uno o piu elementi con snap a griglia
-- gestione di PG, nemici, oggetti e mezzi
-- supporto ai mezzi con occupanti e sincronizzazione delle posizioni
-- aggiunta, modifica, rimozione e localizzazione rapida degli elementi
-- tracker iniziativa con ordinamento, drag reorder sui pareggi e token attivo
-- dice roller con vantaggio, svantaggio, modificatori, log e reveal animato del risultato
-- apertura del manuale in preview embedded dentro modale
-- login con ruolo `master` o `adventurer`
-- sessione condivisa con aggiornamento live di mappa, iniziativa e log tiri
+| Profilo | Username | Password | Ruolo | Iniziativa | Note |
+| --- | --- | --- | --- | --- | --- |
+| Master | `master` | `master123` | `master` | `+0` | controllo completo |
+| Ilthar Neramyst | `ilthar` | `ilthar123` | `adventurer` | `+3` | scurovisione superiore 36 m |
+| Thalendir | `thalendir` | `thalendir123` | `adventurer` | `+2` | scurovisione |
+| Ragnar | `ragnar` | `ragnar123` | `adventurer` | `+2` | vantaggio fisso all'iniziativa |
+| Hunter | `hunter` | `hunter123` | `adventurer` | `+3` | movimento su muri e soffitti |
+| Sylas Elveris | `sylas` | `sylas123` | `adventurer` | `+3` | darkvision 60 ft |
+| Vesuth Ronavior | `vesuth` | `vesuth123` | `adventurer` | `+2` | nessuna scurovisione |
 
 ## Avvio locale
 
@@ -57,17 +58,11 @@ npm run dev:server
 npm run dev
 ```
 
-Per una sessione live rapida con un solo comando:
+Per una sessione live rapida:
 
 ```bash
 ./start-live-session.sh
 ```
-
-Credenziali demo:
-
-- `master` / `master123`
-- `aria` / `adventurer123`
-- `borin` / `adventurer123`
 
 Build di produzione:
 
@@ -81,25 +76,14 @@ Preview locale della build:
 npm run preview
 ```
 
-Per una sessione live rapida con ngrok, inclusa la procedura con `./start-live-session.sh`, consulta la sezione dedicata in [HOWITWORKS.md](./HOWITWORKS.md).
-
 ## Struttura del progetto
 
 ```text
 src/
   components/
-    Board.tsx
-    DiceIcons.tsx
-    DiceLogModal.tsx
-    DicePanel.tsx
-    DiceResultModal.tsx
-    ElementModals.tsx
-    InitiativePanel.tsx
-    InitiativeRollModal.tsx
-    Modal.tsx
-    Token.tsx
   constants/
     board.ts
+    characters.ts
   hooks/
     useAnimatedPresence.ts
     useAuthSession.ts
@@ -109,39 +93,87 @@ src/
   types/
     index.ts
   utils/
+    api.ts
     board.ts
     dice.ts
     tokens.ts
   App.tsx
   main.tsx
 server/
+  characters.mjs
   index.mjs
 media/
   images/
 ```
 
-## Architettura in breve
+## Architettura
 
-- `App.tsx` orchestra login, sidebar, board, modali e overlay.
-- `useAuthSession.ts` gestisce sessione, login e logout.
-- `useBattleMapState.ts` legge e aggiorna lo stato condiviso tramite API + SSE.
-- `Board.tsx` gestisce camera, zoom, drag, pan e selezione.
-- `ElementModals.tsx` incapsula creazione, modifica e lista degli elementi.
-- `utils/tokens.ts` contiene preset e regole di dominio per token e mezzi.
-- `utils/dice.ts` contiene la logica dei tiri e il generatore casuale uniforme.
-- `server/index.mjs` espone auth, stato condiviso e stream realtime.
+- `src/App.tsx` orchestra login, sidebar, board, modali e stato locale UI.
+- `src/constants/characters.ts` contiene il roster frontend usato dal login e dai dettagli personaggio.
+- `src/hooks/useAuthSession.ts` gestisce sessione, login e logout.
+- `src/hooks/useBattleMapState.ts` carica lo snapshot condiviso, applica ottimismi e riceve aggiornamenti SSE.
+- `src/components/Board.tsx` gestisce selezione, drag, zoom, pan e rendering board.
+- `src/components/InitiativePanel.tsx` mostra ordine turni, token attivo e controlli `Next`/`Prev`.
+- `src/components/InitiativeRollModal.tsx` applica iniziativa manuale o roll globale del master.
+- `src/components/DicePanel.tsx` genera i tiri associandoli al profilo autenticato.
+- `server/characters.mjs` definisce il roster lato server.
+- `server/index.mjs` espone autenticazione, stato partita, log dadi e stream realtime.
 
-## Documentazione funzionale
+## Realtime e persistenza
 
-Per una spiegazione operativa completa di tutte le funzionalita della mappa, consulta [HOWITWORKS.md](./HOWITWORKS.md).
+- lo stato condiviso della partita vive in memoria nel processo Fastify
+- ogni modifica valida genera un nuovo snapshot broadcastato via SSE
+- i client autenticati restano allineati su:
+  - token in mappa
+  - log dadi
+  - iniziative
+  - turno attivo
+- lo zoom della board resta locale per singolo utente
+
+## Permessi
+
+### Master
+
+- puo aggiungere nuovi elementi
+- puo modificare o rimuovere elementi esistenti
+- puo muovere token e gruppi di token
+- puo tirare l'iniziativa per tutti
+- puo impostare manualmente l'ordine dei turni
+- puo scegliere il token attivo e usare `Next` o `Prev`
+
+### Adventurer
+
+- puo fare login con il proprio personaggio
+- il proprio token player viene spawnato o riallineato in mappa
+- puo consultare board, manuale, log dadi e tracker iniziativa
+- puo tirare i dadi con il proprio nome di sessione
+- non puo aggiungere, modificare o spostare elementi
+- non puo gestire iniziativa o turno attivo
+
+## Configurazione importante
+
+Il roster personaggi non e generico: e condiviso fra frontend e backend.
+
+Se vuoi cambiare personaggi, immagini, spawn, password o metadati, devi aggiornare entrambi questi file:
+
+- `src/constants/characters.ts`
+- `server/characters.mjs`
+
+Le password demo sono derivate convenzionalmente da `username + 123`. Se cambi `username`, cambia anche la password attesa.
+
+## Live session con ngrok
+
+Per la procedura completa con `./start-live-session.sh`, tunnel HTTPS e troubleshooting, consulta [HOWITWORKS.md](./HOWITWORKS.md).
 
 ## Note tecniche
 
-- La mappa usa una camera virtuale, quindi non e limitata a un'unica schermata fissa.
-- Il drag e implementato con Pointer Events, non con HTML5 drag and drop.
-- I mezzi mantengono coerenti occupanti, affiliazione e posizione tramite normalizzazione lato stato.
-- Il random dei dadi usa `crypto.getRandomValues`, cosi ogni faccia valida ha probabilita uniforme.
-- Il manuale viene visualizzato tramite preview embedded di Google Drive dentro una modale.
-- Lo stato della partita e mantenuto in memoria nel server Fastify.
-- Il ruolo `master` puo modificare la battle map; `adventurer` ha accesso in sola consultazione.
-- Solo lo zoom resta locale per utente tramite `localStorage`.
+- il drag e implementato con Pointer Events, non con HTML5 drag and drop
+- i dadi usano `crypto.getRandomValues` per il random uniforme
+- Ragnar ha il vantaggio gestito automaticamente nel roll iniziativa globale
+- le immagini dei personaggi vengono mostrate come sfondo del relativo token
+- se riavvii il backend, la partita si resetta perche non esiste ancora persistenza su file o database
+- dopo modifiche ai profili lato server conviene riavviare `npm run dev:server`
+
+## Documentazione funzionale
+
+Per la guida operativa completa dell'app, consulta [HOWITWORKS.md](./HOWITWORKS.md).

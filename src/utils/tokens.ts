@@ -1,5 +1,7 @@
 import type {
+  CharacterKey,
   DndSize,
+  InitiativeMode,
   TokenAffiliation,
   TokenCondition,
   TokenType,
@@ -53,6 +55,10 @@ export function createToken(
   initiativeModifier = 0,
   affiliation?: TokenAffiliation | null,
   vehicleKind?: VehicleKind | null,
+  initiativeMode: InitiativeMode = 'normal',
+  imageUrl?: string | null,
+  ownerUserId?: string | null,
+  characterKey?: CharacterKey | null,
 ): UnitToken {
   return {
     id: crypto.randomUUID(),
@@ -65,11 +71,15 @@ export function createToken(
     },
     color,
     initiativeModifier,
+    initiativeMode,
     affiliation: affiliation ?? null,
     vehicleKind: vehicleKind ?? null,
     vehicleOccupantIds: [],
     showVehicleOccupants: type === 'vehicle' ? true : undefined,
     containedInVehicleId: null,
+    imageUrl: imageUrl ?? null,
+    ownerUserId: ownerUserId ?? null,
+    characterKey: characterKey ?? null,
     conditions: [],
   };
 }

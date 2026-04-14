@@ -8,6 +8,7 @@ import { EditElementModal, ElementsListModal, NewElementModal } from './componen
 import { InitiativeRollModal } from './components/InitiativeRollModal';
 import { InitiativePanel } from './components/InitiativePanel';
 import { Modal } from './components/Modal';
+import { findCharacterProfileByKey } from './constants/characters';
 import { useAuthSession } from './hooks/useAuthSession';
 import { useBattleMapState } from './hooks/useBattleMapState';
 import type { DiceRollLog } from './types';
@@ -29,14 +30,17 @@ function App() {
     state,
     addTokens,
     addDiceLog,
+    cycleTurn,
     clearDiceLogs,
     clearInitiative,
     clearInitiatives,
     moveTokens,
+    moveOwnedToken,
     reorderInitiatives,
     removeToken,
     setActiveTurnToken,
     setInitiative,
+    useDashAction,
     updateToken,
     setZoom,
   } = useBattleMapState();
@@ -56,6 +60,24 @@ function App() {
     'closed' | 'opening' | 'open' | 'closing'
   >('closed');
   const canManageBattleMap = user?.role === 'master';
+  const sessionCharacter = findCharacterProfileByKey(user?.characterKey);
+  const sessionToken =
+    state.tokens.find((token) => token.ownerUserId === user?.id) ??
+    state.tokens.find((token) => token.id === user?.playerTokenId) ??
+    null;
+  const movementUsed = sessionToken ? state.movementUsedByTokenId[sessionToken.id] ?? 0 : 0;
+  const movementMax = sessionToken?.movementCells ?? user?.movementCells ?? null;
+  const dashUsed = sessionToken ? state.dashUsedByTokenId[sessionToken.id] === true : false;
+  const movementBudget =
+    typeof movementMax === 'number' ? movementMax * (dashUsed ? 2 : 1) : null;
+  const movementRemaining =
+    typeof movementBudget === 'number' ? Math.max(0, movementBudget - movementUsed) : null;
+  const isPlayersTurn = Boolean(sessionToken && state.activeTurnTokenId === sessionToken.id);
+  const movableTokenIds = canManageBattleMap
+    ? state.tokens.map((token) => token.id)
+    : sessionToken
+      ? [sessionToken.id]
+      : [];
 
   useEffect(() => {
     setSelectedTokenIds((current) =>
@@ -95,6 +117,21 @@ function App() {
     return undefined;
   }, [boardFullscreenPhase]);
 
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    if (sessionToken) {
+      setSelectedTokenIds((current) => (current.includes(sessionToken.id) ? current : [sessionToken.id]));
+      return;
+    }
+
+    if (canManageBattleMap && state.tokens[0]) {
+      setSelectedTokenIds((current) => (current.length > 0 ? current : [state.tokens[0].id]));
+    }
+  }, [canManageBattleMap, sessionToken, state.tokens, user]);
+
   const locateToken = (tokenId: string) => {
     setFocusRequest({ tokenId, nonce: Date.now() });
     setSelectedTokenIds([tokenId]);
@@ -111,8 +148,6 @@ function App() {
   };
 
   const editingToken = state.tokens.find((token) => token.id === editingTokenId) ?? null;
-  const primarySelectedToken =
-    state.tokens.find((token) => token.id === selectedTokenIds[0]) ?? null;
   const isBoardFullscreenVisible = boardFullscreenPhase !== 'closed';
 
   if (isLoading && !user) {
@@ -146,8 +181,31 @@ function App() {
               Accesso come <strong>{user.role}</strong>.
             </p>
             {!canManageBattleMap ? (
-              <p className="panel-note">Il profilo adventurer puo consultare la board ma non modificarla.</p>
+              <>
+                <p className="panel-note">Il profilo adventurer puo muovere solo il proprio personaggio entro il movimento massimo del round.</p>
+                <p className="panel-note">
+                  {user.movement ? `Movimento: ${user.movement}. ` : ''}
+                  {user.darkvision ? `Visione: ${user.darkvision}.` : 'Visione: nessuna scurovisione.'}
+                </p>
+                {typeof movementMax === 'number' ? (
+                  <p className="panel-note">
+                    Movimento round: {movementUsed}/{movementBudget} caselle usate, {movementRemaining} rimaste.
+                  </p>
+                ) : null}
+                {isPlayersTurn && sessionToken ? (
+                  <button
+                    type="button"
+                    className="secondary-button secondary-button--small"
+                    onClick={() => void useDashAction(sessionToken.id)}
+                    disabled={dashUsed}
+                  >
+                    🏃🏻‍♂️ {dashUsed ? 'Scatto usato' : 'Usa scatto'}
+                  </button>
+                ) : null}
+              </>
             ) : null}
+            {sessionCharacter?.notes[0] ? <p className="panel-note">{sessionCharacter.notes[0]}</p> : null}
+            <p className="panel-note">Round corrente: {state.roundNumber}.</p>
           </div>
           <button type="button" className="secondary-button secondary-button--small" onClick={() => void logout()}>
             Logout
@@ -156,7 +214,8 @@ function App() {
 
         <DicePanel
           logsCount={state.diceLogs.length}
-          rollerName={primarySelectedToken?.name ?? null}
+          actorKey={user.characterKey}
+          rollerName={user.displayName}
           isResultOpen={latestDiceResult !== null}
           onAddLog={addDiceLog}
           onShowResult={setLatestDiceResult}
@@ -170,6 +229,11 @@ function App() {
           onOpenRollModal={() => {
             if (canManageBattleMap) {
               setIsInitiativeModalOpen(true);
+            }
+          }}
+          onCycleTurn={(direction) => {
+            if (canManageBattleMap) {
+              cycleTurn(direction);
             }
           }}
           onSetActiveTurnToken={setActiveTurnToken}
@@ -195,6 +259,7 @@ function App() {
           selectedTokenIds={selectedTokenIds}
           focusRequest={focusRequest}
           canManageTokens={canManageBattleMap}
+          movableTokenIds={movableTokenIds}
           onToggleFullscreen={() => setBoardFullscreenPhase('opening')}
           onOpenManual={() => setIsManualModalOpen(true)}
           onOpenNewElementModal={() => {
@@ -207,6 +272,8 @@ function App() {
           onMoveTokens={(moves) => {
             if (canManageBattleMap) {
               moveTokens(moves);
+            } else if (sessionToken && moves.length === 1 && moves[0].tokenId === sessionToken.id) {
+              void moveOwnedToken(moves[0].tokenId, moves[0].x, moves[0].y);
             }
           }}
           onSelectionChange={setSelectedTokenIds}
@@ -225,6 +292,7 @@ function App() {
             focusRequest={focusRequest}
             isFullscreen
             canManageTokens={canManageBattleMap}
+            movableTokenIds={movableTokenIds}
             onToggleFullscreen={() => setBoardFullscreenPhase('closing')}
             onOpenManual={() => setIsManualModalOpen(true)}
             onOpenNewElementModal={() => {
@@ -237,6 +305,8 @@ function App() {
             onMoveTokens={(moves) => {
               if (canManageBattleMap) {
                 moveTokens(moves);
+              } else if (sessionToken && moves.length === 1 && moves[0].tokenId === sessionToken.id) {
+                void moveOwnedToken(moves[0].tokenId, moves[0].x, moves[0].y);
               }
             }}
             onSelectionChange={setSelectedTokenIds}

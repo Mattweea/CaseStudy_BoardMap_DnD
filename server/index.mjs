@@ -1,5 +1,10 @@
 import Fastify from 'fastify';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import {
+  CHARACTER_PROFILES,
+  findCharacterProfileById,
+  findCharacterProfileByUsername,
+} from './characters.mjs';
 
 const app = Fastify({
   logger: true,
@@ -24,58 +29,17 @@ const VEHICLE_PRESETS = {
   'demon-grinder': { size: 'gargantuan' },
 };
 
-const demoUsers = [
-  {
-    id: 'master-demo',
-    username: 'master',
-    password: 'master123',
-    displayName: 'Dungeon Master',
-    role: 'master',
-  },
-  {
-    id: 'adventurer-aria',
-    username: 'aria',
-    password: 'adventurer123',
-    displayName: 'Aria',
-    role: 'adventurer',
-  },
-  {
-    id: 'adventurer-borin',
-    username: 'borin',
-    password: 'adventurer123',
-    displayName: 'Borin',
-    role: 'adventurer',
-  },
-];
+const demoUsers = CHARACTER_PROFILES.map((profile) => ({
+  id: profile.id,
+  username: profile.username,
+  password: `${profile.username}123`,
+  displayName: profile.displayName,
+  role: profile.role,
+  characterKey: profile.key,
+}));
 
 const initialSharedState = {
   tokens: [
-    {
-      id: 'sample-player-1',
-      name: 'Aria',
-      type: 'player',
-      size: 'medium',
-      position: { x: 4, y: 4 },
-      color: DEFAULT_TOKEN_COLORS.player,
-      initiativeModifier: 0,
-      affiliation: 'player',
-      vehicleKind: null,
-      showVehicleOccupants: undefined,
-      conditions: [],
-    },
-    {
-      id: 'sample-player-2',
-      name: 'Borin',
-      type: 'player',
-      size: 'medium',
-      position: { x: 6, y: 5 },
-      color: DEFAULT_TOKEN_COLORS.player,
-      initiativeModifier: 0,
-      affiliation: 'player',
-      vehicleKind: null,
-      showVehicleOccupants: undefined,
-      conditions: [],
-    },
     {
       id: 'sample-enemy-1',
       name: 'Goblin A',
@@ -106,6 +70,9 @@ const initialSharedState = {
   diceLogs: [],
   initiatives: [],
   activeTurnTokenId: null,
+  roundNumber: 1,
+  movementUsedByTokenId: {},
+  dashUsedByTokenId: {},
 };
 
 let battleMapState = normalizeSharedState(initialSharedState);
@@ -207,6 +174,9 @@ function normalizeSharedState(parsed) {
           color: token.color ?? fallbackColor,
           initiativeModifier:
             typeof token.initiativeModifier === 'number' ? token.initiativeModifier : 0,
+          initiativeMode: token.initiativeMode === 'advantage' ? 'advantage' : 'normal',
+          movementCells:
+            typeof token.movementCells === 'number' ? token.movementCells : null,
           affiliation,
           vehicleKind: token.vehicleKind ?? null,
           vehicleOccupantIds: Array.isArray(token.vehicleOccupantIds) ? token.vehicleOccupantIds : [],
@@ -218,6 +188,9 @@ function normalizeSharedState(parsed) {
               : undefined,
           containedInVehicleId:
             typeof token.containedInVehicleId === 'string' ? token.containedInVehicleId : null,
+          imageUrl: typeof token.imageUrl === 'string' ? token.imageUrl : null,
+          ownerUserId: typeof token.ownerUserId === 'string' ? token.ownerUserId : null,
+          characterKey: typeof token.characterKey === 'string' ? token.characterKey : null,
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
         };
       })
@@ -237,7 +210,32 @@ function normalizeSharedState(parsed) {
     initiatives,
     activeTurnTokenId:
       typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null,
+    roundNumber: typeof parsed?.roundNumber === 'number' && parsed.roundNumber > 0 ? parsed.roundNumber : 1,
+    movementUsedByTokenId:
+      parsed?.movementUsedByTokenId && typeof parsed.movementUsedByTokenId === 'object'
+        ? Object.fromEntries(
+            Object.entries(parsed.movementUsedByTokenId).filter(
+              ([tokenId, used]) =>
+                tokens.some((token) => token.id === tokenId) &&
+                typeof used === 'number' &&
+                used >= 0,
+            ),
+          )
+        : {},
+    dashUsedByTokenId:
+      parsed?.dashUsedByTokenId && typeof parsed.dashUsedByTokenId === 'object'
+        ? Object.fromEntries(
+            Object.entries(parsed.dashUsedByTokenId).filter(
+              ([tokenId, used]) =>
+                tokens.some((token) => token.id === tokenId) && typeof used === 'boolean',
+            ),
+          )
+        : {},
   };
+}
+
+function gridDistance(from, to) {
+  return Math.max(Math.abs(from.x - to.x), Math.abs(from.y - to.y));
 }
 
 function nextSnapshot() {
@@ -290,6 +288,114 @@ function clearBattleMapDiceLogs() {
   return nextSnapshot();
 }
 
+function applyRoundWrapState(nextState, direction) {
+  const initiativesLength = nextState.initiatives.length;
+  if (initiativesLength === 0) {
+    return {
+      ...nextState,
+      roundNumber: 1,
+      movementUsedByTokenId: {},
+      dashUsedByTokenId: {},
+    };
+  }
+
+  const activeIndex = nextState.initiatives.findIndex(
+    (entry) => entry.tokenId === nextState.activeTurnTokenId,
+  );
+  const startIndex = activeIndex >= 0 ? activeIndex : direction === 'next' ? -1 : 0;
+  const wrappedRound =
+    (direction === 'next' && startIndex === initiativesLength - 1) ||
+    (direction === 'previous' && startIndex === 0);
+
+  return wrappedRound
+    ? {
+        ...nextState,
+        roundNumber: Math.max(1, nextState.roundNumber + (direction === 'next' ? 1 : -1)),
+        movementUsedByTokenId: {},
+        dashUsedByTokenId: {},
+      }
+    : nextState;
+}
+
+function moveOwnedToken(user, tokenId, x, y) {
+  const tokenIndex = battleMapState.tokens.findIndex((token) => token.id === tokenId);
+  if (tokenIndex === -1) {
+    return { status: 404, message: 'Token non trovato.' };
+  }
+
+  const token = battleMapState.tokens[tokenIndex];
+  if (user.role !== 'master' && token.ownerUserId !== user.id) {
+    return { status: 403, message: 'Puoi muovere solo il tuo personaggio.' };
+  }
+
+  if (token.type !== 'player') {
+    return { status: 400, message: 'Il movimento tracciato e disponibile solo per i personaggi giocanti.' };
+  }
+
+  const movementCells = typeof token.movementCells === 'number' ? token.movementCells : 0;
+  const usedCells = battleMapState.movementUsedByTokenId[tokenId] ?? 0;
+  const hasDashed = battleMapState.dashUsedByTokenId[tokenId] === true;
+  const movementBudget = movementCells * (hasDashed ? 2 : 1);
+  const moveDistance = gridDistance(token.position, { x, y });
+
+  if (user.role !== 'master' && usedCells + moveDistance > movementBudget) {
+    return {
+      status: 400,
+      message: `Movimento insufficiente: restano ${Math.max(0, movementBudget - usedCells)} caselle in questo round.`,
+      snapshot: nextSnapshot(),
+    };
+  }
+
+  const nextTokens = applyVehicleAwareUpdates(
+    battleMapState.tokens.map((currentToken) =>
+      currentToken.id === tokenId ? { ...currentToken, position: { x, y } } : currentToken,
+    ),
+  );
+
+  battleMapState = normalizeSharedState({
+    ...battleMapState,
+    tokens: nextTokens,
+    movementUsedByTokenId: {
+      ...battleMapState.movementUsedByTokenId,
+      [tokenId]: usedCells + moveDistance,
+    },
+    dashUsedByTokenId: battleMapState.dashUsedByTokenId,
+  });
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+  return { status: 200, snapshot: nextSnapshot() };
+}
+
+function useDashAction(user, tokenId) {
+  const token = battleMapState.tokens.find((entry) => entry.id === tokenId);
+  if (!token) {
+    return { status: 404, message: 'Token non trovato.' };
+  }
+
+  if (token.ownerUserId !== user.id) {
+    return { status: 403, message: 'Puoi usare lo scatto solo sul tuo personaggio.' };
+  }
+
+  if (battleMapState.activeTurnTokenId !== tokenId) {
+    return { status: 400, message: 'Puoi usare lo scatto solo nel tuo turno.' };
+  }
+
+  if (battleMapState.dashUsedByTokenId[tokenId] === true) {
+    return { status: 400, message: 'Scatto gia usato in questo round.' };
+  }
+
+  battleMapState = normalizeSharedState({
+    ...battleMapState,
+    dashUsedByTokenId: {
+      ...battleMapState.dashUsedByTokenId,
+      [tokenId]: true,
+    },
+  });
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+  return { status: 200, snapshot: nextSnapshot() };
+}
+
 function hashPassword(password) {
   return scryptSync(password, PASSWORD_SALT, 64);
 }
@@ -300,6 +406,7 @@ function normalizeUsers(rawUsers) {
     username: String(user.username).trim().toLowerCase(),
     displayName: user.displayName,
     role: user.role === 'master' ? 'master' : 'adventurer',
+    characterKey: typeof user.characterKey === 'string' ? user.characterKey : null,
     passwordHash: hashPassword(String(user.password)),
   }));
 }
@@ -364,12 +471,92 @@ function serializeCookie(name, value, options = {}) {
 }
 
 function sanitizeUser(user) {
+  const profile = findCharacterProfileById(user.id);
+  const playerToken =
+    battleMapState.tokens.find((token) => token.ownerUserId === user.id) ??
+    battleMapState.tokens.find((token) => token.characterKey === profile?.key) ??
+    null;
+
   return {
     id: user.id,
     username: user.username,
     displayName: user.displayName,
     role: user.role,
+    characterKey: profile?.key ?? user.characterKey ?? null,
+    playerTokenId: playerToken?.id ?? null,
+    initiativeModifier: profile?.initiativeModifier ?? null,
+    initiativeMode: profile?.initiativeMode ?? null,
+    movement: profile?.movement ?? null,
+    movementCells: profile?.movementCells ?? null,
+    darkvision: profile?.darkvision ?? null,
   };
+}
+
+function createCharacterToken(profile, userId) {
+  return {
+    id: `player-token-${profile.key}`,
+    name: profile.displayName,
+    type: 'player',
+    size: 'medium',
+    position: { ...profile.spawnPosition },
+    color: DEFAULT_TOKEN_COLORS.player,
+    initiativeModifier: profile.initiativeModifier,
+    initiativeMode: profile.initiativeMode,
+    movementCells: profile.movementCells,
+    affiliation: 'player',
+    vehicleKind: null,
+    vehicleOccupantIds: [],
+    showVehicleOccupants: undefined,
+    containedInVehicleId: null,
+    imageUrl: profile.imageUrl,
+    ownerUserId: userId,
+    characterKey: profile.key,
+    conditions: [],
+  };
+}
+
+function ensureCharacterTokenForUser(user) {
+  const profile = findCharacterProfileById(user.id);
+  if (!profile?.spawnToken || !profile.spawnPosition) {
+    return;
+  }
+
+  const existingIndex = battleMapState.tokens.findIndex(
+    (token) => token.ownerUserId === user.id || token.characterKey === profile.key,
+  );
+
+  if (existingIndex === -1) {
+    battleMapState = normalizeSharedState({
+      ...battleMapState,
+      tokens: [...battleMapState.tokens, createCharacterToken(profile, user.id)],
+    });
+    bumpBattleMapVersion();
+    broadcastSnapshot();
+    return;
+  }
+
+  const nextTokens = [...battleMapState.tokens];
+  nextTokens[existingIndex] = {
+    ...nextTokens[existingIndex],
+    name: profile.displayName,
+    type: 'player',
+    size: nextTokens[existingIndex].size ?? 'medium',
+    color: nextTokens[existingIndex].color ?? DEFAULT_TOKEN_COLORS.player,
+    initiativeModifier: profile.initiativeModifier,
+    initiativeMode: profile.initiativeMode,
+    movementCells: profile.movementCells,
+    affiliation: 'player',
+    imageUrl: profile.imageUrl,
+    ownerUserId: user.id,
+    characterKey: profile.key,
+  };
+
+  battleMapState = normalizeSharedState({
+    ...battleMapState,
+    tokens: nextTokens,
+  });
+  bumpBattleMapVersion();
+  broadcastSnapshot();
 }
 
 function clearExpiredSessions() {
@@ -505,6 +692,7 @@ app.post('/api/auth/login', async (request, reply) => {
     return { message: 'Inserisci username e password.' };
   }
 
+  const profile = findCharacterProfileByUsername(username);
   const user = users.find((candidate) => candidate.username === username);
   if (!user) {
     reply.code(401);
@@ -523,6 +711,9 @@ app.post('/api/auth/login', async (request, reply) => {
     expiresAt: Date.now() + SESSION_TTL_MS,
   });
   setSessionCookie(reply, sessionId);
+  if (profile?.spawnToken) {
+    ensureCharacterTokenForUser(user);
+  }
 
   return {
     user: sanitizeUser(user),
@@ -592,6 +783,59 @@ app.delete('/api/battle-map/dice-logs', async (request, reply) => {
   }
 
   return clearBattleMapDiceLogs();
+});
+
+app.post('/api/battle-map/move', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const body = request.body ?? {};
+  const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
+  const x = typeof body.x === 'number' ? body.x : null;
+  const y = typeof body.y === 'number' ? body.y : null;
+
+  if (!tokenId || x === null || y === null) {
+    reply.code(400);
+    return { message: 'Payload movimento non valido.' };
+  }
+
+  const result = moveOwnedToken(user, tokenId, x, y);
+  if (result.status !== 200) {
+    reply.code(result.status);
+    return {
+      message: result.message,
+      ...(result.snapshot ?? nextSnapshot()),
+    };
+  }
+
+  return result.snapshot;
+});
+
+app.post('/api/battle-map/dash', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const body = request.body ?? {};
+  const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
+  if (!tokenId) {
+    reply.code(400);
+    return { message: 'Payload scatto non valido.' };
+  }
+
+  const result = useDashAction(user, tokenId);
+  if (result.status !== 200) {
+    reply.code(result.status);
+    return {
+      message: result.message,
+      ...(result.snapshot ?? nextSnapshot()),
+    };
+  }
+
+  return result.snapshot;
 });
 
 app.get('/api/battle-map/stream', async (request, reply) => {

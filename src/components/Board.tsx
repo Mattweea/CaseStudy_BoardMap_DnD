@@ -19,6 +19,7 @@ interface BoardProps {
   focusRequest: { tokenId: string; nonce: number } | null;
   isFullscreen?: boolean;
   canManageTokens?: boolean;
+  movableTokenIds?: string[];
   onOpenManual: () => void;
   onOpenNewElementModal: () => void;
   onOpenElementsListModal: () => void;
@@ -88,6 +89,7 @@ export function Board({
   focusRequest,
   isFullscreen = false,
   canManageTokens = true,
+  movableTokenIds = [],
   onOpenManual,
   onOpenNewElementModal,
   onOpenElementsListModal,
@@ -105,6 +107,7 @@ export function Board({
     columns: BOARD_CONFIG.minVisibleColumns,
     rows: BOARD_CONFIG.minVisibleRows,
   });
+  const movableTokenIdSet = useMemo(() => new Set(movableTokenIds), [movableTokenIds]);
 
   useEffect(() => {
     const node = shellRef.current;
@@ -400,7 +403,9 @@ export function Board({
       return;
     }
 
-    if (!canManageTokens) {
+    const canMoveThisToken = canManageTokens || movableTokenIdSet.has(token.id);
+
+    if (!canMoveThisToken) {
       const additive = event.shiftKey;
       onSelectionChange(
         additive
@@ -412,9 +417,9 @@ export function Board({
       return;
     }
 
-    const additive = event.shiftKey;
+    const additive = canManageTokens ? event.shiftKey : false;
     const selection =
-      additive || selectedTokenIds.includes(token.id)
+      canManageTokens && (additive || selectedTokenIds.includes(token.id))
         ? Array.from(new Set([...selectedTokenIds, token.id]))
         : [token.id];
     const anchor = token.position;
@@ -525,9 +530,11 @@ export function Board({
           <button type="button" onClick={onToggleFullscreen}>
             🤓 {isFullscreen ? 'Chiudi full screen' : 'Full screen'}
           </button>
-          <button type="button" onClick={onOpenNewElementModal} disabled={!canManageTokens}>
-            ➕ Nuovo elemento
-          </button>
+          {canManageTokens ? (
+            <button type="button" onClick={onOpenNewElementModal}>
+              ➕ Nuovo elemento
+            </button>
+          ) : null}
           <button type="button" onClick={onOpenElementsListModal}>
             🔎 Elementi in mappa
           </button>
@@ -541,7 +548,7 @@ export function Board({
         <p className="board-panel__hint">
           {canManageTokens
             ? 'Click per selezionare/deselezionare, Shift+click per multiselezione, trascina per muovere i selezionati. Trascina sullo sfondo per una selezione ad area.'
-            : 'Modalita adventurer: puoi selezionare, zoomare, fare pan e consultare la mappa, ma non modificare token o iniziativa.'}
+            : 'Modalita adventurer: puoi muovere solo il tuo personaggio entro il movimento residuo del round, oltre a selezionare, zoomare e fare pan.'}
         </p>
       </div>
 

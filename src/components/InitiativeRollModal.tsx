@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { InitiativeEntry, UnitToken } from '../types';
 import { isCreature, tokenTypeLabel } from '../utils/tokens';
-import { rollSingleDie } from '../utils/dice';
+import { rollDice, rollSingleDie } from '../utils/dice';
 import { ConditionBadge } from './ConditionBadge';
 import { Modal } from './Modal';
 
@@ -68,7 +68,11 @@ export function InitiativeRollModal({
 
   const rollForEveryone = () => {
     creatures.forEach((token) => {
-      const rolledValue = rollSingleDie(20) + token.initiativeModifier;
+      const d20Value =
+        token.initiativeMode === 'advantage'
+          ? rollDice(20, 1, 0, 'advantage').keptRolls[0] ?? rollSingleDie(20)
+          : rollSingleDie(20);
+      const rolledValue = d20Value + token.initiativeModifier;
       onSetInitiative({
         tokenId: token.id,
         value: rolledValue,
@@ -113,6 +117,7 @@ export function InitiativeRollModal({
                 </strong>
                 <span>{tokenTypeLabel(token.type)}</span>
                 <span>Mod. iniziativa: {token.initiativeModifier >= 0 ? `+${token.initiativeModifier}` : token.initiativeModifier}</span>
+                {token.initiativeMode === 'advantage' ? <span>Roll iniziativa con vantaggio</span> : null}
                 <span>
                   {currentEntry ? `${currentEntry.value} (${currentEntry.source})` : 'Nessuna iniziativa'}
                 </span>

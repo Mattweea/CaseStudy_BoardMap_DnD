@@ -42,6 +42,7 @@ export function Token({
     height: screenHeight,
     transform: `translate(${pixelPosition.x * zoom}px, ${pixelPosition.y * zoom}px)`,
     '--token-color': token.color,
+    '--token-image': token.imageUrl ? `url("${token.imageUrl}")` : 'none',
   } as CSSProperties;
 
   const handleContextMenu = (event: MouseEvent<HTMLButtonElement>) => {

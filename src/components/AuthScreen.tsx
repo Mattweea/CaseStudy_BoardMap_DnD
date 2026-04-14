@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { CHARACTER_PROFILES } from '../constants/characters';
 
 interface AuthScreenProps {
   error: string | null;
@@ -9,6 +10,8 @@ interface AuthScreenProps {
 export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
   const [username, setUsername] = useState('master');
   const [password, setPassword] = useState('master123');
+  const selectedProfile =
+    CHARACTER_PROFILES.find((profile) => profile.username === username) ?? CHARACTER_PROFILES[0];
 
   return (
     <div className="auth-shell">
@@ -16,18 +19,32 @@ export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
         <p className="eyebrow">Multiplayer Access</p>
         <h1>Repository battle map</h1>
         <p className="auth-copy">
-          Accedi con un profilo `master` oppure `adventurer` per entrare nella sessione condivisa.
+          Scegli chi stai giocando, poi entra con la password predefinita `nome+123`.
         </p>
 
-        <div className="auth-demo-grid">
-          <article className="auth-demo-card">
-            <strong>Master demo</strong>
-            <span>`master` / `master123`</span>
-          </article>
-          <article className="auth-demo-card">
-            <strong>Adventurer demo</strong>
-            <span>`aria` / `adventurer123`</span>
-          </article>
+        <div className="auth-profile-grid">
+          {CHARACTER_PROFILES.map((profile) => {
+            const isSelected = profile.username === selectedProfile.username;
+
+            return (
+              <button
+                key={profile.id}
+                type="button"
+                className={`auth-profile-card ${isSelected ? 'auth-profile-card--selected' : ''}`}
+                onClick={() => {
+                  setUsername(profile.username);
+                  setPassword(`${profile.username}123`);
+                }}
+              >
+                <img src={profile.imageUrl} alt="" aria-hidden="true" className="auth-profile-card__image" />
+                <span className="auth-profile-card__meta">
+                  <strong>{profile.displayName}</strong>
+                  <span>{profile.role === 'master' ? 'Master' : 'Avventuriero'}</span>
+                  <span className="auth-profile-card__password">{profile.username}123</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         <form
@@ -38,8 +55,8 @@ export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
           }}
         >
           <label>
-            Username
-            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
+            Profilo selezionato
+            <input value={selectedProfile.displayName} readOnly autoComplete="username" />
           </label>
 
           <label>
@@ -51,6 +68,14 @@ export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
               autoComplete="current-password"
             />
           </label>
+
+          {selectedProfile.role === 'adventurer' ? (
+            <div className="auth-profile-details">
+              <span>Iniziativa {selectedProfile.initiativeModifier >= 0 ? `+${selectedProfile.initiativeModifier}` : selectedProfile.initiativeModifier}</span>
+              <span>Movimento {selectedProfile.movement ?? 'n/d'}</span>
+              <span>{selectedProfile.darkvision ?? 'Nessuna scurovisione'}</span>
+            </div>
+          ) : null}
 
           {error ? <p className="auth-error">{error}</p> : null}
 

@@ -9,6 +9,7 @@ interface InitiativePanelProps {
   activeTurnTokenId: string | null;
   canManageInitiative?: boolean;
   onOpenRollModal: () => void;
+  onCycleTurn: (direction: 'previous' | 'next') => void;
   onSetActiveTurnToken: (tokenId: string) => void;
   onClearInitiatives: () => void;
   onReorderInitiatives: (fromIndex: number, toIndex: number) => void;
@@ -22,6 +23,7 @@ export function InitiativePanel({
   activeTurnTokenId,
   canManageInitiative = true,
   onOpenRollModal,
+  onCycleTurn,
   onSetActiveTurnToken,
   onClearInitiatives,
   onReorderInitiatives,
@@ -31,6 +33,7 @@ export function InitiativePanel({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dropPreview, setDropPreview] = useState<{ index: number; position: 'before' | 'after' } | null>(null);
   const creatures = useMemo(() => tokens.filter(isCreature), [tokens]);
+  const activeToken = creatures.find((token) => token.id === activeTurnTokenId) ?? null;
 
   const updateDropPreview = (targetIndex: number, clientY: number, rect: DOMRect) => {
     if (draggedIndex === null) {
@@ -82,28 +85,50 @@ export function InitiativePanel({
           <p className="eyebrow">Initiative</p>
           <h2>Ordine dei turni</h2>
         </div>
-        <div className="initiative-panel__actions">
-          <button
-            type="button"
-            className="secondary-button secondary-button--small"
-            onClick={onOpenRollModal}
-            disabled={!canManageInitiative}
-          >
-            Roll for initiative
-          </button>
-          <button
-            type="button"
-            className="secondary-button secondary-button--small"
-            onClick={onClearInitiatives}
-            disabled={!canManageInitiative}
-          >
-            Reset
-          </button>
-        </div>
+        {canManageInitiative ? (
+          <div className="initiative-panel__actions">
+            <button
+              type="button"
+              className="secondary-button secondary-button--small"
+              onClick={onOpenRollModal}
+            >
+              Roll for initiative
+            </button>
+            <button
+              type="button"
+              className="secondary-button secondary-button--small"
+              onClick={() => onCycleTurn('previous')}
+              disabled={initiatives.length === 0}
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              className="secondary-button secondary-button--small"
+              onClick={() => onCycleTurn('next')}
+              disabled={initiatives.length === 0}
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              className="secondary-button secondary-button--small"
+              onClick={onClearInitiatives}
+            >
+              Reset
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {!canManageInitiative ? (
         <p className="panel-note">Solo il master puo modificare l&apos;ordine dei turni.</p>
+      ) : null}
+      {initiatives.length > 0 ? (
+        <p className="initiative-panel__hint">
+          Turno attivo: <strong>{activeToken?.name ?? 'non selezionato'}</strong>. `Next` e `Prev`
+          scorrono l&apos;ordine e fanno wrap automatico a fine round.
+        </p>
       ) : null}
 
       <div className="turn-order">

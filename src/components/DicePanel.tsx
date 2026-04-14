@@ -1,3 +1,4 @@
+import type { CharacterKey } from '../types';
 import { useEffect, useRef, useState } from 'react';
 import type { DiceRollLog, DiceType, RollMode } from '../types';
 import { DiceGlyph, numericDiceToIconType } from './DiceIcons';
@@ -13,6 +14,7 @@ const ROLLING_DURATION_MS = 520;
 
 interface DicePanelProps {
   logsCount: number;
+  actorKey?: CharacterKey | null;
   rollerName?: string | null;
   isResultOpen: boolean;
   onAddLog: (log: DiceRollLog) => void;
@@ -22,6 +24,7 @@ interface DicePanelProps {
 
 export function DicePanel({
   logsCount,
+  actorKey,
   rollerName,
   isResultOpen,
   onAddLog,
@@ -169,7 +172,15 @@ export function DicePanel({
             />
           </label>
 
-          {rollerName ? <p className="dice-panel__actor">Tiro di: {rollerName}</p> : null}
+          {rollerName ? (
+            <p className="dice-panel__actor">
+              Tiro di: {rollerName}
+              {actorKey === 'master' ? ' (master)' : ''}
+            </p>
+          ) : null}
+          {rollerName ? (
+            <p className="dice-panel__hint">Il log dei dadi e sempre associato al profilo online in sessione.</p>
+          ) : null}
 
           <button
             type="button"
