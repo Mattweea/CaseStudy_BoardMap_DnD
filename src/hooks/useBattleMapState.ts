@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { BOARD_CONFIG } from '../constants/board';
 import type {
   BattleMapSharedState,
+  BattleMapSessionSnapshot,
+  BattleMapSessionStatus,
   BattleMapState,
   DiceRollLog,
   GridPosition,
@@ -109,40 +111,14 @@ function applyVehicleAwareUpdates(tokens: UnitToken[]): UnitToken[] {
 }
 
 const initialSharedState: BattleMapSharedState = {
-  tokens: [
-    {
-      id: 'sample-enemy-1',
-      name: 'Goblin A',
-      type: 'enemy',
-      size: 'small',
-      position: { x: 14, y: 10 },
-      color: DEFAULT_TOKEN_COLORS.enemy,
-      initiativeModifier: 0,
-      affiliation: 'enemy',
-      vehicleKind: null,
-      showVehicleOccupants: undefined,
-      conditions: [],
-    },
-    {
-      id: 'sample-enemy-2',
-      name: 'Goblin B',
-      type: 'enemy',
-      size: 'small',
-      position: { x: 16, y: 11 },
-      color: DEFAULT_TOKEN_COLORS.enemy,
-      initiativeModifier: 0,
-      affiliation: 'enemy',
-      vehicleKind: null,
-      showVehicleOccupants: undefined,
-      conditions: [],
-    },
-  ],
+  tokens: [],
   diceLogs: [],
   initiatives: [],
   activeTurnTokenId: null,
   roundNumber: 1,
   movementUsedByTokenId: {},
   dashUsedByTokenId: {},
+  extraMovementByTokenId: {},
 };
 
 function readStoredZoom() {
@@ -191,6 +167,9 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           imageUrl: typeof token.imageUrl === 'string' ? token.imageUrl : null,
           ownerUserId: typeof token.ownerUserId === 'string' ? token.ownerUserId : null,
           characterKey: typeof token.characterKey === 'string' ? token.characterKey : null,
+          hitPoints: typeof token.hitPoints === 'number' ? token.hitPoints : null,
+          maxHitPoints: typeof token.maxHitPoints === 'number' ? token.maxHitPoints : null,
+          isInvisible: token.isInvisible === true,
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
         };
       })
@@ -231,6 +210,17 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
             ),
           )
         : {},
+    extraMovementByTokenId:
+      parsed?.extraMovementByTokenId && typeof parsed.extraMovementByTokenId === 'object'
+        ? Object.fromEntries(
+            Object.entries(parsed.extraMovementByTokenId).filter(
+              ([tokenId, extra]) =>
+                tokens.some((token) => token.id === tokenId) &&
+                typeof extra === 'number' &&
+                extra >= 0,
+            ),
+          )
+        : {},
   };
 }
 
@@ -268,6 +258,11 @@ export function useBattleMapState() {
   const [zoom, setZoomState] = useState(readStoredZoom);
   const [version, setVersion] = useState(0);
   const [isReady, setIsReady] = useState(false);
+  const [sessionStatus, setSessionStatus] = useState<BattleMapSessionStatus>({
+    hasSnapshot: false,
+    savedAt: null,
+    version: null,
+  });
   const sharedStateRef = useRef(sharedState);
   const versionRef = useRef(version);
 
@@ -288,9 +283,10 @@ export function useBattleMapState() {
 
     const loadState = async () => {
       try {
-        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-          '/battle-map/state',
-        );
+        const [payload, persistence] = await Promise.all([
+          requestJson<{ state: BattleMapSharedState; version: number }>('/battle-map/state'),
+          requestJson<BattleMapSessionStatus>('/battle-map/session-status'),
+        ]);
 
         if (!isMounted) {
           return;
@@ -301,6 +297,7 @@ export function useBattleMapState() {
         versionRef.current = payload.version;
         setSharedState(nextState);
         setVersion(payload.version);
+        setSessionStatus(persistence);
       } catch (error) {
         console.error(error);
       } finally {
@@ -602,6 +599,44 @@ export function useBattleMapState() {
         initiatives: nextInitiatives,
         activeTurnTokenId:
           current.activeTurnTokenId === tokenId ? nextInitiatives[0]?.tokenId ?? null : current.activeTurnTokenId,
+        movementUsedByTokenId: Object.fromEntries(
+          Object.entries(current.movementUsedByTokenId).filter(([currentTokenId]) => currentTokenId !== tokenId),
+        ),
+        dashUsedByTokenId: Object.fromEntries(
+          Object.entries(current.dashUsedByTokenId).filter(([currentTokenId]) => currentTokenId !== tokenId),
+        ),
+        extraMovementByTokenId: Object.fromEntries(
+          Object.entries(current.extraMovementByTokenId).filter(([currentTokenId]) => currentTokenId !== tokenId),
+        ),
+      };
+    });
+  };
+
+  const removeTokens = (tokenIds: string[]) => {
+    const tokenIdSet = new Set(tokenIds);
+
+    void commitSharedState((current) => {
+      const nextTokens = applyVehicleAwareUpdates(
+        current.tokens.filter((token) => !tokenIdSet.has(token.id)),
+      );
+      const nextInitiatives = current.initiatives.filter((entry) => !tokenIdSet.has(entry.tokenId));
+
+      return {
+        ...current,
+        tokens: nextTokens,
+        initiatives: nextInitiatives,
+        activeTurnTokenId: tokenIdSet.has(current.activeTurnTokenId ?? '')
+          ? nextInitiatives[0]?.tokenId ?? null
+          : current.activeTurnTokenId,
+        movementUsedByTokenId: Object.fromEntries(
+          Object.entries(current.movementUsedByTokenId).filter(([tokenId]) => !tokenIdSet.has(tokenId)),
+        ),
+        dashUsedByTokenId: Object.fromEntries(
+          Object.entries(current.dashUsedByTokenId).filter(([tokenId]) => !tokenIdSet.has(tokenId)),
+        ),
+        extraMovementByTokenId: Object.fromEntries(
+          Object.entries(current.extraMovementByTokenId).filter(([tokenId]) => !tokenIdSet.has(tokenId)),
+        ),
       };
     });
   };
@@ -627,6 +662,7 @@ export function useBattleMapState() {
         activeTurnTokenId: current.activeTurnTokenId ?? nextEntries[0]?.tokenId ?? null,
         movementUsedByTokenId: current.movementUsedByTokenId,
         dashUsedByTokenId: current.dashUsedByTokenId,
+        extraMovementByTokenId: current.extraMovementByTokenId,
       };
     });
   };
@@ -661,6 +697,7 @@ export function useBattleMapState() {
         activeTurnTokenId: current.activeTurnTokenId ?? nextEntries[0]?.tokenId ?? null,
         movementUsedByTokenId: current.movementUsedByTokenId,
         dashUsedByTokenId: current.dashUsedByTokenId,
+        extraMovementByTokenId: current.extraMovementByTokenId,
       };
     });
   };
@@ -711,6 +748,7 @@ export function useBattleMapState() {
       roundNumber: 1,
       movementUsedByTokenId: {},
       dashUsedByTokenId: {},
+      extraMovementByTokenId: {},
     }));
   };
 
@@ -741,6 +779,7 @@ export function useBattleMapState() {
           : current.roundNumber,
         movementUsedByTokenId: wrappedRound ? {} : current.movementUsedByTokenId,
         dashUsedByTokenId: wrappedRound ? {} : current.dashUsedByTokenId,
+        extraMovementByTokenId: wrappedRound ? {} : current.extraMovementByTokenId,
       };
     });
   };
@@ -777,6 +816,44 @@ export function useBattleMapState() {
     }
   };
 
+  const updateOwnedToken = async (
+    tokenId: string,
+    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints'>>,
+  ) => {
+    const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+      '/battle-map/token-update',
+      {
+        method: 'POST',
+        body: JSON.stringify({ tokenId, updates }),
+      },
+    );
+
+    applySnapshot(payload.state, payload.version);
+  };
+
+  const addOwnedExtraMovement = async (tokenId: string, amount = 1) => {
+    const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+      '/battle-map/extra-movement',
+      {
+        method: 'POST',
+        body: JSON.stringify({ tokenId, amount }),
+      },
+    );
+
+    applySnapshot(payload.state, payload.version);
+  };
+
+  const undoLastAction = async () => {
+    const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+      '/battle-map/undo',
+      {
+        method: 'POST',
+      },
+    );
+
+    applySnapshot(payload.state, payload.version);
+  };
+
   const setActiveTurnToken = (tokenId: string) => {
     void commitSharedState((current) => ({
       ...current,
@@ -785,6 +862,31 @@ export function useBattleMapState() {
   };
 
   const resetZoom = () => setZoom(1);
+
+  const suspendSession = async () => {
+    const payload = await requestJson<BattleMapSessionSnapshot>('/battle-map/session/suspend', {
+      method: 'POST',
+    });
+
+    setSessionStatus({
+      hasSnapshot: true,
+      savedAt: payload.savedAt,
+      version: payload.version,
+    });
+  };
+
+  const resumeLastSession = async () => {
+    const payload = await requestJson<BattleMapSessionSnapshot>('/battle-map/session/resume', {
+      method: 'POST',
+    });
+
+    applySnapshot(payload.state, payload.version);
+    setSessionStatus({
+      hasSnapshot: true,
+      savedAt: payload.savedAt,
+      version: payload.version,
+    });
+  };
 
   const state: BattleMapState = {
     ...sharedState,
@@ -800,9 +902,12 @@ export function useBattleMapState() {
     moveTokens,
     moveOwnedToken,
     useDashAction,
+    updateOwnedToken,
+    addOwnedExtraMovement,
     addTokens,
     updateToken,
     removeToken,
+    removeTokens,
     addDiceLog,
     clearDiceLogs,
     setInitiative,
@@ -813,5 +918,9 @@ export function useBattleMapState() {
     cycleTurn,
     setActiveTurnToken,
     resetZoom,
+    undoLastAction,
+    sessionStatus,
+    suspendSession,
+    resumeLastSession,
   };
 }

@@ -12,7 +12,6 @@ export function DiceLogModal({ isOpen, logs, onClose, onClear }: DiceLogModalPro
   return (
     <Modal title="Log dei dadi" isOpen={isOpen} onClose={onClose}>
       <div className="panel-heading">
-        <p className="sidebar__copy">Storico degli ultimi tiri registrati.</p>
         <button type="button" className="secondary-button secondary-button--small" onClick={onClear}>
           Reset log
         </button>

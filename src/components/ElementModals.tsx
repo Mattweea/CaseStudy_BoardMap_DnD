@@ -41,9 +41,16 @@ interface EditElementModalProps {
   isOpen: boolean;
   token: UnitToken | null;
   tokens: UnitToken[];
+  canManageStructure?: boolean;
+  canManageVisibility?: boolean;
+  canRemoveToken?: boolean;
   onClose: () => void;
   onAddTokens: (tokens: UnitToken[]) => void;
   onSaveToken: (tokenId: string, updates: Partial<UnitToken>) => void;
+  onSaveOwnedToken?: (
+    tokenId: string,
+    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints'>>,
+  ) => void;
   onRemoveToken: (tokenId: string) => void;
 }
 
@@ -759,9 +766,13 @@ export function EditElementModal({
   isOpen,
   token,
   tokens,
+  canManageStructure = true,
+  canManageVisibility = true,
+  canRemoveToken = true,
   onClose,
   onAddTokens,
   onSaveToken,
+  onSaveOwnedToken,
   onRemoveToken,
 }: EditElementModalProps) {
   const [name, setName] = useState('');
@@ -781,6 +792,10 @@ export function EditElementModal({
   const [newEnemyName, setNewEnemyName] = useState('Nemico');
   const [newEnemyQuantity, setNewEnemyQuantity] = useState(0);
   const [conditions, setConditions] = useState<TokenCondition[]>([]);
+  const [hitPoints, setHitPoints] = useState('');
+  const [maxHitPoints, setMaxHitPoints] = useState('');
+  const [hitPointDelta, setHitPointDelta] = useState('0');
+  const [isInvisible, setIsInvisible] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -807,6 +822,10 @@ export function EditElementModal({
     setNewEnemyName('Nemico');
     setNewEnemyQuantity(0);
     setConditions(token.conditions);
+    setHitPoints(token.hitPoints !== null && token.hitPoints !== undefined ? String(token.hitPoints) : '');
+    setMaxHitPoints(token.maxHitPoints !== null && token.maxHitPoints !== undefined ? String(token.maxHitPoints) : '');
+    setHitPointDelta('0');
+    setIsInvisible(token.isInvisible === true);
   }, [token]);
 
   const compatibleVehicles = useMemo(() => {
@@ -836,6 +855,27 @@ export function EditElementModal({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    const parsedHitPoints =
+      hitPoints.trim() === '' ? null : Number.isFinite(Number(hitPoints)) ? Number(hitPoints) : null;
+    const parsedMaxHitPoints =
+      maxHitPoints.trim() === '' ? null : Number.isFinite(Number(maxHitPoints)) ? Number(maxHitPoints) : null;
+    const delta = Number.isFinite(Number(hitPointDelta)) ? Number(hitPointDelta) : 0;
+
+    if (!canManageStructure) {
+      const nextBaseHitPoints =
+        parsedHitPoints ?? token.hitPoints ?? 0;
+      onSaveOwnedToken?.(token.id, {
+        hitPoints: nextBaseHitPoints + delta,
+        maxHitPoints: parsedMaxHitPoints,
+      });
+      onClose();
+      return;
+    }
+
+    const nextHitPoints =
+      parsedHitPoints === null ? null : parsedHitPoints + delta;
+
     const nextName = type === 'vehicle' ? VEHICLE_PRESETS[vehicleKind].label : name.trim();
     if (!nextName) {
       return;
@@ -921,6 +961,9 @@ export function EditElementModal({
           : type === 'player' || type === 'enemy'
             ? containedVehicleId || null
             : null,
+      hitPoints: nextHitPoints,
+      maxHitPoints: parsedMaxHitPoints,
+      isInvisible,
       conditions: nextConditions,
     });
     onClose();
@@ -1208,20 +1251,55 @@ export function EditElementModal({
           </label>
         ) : null}
 
+        <fieldset className="token-form__fieldset">
+          <legend>Punti ferita</legend>
+          <div className="vehicle-settings-row">
+            <label>
+              PF attuali
+              <input type="number" value={hitPoints} onChange={(event) => setHitPoints(event.target.value)} />
+            </label>
+            <label>
+              PF massimi
+              <input type="number" value={maxHitPoints} onChange={(event) => setMaxHitPoints(event.target.value)} />
+            </label>
+          </div>
+          <label>
+            Modifica rapida
+            <input
+              type="number"
+              value={hitPointDelta}
+              onChange={(event) => setHitPointDelta(event.target.value)}
+            />
+          </label>
+        </fieldset>
+
+        {canManageVisibility ? (
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={isInvisible}
+              onChange={(event) => setIsInvisible(event.target.checked)}
+            />
+            <span>Invisibile per gli altri player</span>
+          </label>
+        ) : null}
+
         <TokenConditionFields type={type} conditions={conditions} onToggle={handleConditionToggle} />
 
         <div className="token-form__actions">
           <button type="submit">Salva modifiche</button>
-          <button
-            type="button"
-            className="danger-button"
-            onClick={() => {
-              onRemoveToken(token.id);
-              onClose();
-            }}
-          >
-            Rimuovi elemento
-          </button>
+          {canRemoveToken ? (
+            <button
+              type="button"
+              className="danger-button"
+              onClick={() => {
+                onRemoveToken(token.id);
+                onClose();
+              }}
+            >
+              Rimuovi elemento
+            </button>
+          ) : null}
         </div>
       </form>
     </Modal>

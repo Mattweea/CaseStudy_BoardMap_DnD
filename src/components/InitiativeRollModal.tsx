@@ -10,6 +10,7 @@ interface InitiativeRollModalProps {
   isOpen: boolean;
   tokens: UnitToken[];
   initiatives: InitiativeEntry[];
+  selectedTokenIds?: string[];
   canManage?: boolean;
   onClose: () => void;
   onSetInitiative: (entry: InitiativeEntry) => void;
@@ -22,6 +23,7 @@ export function InitiativeRollModal({
   isOpen,
   tokens,
   initiatives,
+  selectedTokenIds = [],
   canManage = true,
   onClose,
   onSetInitiative,
@@ -31,6 +33,7 @@ export function InitiativeRollModal({
 }: InitiativeRollModalProps) {
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
   const creatures = useMemo(() => tokens.filter(isCreature), [tokens]);
+  const selectedTokenIdSet = useMemo(() => new Set(selectedTokenIds), [selectedTokenIds]);
   const initiativeMap = useMemo(
     () =>
       initiatives.reduce<Record<string, InitiativeEntry>>((accumulator, entry) => {
@@ -92,19 +95,51 @@ export function InitiativeRollModal({
     onSetInitiatives(nextEntries);
   };
 
+  const rollForSelected = () => {
+    const selectedCreatures = creatures.filter((token) => selectedTokenIdSet.has(token.id));
+    if (selectedCreatures.length === 0) {
+      return;
+    }
+
+    const nextEntries = selectedCreatures.map((token) => {
+      const d20Value =
+        token.initiativeMode === 'advantage'
+          ? rollDice(20, 1, 0, 'advantage').keptRolls[0] ?? rollSingleDie(20)
+          : rollSingleDie(20);
+      return {
+        tokenId: token.id,
+        value: d20Value + token.initiativeModifier,
+        source: 'rolled',
+      } satisfies InitiativeEntry;
+    });
+
+    setManualValues((current) => ({
+      ...current,
+      ...nextEntries.reduce<Record<string, string>>((accumulator, entry) => {
+        accumulator[entry.tokenId] = String(entry.value);
+        return accumulator;
+      }, {}),
+    }));
+    onSetInitiatives(nextEntries);
+  };
+
   return (
     <Modal title="Roll for initiative" isOpen={isOpen} onClose={onClose}>
       <div className="initiative-actions initiative-actions--stack">
         <button type="button" onClick={rollForEveryone} disabled={!canManage}>
           Roll for everyone
         </button>
+        <button
+          type="button"
+          onClick={rollForSelected}
+          disabled={!canManage || selectedTokenIds.length === 0}
+        >
+          Roll for selected
+        </button>
         <button type="button" onClick={applyAllManualInitiatives} disabled={!canManage}>
           Save all
         </button>
       </div>
-
-      {!canManage ? <p className="panel-note">Solo il master puo assegnare o resettare l&apos;iniziativa.</p> : null}
-
       <div className="initiative-roster">
         {creatures.map((token) => {
           const currentEntry = initiativeMap[token.id];

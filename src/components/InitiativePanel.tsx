@@ -121,13 +121,9 @@ export function InitiativePanel({
         ) : null}
       </div>
 
-      {!canManageInitiative ? (
-        <p className="panel-note">Solo il master puo modificare l&apos;ordine dei turni.</p>
-      ) : null}
       {initiatives.length > 0 ? (
         <p className="initiative-panel__hint">
-          Turno attivo: <strong>{activeToken?.name ?? 'non selezionato'}</strong>. `Next` e `Prev`
-          scorrono l&apos;ordine e fanno wrap automatico a fine round.
+          Turno attivo: <strong>{activeToken?.name ?? 'non selezionato'}</strong>.
         </p>
       ) : null}
 

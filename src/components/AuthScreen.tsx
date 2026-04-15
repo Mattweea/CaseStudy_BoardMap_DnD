@@ -10,17 +10,17 @@ interface AuthScreenProps {
 export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
   const [username, setUsername] = useState('master');
   const [password, setPassword] = useState('master123');
+  const [isAccessPanelOpen, setIsAccessPanelOpen] = useState(false);
   const selectedProfile =
     CHARACTER_PROFILES.find((profile) => profile.username === username) ?? CHARACTER_PROFILES[0];
 
   return (
     <div className="auth-shell">
       <section className="auth-card">
-        <p className="eyebrow">Multiplayer Access</p>
-        <h1>Repository battle map</h1>
-        <p className="auth-copy">
-          Scegli chi stai giocando, poi entra con la password predefinita `nome+123`.
-        </p>
+        <header className="auth-header">
+          <p className="eyebrow">Multiplayer Access</p>
+          <h1>Discesa Nell&apos;Averno</h1>
+        </header>
 
         <div className="auth-profile-grid">
           {CHARACTER_PROFILES.map((profile) => {
@@ -40,49 +40,73 @@ export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
                 <span className="auth-profile-card__meta">
                   <strong>{profile.displayName}</strong>
                   <span>{profile.role === 'master' ? 'Master' : 'Avventuriero'}</span>
-                  <span className="auth-profile-card__password">{profile.username}123</span>
                 </span>
               </button>
             );
           })}
         </div>
 
-        <form
-          className="auth-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onLogin(username, password);
-          }}
-        >
-          <label>
-            Profilo selezionato
-            <input value={selectedProfile.displayName} readOnly autoComplete="username" />
-          </label>
+        <section className={`auth-access ${isAccessPanelOpen ? 'auth-access--open' : ''}`}>
+          <button
+            type="button"
+            className="auth-access__toggle"
+            aria-expanded={isAccessPanelOpen}
+            onClick={() => setIsAccessPanelOpen((current) => !current)}
+          >
+            <span>Accedi Con Credenziali</span>
+            <span className="auth-access__chevron" aria-hidden="true">
+              {isAccessPanelOpen ? '−' : '+'}
+            </span>
+          </button>
 
-          <label>
-            Password
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-            />
-          </label>
+          {isAccessPanelOpen ? (
+            <div className="auth-access__body">
+              <div className="auth-access__inner">
+                <form
+                  className="auth-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    onLogin(username, password);
+                  }}
+                >
+                  <label className="auth-field">
+                    <span>Profilo Selezionato</span>
+                    <input value={selectedProfile.displayName} readOnly autoComplete="username" />
+                  </label>
 
-          {selectedProfile.role === 'adventurer' ? (
-            <div className="auth-profile-details">
-              <span>Iniziativa {selectedProfile.initiativeModifier >= 0 ? `+${selectedProfile.initiativeModifier}` : selectedProfile.initiativeModifier}</span>
-              <span>Movimento {selectedProfile.movement ?? 'n/d'}</span>
-              <span>{selectedProfile.darkvision ?? 'Nessuna scurovisione'}</span>
+                  <label className="auth-field">
+                    <span>Password</span>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      autoComplete="current-password"
+                    />
+                  </label>
+
+                  {selectedProfile.role === 'adventurer' ? (
+                    <div className="auth-profile-details">
+                      <span>Iniziativa {selectedProfile.initiativeModifier >= 0 ? `+${selectedProfile.initiativeModifier}` : selectedProfile.initiativeModifier}</span>
+                      <span>Movimento {selectedProfile.movement ?? 'N/D'}</span>
+                      <span>{selectedProfile.darkvision ?? 'Nessuna Scurovisione'}</span>
+                    </div>
+                  ) : null}
+                </form>
+              </div>
             </div>
           ) : null}
+        </section>
 
-          {error ? <p className="auth-error">{error}</p> : null}
+        {error ? <p className="auth-error">{error}</p> : null}
 
-          <button type="submit" className="primary-button" disabled={isLoading}>
-            {isLoading ? 'Connessione in corso...' : 'Entra nella sessione'}
-          </button>
-        </form>
+        <button
+          type="button"
+          className="primary-button auth-submit"
+          disabled={isLoading}
+          onClick={() => onLogin(username, password)}
+        >
+          {isLoading ? 'Connessione In Corso...' : "Partecipa All'Avventura"}
+        </button>
       </section>
     </div>
   );

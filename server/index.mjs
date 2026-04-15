@@ -1,5 +1,8 @@
 import Fastify from 'fastify';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   CHARACTER_PROFILES,
   findCharacterProfileById,
@@ -15,6 +18,9 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 const SESSION_COOKIE = 'battle_map_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const PASSWORD_SALT = process.env.AUTH_PASSWORD_SALT ?? 'board-map-demo-salt';
+const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SESSION_DATA_DIR = path.join(SERVER_DIR, 'data');
+const SESSION_SNAPSHOT_PATH = path.join(SESSION_DATA_DIR, 'last-session.json');
 
 const DEFAULT_TOKEN_COLORS = {
   player: '#2f9e44',
@@ -39,45 +45,23 @@ const demoUsers = CHARACTER_PROFILES.map((profile) => ({
 }));
 
 const initialSharedState = {
-  tokens: [
-    {
-      id: 'sample-enemy-1',
-      name: 'Goblin A',
-      type: 'enemy',
-      size: 'small',
-      position: { x: 14, y: 10 },
-      color: DEFAULT_TOKEN_COLORS.enemy,
-      initiativeModifier: 0,
-      affiliation: 'enemy',
-      vehicleKind: null,
-      showVehicleOccupants: undefined,
-      conditions: [],
-    },
-    {
-      id: 'sample-enemy-2',
-      name: 'Goblin B',
-      type: 'enemy',
-      size: 'small',
-      position: { x: 16, y: 11 },
-      color: DEFAULT_TOKEN_COLORS.enemy,
-      initiativeModifier: 0,
-      affiliation: 'enemy',
-      vehicleKind: null,
-      showVehicleOccupants: undefined,
-      conditions: [],
-    },
-  ],
+  tokens: [],
   diceLogs: [],
   initiatives: [],
   activeTurnTokenId: null,
   roundNumber: 1,
   movementUsedByTokenId: {},
   dashUsedByTokenId: {},
+  extraMovementByTokenId: {},
 };
 
 let battleMapState = normalizeSharedState(initialSharedState);
 let battleMapVersion = 1;
+let lastSessionSnapshot = null;
 const streamClients = new Set();
+const masterUndoStack = [];
+const playerUndoStackByUserId = new Map();
+const MAX_UNDO_STEPS = 40;
 
 function defaultVehicleColor(side) {
   return side === 'enemy' ? '#7f1d1d' : '#374151';
@@ -209,6 +193,9 @@ function normalizeSharedState(parsed) {
           imageUrl: typeof token.imageUrl === 'string' ? token.imageUrl : null,
           ownerUserId: typeof token.ownerUserId === 'string' ? token.ownerUserId : null,
           characterKey: typeof token.characterKey === 'string' ? token.characterKey : null,
+          hitPoints: typeof token.hitPoints === 'number' ? token.hitPoints : null,
+          maxHitPoints: typeof token.maxHitPoints === 'number' ? token.maxHitPoints : null,
+          isInvisible: token.isInvisible === true,
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
         };
       })
@@ -246,6 +233,17 @@ function normalizeSharedState(parsed) {
             Object.entries(parsed.dashUsedByTokenId).filter(
               ([tokenId, used]) =>
                 tokens.some((token) => token.id === tokenId) && typeof used === 'boolean',
+            ),
+          )
+        : {},
+    extraMovementByTokenId:
+      parsed?.extraMovementByTokenId && typeof parsed.extraMovementByTokenId === 'object'
+        ? Object.fromEntries(
+            Object.entries(parsed.extraMovementByTokenId).filter(
+              ([tokenId, extra]) =>
+                tokens.some((token) => token.id === tokenId) &&
+                typeof extra === 'number' &&
+                extra >= 0,
             ),
           )
         : {},
@@ -358,11 +356,112 @@ function findUserControlledVehicle(user) {
   );
 }
 
-function nextSnapshot() {
+function sanitizeStateForUser(state, user) {
+  if (!user || user.role === 'master') {
+    return state;
+  }
+
+  return normalizeSharedState({
+    ...state,
+    tokens: state.tokens.filter((token) => !token.isInvisible || token.ownerUserId === user.id),
+    initiatives: state.initiatives.filter((entry) =>
+      state.tokens.some(
+        (token) =>
+          token.id === entry.tokenId && (!token.isInvisible || token.ownerUserId === user.id),
+      ),
+    ),
+    activeTurnTokenId:
+      state.activeTurnTokenId &&
+      state.tokens.some(
+        (token) =>
+          token.id === state.activeTurnTokenId && (!token.isInvisible || token.ownerUserId === user.id),
+      )
+        ? state.activeTurnTokenId
+        : null,
+  });
+}
+
+function nextSnapshot(user = null) {
   return {
-    state: battleMapState,
+    state: sanitizeStateForUser(battleMapState, user),
     version: battleMapVersion,
   };
+}
+
+function getSessionStatus() {
+  return {
+    hasSnapshot: Boolean(lastSessionSnapshot),
+    savedAt: lastSessionSnapshot?.savedAt ?? null,
+    version: typeof lastSessionSnapshot?.version === 'number' ? lastSessionSnapshot.version : null,
+  };
+}
+
+function cloneStateSnapshot(state = battleMapState) {
+  return JSON.parse(JSON.stringify(state));
+}
+
+function pushMasterUndoState() {
+  masterUndoStack.push(cloneStateSnapshot());
+  if (masterUndoStack.length > MAX_UNDO_STEPS) {
+    masterUndoStack.shift();
+  }
+}
+
+function pushPlayerUndoAction(userId, action) {
+  const currentStack = playerUndoStackByUserId.get(userId) ?? [];
+  currentStack.push(action);
+  if (currentStack.length > MAX_UNDO_STEPS) {
+    currentStack.shift();
+  }
+  playerUndoStackByUserId.set(userId, currentStack);
+}
+
+async function persistSessionSnapshot(snapshot) {
+  await mkdir(SESSION_DATA_DIR, { recursive: true });
+  await writeFile(SESSION_SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2), 'utf8');
+  lastSessionSnapshot = snapshot;
+}
+
+async function saveCurrentSessionSnapshot() {
+  const snapshot = {
+    savedAt: new Date().toISOString(),
+    version: battleMapVersion,
+    state: battleMapState,
+  };
+
+  await persistSessionSnapshot(snapshot);
+  return snapshot;
+}
+
+async function loadPersistedSessionSnapshot() {
+  try {
+    const rawSnapshot = await readFile(SESSION_SNAPSHOT_PATH, 'utf8');
+    const parsedSnapshot = JSON.parse(rawSnapshot);
+    const normalizedState = normalizeSharedState(parsedSnapshot?.state);
+    const version = typeof parsedSnapshot?.version === 'number' && parsedSnapshot.version > 0
+      ? parsedSnapshot.version
+      : 1;
+    const snapshot = {
+      savedAt:
+        typeof parsedSnapshot?.savedAt === 'string'
+          ? parsedSnapshot.savedAt
+          : new Date().toISOString(),
+      version,
+      state: normalizedState,
+    };
+
+    lastSessionSnapshot = snapshot;
+    battleMapState = normalizedState;
+    battleMapVersion = version;
+    return snapshot;
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      app.log.error(error, 'Unable to load persisted session snapshot.');
+    }
+
+    lastSessionSnapshot = null;
+    return null;
+  }
 }
 
 function bumpBattleMapVersion() {
@@ -370,11 +469,9 @@ function bumpBattleMapVersion() {
 }
 
 function broadcastSnapshot() {
-  const payload = `data: ${JSON.stringify(nextSnapshot())}\n\n`;
-
   streamClients.forEach((client) => {
     try {
-      client.write(payload);
+      client.write(`data: ${JSON.stringify(nextSnapshot(client.user))}\n\n`);
     } catch (error) {
       streamClients.delete(client);
     }
@@ -382,9 +479,11 @@ function broadcastSnapshot() {
 }
 
 function replaceBattleMapState(nextState) {
+  pushMasterUndoState();
   const normalizedState = normalizeSharedState(nextState);
   const validationError = validateSharedState(normalizedState);
   if (validationError) {
+    masterUndoStack.pop();
     return {
       ...validationError,
       ...nextSnapshot(),
@@ -393,6 +492,16 @@ function replaceBattleMapState(nextState) {
 
   battleMapState = normalizedState;
   bumpBattleMapVersion();
+  broadcastSnapshot();
+  return nextSnapshot();
+}
+
+async function restoreLastSessionSnapshot() {
+  const snapshot = await loadPersistedSessionSnapshot();
+  if (!snapshot) {
+    return null;
+  }
+
   broadcastSnapshot();
   return nextSnapshot();
 }
@@ -425,6 +534,7 @@ function applyRoundWrapState(nextState, direction) {
       roundNumber: 1,
       movementUsedByTokenId: {},
       dashUsedByTokenId: {},
+      extraMovementByTokenId: {},
     };
   }
 
@@ -442,6 +552,7 @@ function applyRoundWrapState(nextState, direction) {
         roundNumber: Math.max(1, nextState.roundNumber + (direction === 'next' ? 1 : -1)),
         movementUsedByTokenId: {},
         dashUsedByTokenId: {},
+        extraMovementByTokenId: {},
       }
     : nextState;
 }
@@ -467,9 +578,10 @@ function moveOwnedToken(user, tokenId, x, y) {
     : token;
   const movementSourceId = movementSourceToken?.id ?? tokenId;
   const movementCells = typeof movementSourceToken?.movementCells === 'number' ? movementSourceToken.movementCells : 0;
+  const extraMovement = battleMapState.extraMovementByTokenId[movementSourceId] ?? 0;
   const usedCells = battleMapState.movementUsedByTokenId[movementSourceId] ?? 0;
   const hasDashed = battleMapState.dashUsedByTokenId[movementSourceId] === true;
-  const movementBudget = movementCells * (hasDashed ? 2 : 1);
+  const movementBudget = movementCells * (hasDashed ? 2 : 1) + extraMovement;
   const moveDistance = gridDistance(token.position, { x, y });
 
   if (hasInitiativeOrder && user.role !== 'master' && usedCells + moveDistance > movementBudget) {
@@ -506,6 +618,15 @@ function moveOwnedToken(user, tokenId, x, y) {
   }
 
   battleMapState = nextState;
+  if (user.role !== 'master') {
+    pushPlayerUndoAction(user.id, {
+      type: 'move',
+      tokenId,
+      previousPosition: token.position,
+      movementSourceId,
+      previousMovementUsed: usedCells,
+    });
+  }
   bumpBattleMapVersion();
   broadcastSnapshot();
   return { status: 200, snapshot: nextSnapshot() };
@@ -536,6 +657,173 @@ function useDashAction(user, tokenId) {
       [tokenId]: true,
     },
   });
+  pushPlayerUndoAction(user.id, {
+    type: 'dash',
+    tokenId,
+    previousDashUsed: false,
+  });
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+  return { status: 200, snapshot: nextSnapshot() };
+}
+
+function updateOwnedToken(user, tokenId, updates) {
+  const tokenIndex = battleMapState.tokens.findIndex((token) => token.id === tokenId);
+  if (tokenIndex === -1) {
+    return { status: 404, message: 'Token non trovato.' };
+  }
+
+  const token = battleMapState.tokens[tokenIndex];
+  if (user.role !== 'master' && token.ownerUserId !== user.id) {
+    return { status: 403, message: 'Puoi modificare solo il tuo personaggio.' };
+  }
+
+  const nextUpdates = {};
+  if (typeof updates?.hitPoints === 'number') {
+    nextUpdates.hitPoints = updates.hitPoints;
+  } else if (updates?.hitPoints === null) {
+    nextUpdates.hitPoints = null;
+  }
+
+  if (typeof updates?.maxHitPoints === 'number') {
+    nextUpdates.maxHitPoints = updates.maxHitPoints;
+  } else if (updates?.maxHitPoints === null) {
+    nextUpdates.maxHitPoints = null;
+  }
+
+  if (Object.keys(nextUpdates).length === 0) {
+    return { status: 400, message: 'Nessun aggiornamento valido.' };
+  }
+
+  if (user.role === 'master') {
+    pushMasterUndoState();
+  }
+
+  battleMapState = normalizeSharedState({
+    ...battleMapState,
+    tokens: battleMapState.tokens.map((currentToken) =>
+      currentToken.id === tokenId ? { ...currentToken, ...nextUpdates } : currentToken,
+    ),
+  });
+
+  if (user.role !== 'master') {
+    pushPlayerUndoAction(user.id, {
+      type: 'token-update',
+      tokenId,
+      previousValues: {
+        hitPoints: token.hitPoints ?? null,
+        maxHitPoints: token.maxHitPoints ?? null,
+      },
+    });
+  }
+
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+  return { status: 200, snapshot: nextSnapshot() };
+}
+
+function addExtraMovement(user, tokenId, amount) {
+  const token = battleMapState.tokens.find((entry) => entry.id === tokenId);
+  if (!token) {
+    return { status: 404, message: 'Token non trovato.' };
+  }
+
+  if (user.role !== 'master' && token.ownerUserId !== user.id) {
+    return { status: 403, message: 'Puoi aggiungere movimento solo al tuo personaggio.' };
+  }
+
+  const safeAmount = Math.max(1, Math.floor(amount || 1));
+  const previousAmount = battleMapState.extraMovementByTokenId[tokenId] ?? 0;
+
+  if (user.role === 'master') {
+    pushMasterUndoState();
+  }
+
+  battleMapState = normalizeSharedState({
+    ...battleMapState,
+    extraMovementByTokenId: {
+      ...battleMapState.extraMovementByTokenId,
+      [tokenId]: previousAmount + safeAmount,
+    },
+  });
+
+  if (user.role !== 'master') {
+    pushPlayerUndoAction(user.id, {
+      type: 'extra-movement',
+      tokenId,
+      previousAmount,
+    });
+  }
+
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+  return { status: 200, snapshot: nextSnapshot() };
+}
+
+function undoLastAction(user) {
+  if (user.role === 'master') {
+    const previousState = masterUndoStack.pop();
+    if (!previousState) {
+      return { status: 400, message: 'Nessuna azione da annullare.' };
+    }
+
+    battleMapState = normalizeSharedState(previousState);
+    bumpBattleMapVersion();
+    broadcastSnapshot();
+    return { status: 200, snapshot: nextSnapshot() };
+  }
+
+  const playerStack = playerUndoStackByUserId.get(user.id) ?? [];
+  const action = playerStack.pop();
+  if (!action) {
+    return { status: 400, message: 'Nessuna tua azione da annullare.' };
+  }
+
+  if (action.type === 'move') {
+    battleMapState = normalizeSharedState({
+      ...battleMapState,
+      tokens: applyVehicleAwareUpdates(
+        battleMapState.tokens.map((token) =>
+          token.id === action.tokenId ? { ...token, position: action.previousPosition } : token,
+        ),
+      ),
+      movementUsedByTokenId: {
+        ...battleMapState.movementUsedByTokenId,
+        [action.movementSourceId]: action.previousMovementUsed,
+      },
+    });
+  }
+
+  if (action.type === 'dash') {
+    battleMapState = normalizeSharedState({
+      ...battleMapState,
+      dashUsedByTokenId: {
+        ...battleMapState.dashUsedByTokenId,
+        [action.tokenId]: action.previousDashUsed,
+      },
+    });
+  }
+
+  if (action.type === 'token-update') {
+    battleMapState = normalizeSharedState({
+      ...battleMapState,
+      tokens: battleMapState.tokens.map((token) =>
+        token.id === action.tokenId ? { ...token, ...action.previousValues } : token,
+      ),
+    });
+  }
+
+  if (action.type === 'extra-movement') {
+    battleMapState = normalizeSharedState({
+      ...battleMapState,
+      extraMovementByTokenId: {
+        ...battleMapState.extraMovementByTokenId,
+        [action.tokenId]: action.previousAmount,
+      },
+    });
+  }
+
+  playerUndoStackByUserId.set(user.id, playerStack);
   bumpBattleMapVersion();
   broadcastSnapshot();
   return { status: 200, snapshot: nextSnapshot() };
@@ -656,6 +944,9 @@ function createCharacterToken(profile, userId) {
     imageUrl: profile.imageUrl,
     ownerUserId: userId,
     characterKey: profile.key,
+    hitPoints: null,
+    maxHitPoints: null,
+    isInvisible: false,
     conditions: [],
   };
 }
@@ -882,7 +1173,16 @@ app.get('/api/battle-map/state', async (request, reply) => {
     return;
   }
 
-  return nextSnapshot();
+  return nextSnapshot(user);
+});
+
+app.get('/api/battle-map/session-status', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  return getSessionStatus();
 });
 
 app.put('/api/battle-map/state', async (request, reply) => {
@@ -899,7 +1199,7 @@ app.put('/api/battle-map/state', async (request, reply) => {
     reply.code(409);
     return {
       message: 'Lo stato condiviso e cambiato. Sincronizza e riprova.',
-      ...nextSnapshot(),
+      ...nextSnapshot(user),
     };
   }
 
@@ -951,11 +1251,11 @@ app.post('/api/battle-map/move', async (request, reply) => {
     reply.code(result.status);
     return {
       message: result.message,
-      ...(result.snapshot ?? nextSnapshot()),
+      ...nextSnapshot(user),
     };
   }
 
-  return result.snapshot;
+  return nextSnapshot(user);
 });
 
 app.post('/api/battle-map/dash', async (request, reply) => {
@@ -976,11 +1276,109 @@ app.post('/api/battle-map/dash', async (request, reply) => {
     reply.code(result.status);
     return {
       message: result.message,
-      ...(result.snapshot ?? nextSnapshot()),
+      ...nextSnapshot(user),
     };
   }
 
-  return result.snapshot;
+  return nextSnapshot(user);
+});
+
+app.post('/api/battle-map/token-update', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const body = request.body ?? {};
+  const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
+  if (!tokenId || typeof body.updates !== 'object' || !body.updates) {
+    reply.code(400);
+    return { message: 'Payload token update non valido.' };
+  }
+
+  const result = updateOwnedToken(user, tokenId, body.updates);
+  if (result.status !== 200) {
+    reply.code(result.status);
+    return {
+      message: result.message,
+      ...nextSnapshot(user),
+    };
+  }
+
+  return nextSnapshot(user);
+});
+
+app.post('/api/battle-map/extra-movement', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const body = request.body ?? {};
+  const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
+  const amount = typeof body.amount === 'number' ? body.amount : 1;
+  if (!tokenId) {
+    reply.code(400);
+    return { message: 'Payload extra movement non valido.' };
+  }
+
+  const result = addExtraMovement(user, tokenId, amount);
+  if (result.status !== 200) {
+    reply.code(result.status);
+    return {
+      message: result.message,
+      ...nextSnapshot(user),
+    };
+  }
+
+  return nextSnapshot(user);
+});
+
+app.post('/api/battle-map/undo', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const result = undoLastAction(user);
+  if (result.status !== 200) {
+    reply.code(result.status);
+    return {
+      message: result.message,
+      ...nextSnapshot(user),
+    };
+  }
+
+  return nextSnapshot(user);
+});
+
+app.post('/api/battle-map/session/suspend', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const snapshot = await saveCurrentSessionSnapshot();
+  return snapshot;
+});
+
+app.post('/api/battle-map/session/resume', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const snapshot = await restoreLastSessionSnapshot();
+  if (!snapshot) {
+    reply.code(404);
+    return { message: 'Nessuna sessione salvata disponibile.' };
+  }
+
+  return {
+    savedAt: lastSessionSnapshot.savedAt,
+    version: snapshot.version,
+    state: snapshot.state,
+  };
 });
 
 app.get('/api/battle-map/stream', async (request, reply) => {
@@ -998,10 +1396,11 @@ app.get('/api/battle-map/stream', async (request, reply) => {
   reply.hijack();
 
   const client = {
+    user,
     write: (payload) => reply.raw.write(payload),
   };
   streamClients.add(client);
-  client.write(`data: ${JSON.stringify(nextSnapshot())}\n\n`);
+  client.write(`data: ${JSON.stringify(nextSnapshot(user))}\n\n`);
 
   const keepAliveId = setInterval(() => {
     client.write(': keepalive\n\n');
@@ -1013,7 +1412,12 @@ app.get('/api/battle-map/stream', async (request, reply) => {
   });
 });
 
-app.listen({ port: PORT, host: HOST }).catch((error) => {
+async function start() {
+  await loadPersistedSessionSnapshot();
+  await app.listen({ port: PORT, host: HOST });
+}
+
+start().catch((error) => {
   app.log.error(error);
   process.exit(1);
 });

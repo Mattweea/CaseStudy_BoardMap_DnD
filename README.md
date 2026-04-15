@@ -35,6 +35,7 @@ L'app unisce in un'unica interfaccia:
 - log dadi condiviso fra tutti i client
 - iniziativa centralizzata: solo il master puo tirarla per tutti, modificarla e resettarla
 - turno attivo condiviso con selezione manuale, `Next`, `Prev` e wrap automatico a fine round
+- sospensione e ripresa della sessione tramite snapshot JSON persistito lato server
 - permessi mappa: solo il master puo aggiungere, modificare, rimuovere o spostare elementi
 - visione live per gli avventurieri, che possono consultare board, manuale, log e ordine turni
 
@@ -121,8 +122,10 @@ media/
 
 ## Realtime e persistenza
 
-- lo stato condiviso della partita vive in memoria nel processo Fastify
+- lo stato condiviso della partita vive nel processo Fastify ed e sincronizzato via SSE
 - ogni modifica valida genera un nuovo snapshot broadcastato via SSE
+- il master puo sospendere la sessione salvando uno snapshot completo su `server/data/last-session.json`
+- al riavvio del backend, se esiste uno snapshot salvato, viene ricaricato automaticamente
 - i client autenticati restano allineati su:
   - token in mappa
   - log dadi
@@ -171,7 +174,7 @@ Per la procedura completa con `./start-live-session.sh`, tunnel HTTPS e troubles
 - i dadi usano `crypto.getRandomValues` per il random uniforme
 - Ragnar ha il vantaggio gestito automaticamente nel roll iniziativa globale
 - le immagini dei personaggi vengono mostrate come sfondo del relativo token
-- se riavvii il backend, la partita si resetta perche non esiste ancora persistenza su file o database
+- se non hai mai salvato una sessione, al riavvio il backend parte con una battle map vuota
 - dopo modifiche ai profili lato server conviene riavviare `npm run dev:server`
 
 ## Documentazione funzionale

@@ -48,6 +48,9 @@ export interface UnitToken {
   imageUrl?: string | null;
   ownerUserId?: string | null;
   characterKey?: CharacterKey | null;
+  hitPoints?: number | null;
+  maxHitPoints?: number | null;
+  isInvisible?: boolean;
   conditions: TokenCondition[];
 }
 
@@ -60,6 +63,7 @@ export interface BattleMapState {
   roundNumber: number;
   movementUsedByTokenId: Record<string, number>;
   dashUsedByTokenId: Record<string, boolean>;
+  extraMovementByTokenId: Record<string, number>;
 }
 
 export interface BattleMapSharedState {
@@ -70,6 +74,19 @@ export interface BattleMapSharedState {
   roundNumber: number;
   movementUsedByTokenId: Record<string, number>;
   dashUsedByTokenId: Record<string, boolean>;
+  extraMovementByTokenId: Record<string, number>;
+}
+
+export interface BattleMapSessionSnapshot {
+  savedAt: string;
+  version: number;
+  state: BattleMapSharedState;
+}
+
+export interface BattleMapSessionStatus {
+  hasSnapshot: boolean;
+  savedAt: string | null;
+  version: number | null;
 }
 
 export interface AuthUser {

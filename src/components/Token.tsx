@@ -77,6 +77,11 @@ export function Token({
           ))}
         </span>
       ) : null}
+      {token.maxHitPoints !== null && token.maxHitPoints !== undefined ? (
+        <span className="token__hp" aria-label={`Punti ferita ${token.hitPoints ?? 0} su ${token.maxHitPoints}`}>
+          {`${token.hitPoints ?? 0}/${token.maxHitPoints}`}
+        </span>
+      ) : null}
       {isCompact ? <span className="token__compact">{compactLabel}</span> : null}
       <span className="token__name">{token.name}</span>
       <span className="token__type">{tokenTypeLabel(token.type)}</span>

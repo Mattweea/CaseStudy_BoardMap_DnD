@@ -80,6 +80,9 @@ export function createToken(
     imageUrl: imageUrl ?? null,
     ownerUserId: ownerUserId ?? null,
     characterKey: characterKey ?? null,
+    hitPoints: null,
+    maxHitPoints: null,
+    isInvisible: false,
     conditions: [],
   };
 }
