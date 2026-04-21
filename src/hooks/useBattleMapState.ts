@@ -368,7 +368,7 @@ export function useBattleMapState() {
         {
           method: 'PUT',
           body: JSON.stringify({
-            baseVersion: versionRef.current,
+            baseVersion: previousVersion,
             state: nextState,
           }),
         },
@@ -384,10 +384,39 @@ export function useBattleMapState() {
           : undefined;
 
       if (conflictState?.state && typeof conflictState.version === 'number') {
-        applySnapshot(conflictState.state, conflictState.version);
-      } else {
-        applySnapshot(previousState, previousVersion);
+        const rebasedState = normalizeSharedState(updater(normalizeSharedState(conflictState.state)));
+        setOptimisticState(rebasedState);
+
+        try {
+          const retryPayload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+            '/battle-map/state',
+            {
+              method: 'PUT',
+              body: JSON.stringify({
+                baseVersion: conflictState.version,
+                state: rebasedState,
+              }),
+            },
+          );
+
+          applySnapshot(retryPayload.state, retryPayload.version);
+          return;
+        } catch (retryError) {
+          console.error(retryError);
+
+          const retryConflict =
+            retryError instanceof Error && 'payload' in retryError
+              ? (retryError.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+              : undefined;
+
+          if (retryConflict?.state && typeof retryConflict.version === 'number') {
+            applySnapshot(retryConflict.state, retryConflict.version);
+            return;
+          }
+        }
       }
+
+      applySnapshot(previousState, previousVersion);
     }
   };
 
@@ -844,14 +873,26 @@ export function useBattleMapState() {
   };
 
   const undoLastAction = async () => {
-    const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-      '/battle-map/undo',
-      {
-        method: 'POST',
-      },
-    );
+    try {
+      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+        '/battle-map/undo',
+        {
+          method: 'POST',
+        },
+      );
 
-    applySnapshot(payload.state, payload.version);
+      applySnapshot(payload.state, payload.version);
+    } catch (error) {
+      console.error(error);
+      const payload =
+        error instanceof Error && 'payload' in error
+          ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+          : undefined;
+
+      if (payload?.state && typeof payload.version === 'number') {
+        applySnapshot(payload.state, payload.version);
+      }
+    }
   };
 
   const setActiveTurnToken = (tokenId: string) => {

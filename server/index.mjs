@@ -433,7 +433,7 @@ async function saveCurrentSessionSnapshot() {
   return snapshot;
 }
 
-async function loadPersistedSessionSnapshot() {
+async function readPersistedSessionSnapshot() {
   try {
     const rawSnapshot = await readFile(SESSION_SNAPSHOT_PATH, 'utf8');
     const parsedSnapshot = JSON.parse(rawSnapshot);
@@ -450,18 +450,20 @@ async function loadPersistedSessionSnapshot() {
       state: normalizedState,
     };
 
-    lastSessionSnapshot = snapshot;
-    battleMapState = normalizedState;
-    battleMapVersion = version;
     return snapshot;
   } catch (error) {
     if (error?.code !== 'ENOENT') {
       app.log.error(error, 'Unable to load persisted session snapshot.');
     }
 
-    lastSessionSnapshot = null;
     return null;
   }
+}
+
+async function loadPersistedSessionMetadata() {
+  const snapshot = await readPersistedSessionSnapshot();
+  lastSessionSnapshot = snapshot;
+  return snapshot;
 }
 
 function bumpBattleMapVersion() {
@@ -497,11 +499,15 @@ function replaceBattleMapState(nextState) {
 }
 
 async function restoreLastSessionSnapshot() {
-  const snapshot = await loadPersistedSessionSnapshot();
+  const snapshot = await readPersistedSessionSnapshot();
   if (!snapshot) {
+    lastSessionSnapshot = null;
     return null;
   }
 
+  lastSessionSnapshot = snapshot;
+  battleMapState = snapshot.state;
+  battleMapVersion = snapshot.version;
   broadcastSnapshot();
   return nextSnapshot();
 }
@@ -732,8 +738,17 @@ function addExtraMovement(user, tokenId, amount) {
     return { status: 403, message: 'Puoi aggiungere movimento solo al tuo personaggio.' };
   }
 
-  const safeAmount = Math.max(1, Math.floor(amount || 1));
+  const parsedAmount = Math.trunc(Number.isFinite(amount) ? amount : 1);
+  if (parsedAmount === 0) {
+    return { status: 400, message: 'La variazione di movimento non puo essere zero.' };
+  }
+
   const previousAmount = battleMapState.extraMovementByTokenId[tokenId] ?? 0;
+  const nextAmount = Math.max(0, previousAmount + parsedAmount);
+
+  if (nextAmount === previousAmount) {
+    return { status: 400, message: 'Nessuna variazione di movimento disponibile.' };
+  }
 
   if (user.role === 'master') {
     pushMasterUndoState();
@@ -743,7 +758,7 @@ function addExtraMovement(user, tokenId, amount) {
     ...battleMapState,
     extraMovementByTokenId: {
       ...battleMapState.extraMovementByTokenId,
-      [tokenId]: previousAmount + safeAmount,
+      [tokenId]: nextAmount,
     },
   });
 
@@ -1413,7 +1428,7 @@ app.get('/api/battle-map/stream', async (request, reply) => {
 });
 
 async function start() {
-  await loadPersistedSessionSnapshot();
+  await loadPersistedSessionMetadata();
   await app.listen({ port: PORT, host: HOST });
 }
 

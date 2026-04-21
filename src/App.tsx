@@ -28,6 +28,32 @@ const SIDEBAR_SHORTCUTS: Array<{ id: SidebarSectionId; icon: string; label: stri
   { id: 'legend', icon: '?', label: 'Legenda Comandi' },
 ];
 
+const KEYBOARD_MOVEMENTS: Record<string, { dx: number; dy: number }> = {
+  ArrowUp: { dx: 0, dy: -1 },
+  ArrowDown: { dx: 0, dy: 1 },
+  ArrowLeft: { dx: -1, dy: 0 },
+  ArrowRight: { dx: 1, dy: 0 },
+  Home: { dx: -1, dy: -1 },
+  PageUp: { dx: 1, dy: -1 },
+  End: { dx: -1, dy: 1 },
+  PageDown: { dx: 1, dy: 1 },
+};
+
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName.toLowerCase();
+  return (
+    target.isContentEditable ||
+    tagName === 'input' ||
+    tagName === 'textarea' ||
+    tagName === 'select' ||
+    target.closest('[role="dialog"]') !== null
+  );
+}
+
 interface DiceResultScene {
   flavor: string;
   log: DiceRollLog;
@@ -180,6 +206,64 @@ function App() {
     }
   }, [canManageBattleMap, sessionToken, state.tokens, user]);
 
+  function moveSessionTokenBy(deltaX: number, deltaY: number) {
+    if (!sessionToken) {
+      return;
+    }
+
+    void moveOwnedToken(
+      sessionToken.id,
+      sessionToken.position.x + deltaX,
+      sessionToken.position.y + deltaY,
+    );
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        void undoLastAction();
+        return;
+      }
+
+      if (canManageBattleMap && (event.key === 'Delete' || event.key === 'Backspace')) {
+        if (selectedTokenIds.length === 0) {
+          return;
+        }
+
+        event.preventDefault();
+        removeTokens(selectedTokenIds);
+        return;
+      }
+
+      if (canManageBattleMap || !sessionToken) {
+        return;
+      }
+
+      const movement = KEYBOARD_MOVEMENTS[event.key];
+      if (!movement) {
+        return;
+      }
+
+      event.preventDefault();
+      moveSessionTokenBy(movement.dx, movement.dy);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    canManageBattleMap,
+    moveSessionTokenBy,
+    removeTokens,
+    selectedTokenIds,
+    sessionToken,
+    undoLastAction,
+  ]);
+
   const locateToken = (tokenId: string) => {
     setFocusRequest({ tokenId, nonce: Date.now() });
     setSelectedTokenIds([tokenId]);
@@ -214,18 +298,6 @@ function App() {
   const openSidebarSection = (sectionId: SidebarSectionId) => {
     setSidebarLeadSection(sectionId);
     setIsSidebarCollapsed(false);
-  };
-
-  const moveSessionTokenBy = (deltaX: number, deltaY: number) => {
-    if (!sessionToken) {
-      return;
-    }
-
-    void moveOwnedToken(
-      sessionToken.id,
-      sessionToken.position.x + deltaX,
-      sessionToken.position.y + deltaY,
-    );
   };
 
   const addSelectedToInitiative = () => {
@@ -303,6 +375,15 @@ function App() {
                 <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(0, -1)}>↑</button>
                 <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(1, -1)}>↗</button>
                 <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(-1, 0)}>←</button>
+                <button
+                  type="button"
+                  className="movement-pad__button movement-pad__button--center"
+                  onClick={() => void addOwnedExtraMovement(sessionToken.id, -1)}
+                  disabled={extraMovement <= 0}
+                  title={extraMovement <= 0 ? 'Nessun movimento extra da rimuovere' : 'Rimuovi 1 casella di movimento extra'}
+                >
+                  -1
+                </button>
                 <button
                   type="button"
                   className="movement-pad__button movement-pad__button--center"
@@ -446,19 +527,21 @@ function App() {
                   <p><strong>➕</strong>: crea elemento.</p>
                   <p><strong>⚔️</strong>: aggiungi selezionati ai turni.</p>
                   <p><strong>🗑️</strong>: rimuovi selezionati.</p>
+                  <p><strong>Canc</strong>: rimuovi selezionati.</p>
                   <p><strong>Roll for selected</strong>: iniziativa solo ai selezionati.</p>
                   <p><strong>Invisibile</strong>: nasconde token ai player.</p>
-                  <p><strong>↶</strong>: undo globale.</p>
+                  <p><strong>↶ / Ctrl+Z</strong>: undo globale.</p>
                 </div>
               ) : (
                 <div className="command-legend__group">
                   <p className="command-legend__title">Player</p>
                   <p><strong>Tasto destro sul tuo PG</strong>: menu personale.</p>
-                  <p><strong>Frecce</strong>: muovi il tuo PG, diagonali incluse.</p>
-                  <p><strong>+1</strong>: movimento extra.</p>
+                  <p><strong>Frecce</strong>: muovi il tuo PG.</p>
+                  <p><strong>Home / PgUp / End / PgDn</strong>: diagonali.</p>
+                  <p><strong>-1 / +1</strong>: rimuovi o aggiungi movimento extra.</p>
                   <p><strong>🏃</strong>: scatto.</p>
                   <p><strong>PF</strong>: aggiorna i tuoi punti ferita.</p>
-                  <p><strong>↶</strong>: undo della tua ultima azione.</p>
+                  <p><strong>↶ / Ctrl+Z</strong>: undo della tua ultima azione.</p>
                 </div>
               )}
             </div>

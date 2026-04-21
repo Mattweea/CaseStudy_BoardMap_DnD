@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const defaultAllowedHosts = ['.ngrok-free.dev', '.ngrok.app'];
+
 const additionalAllowedHosts =
   ((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
     ?.__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS ?? '')
@@ -12,7 +14,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: true,
-    allowedHosts: additionalAllowedHosts,
+    allowedHosts: [...defaultAllowedHosts, ...additionalAllowedHosts],
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
@@ -22,6 +24,6 @@ export default defineConfig({
   },
   preview: {
     host: true,
-    allowedHosts: additionalAllowedHosts,
+    allowedHosts: [...defaultAllowedHosts, ...additionalAllowedHosts],
   },
 });
