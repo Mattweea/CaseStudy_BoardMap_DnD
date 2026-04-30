@@ -16,6 +16,7 @@ import {
 import {
   CREATURE_CONDITIONS,
   DEFAULT_TOKEN_COLORS,
+  findFirstAvailablePositionToRight,
   VEHICLE_CONDITIONS,
   VEHICLE_PRESETS,
   TOKEN_COLOR_PALETTE,
@@ -35,6 +36,11 @@ interface NewElementModalProps {
   tokenCount: number;
   onClose: () => void;
   onAddTokens: (tokens: UnitToken[]) => void;
+  onStartObstaclePlacement?: (config: {
+    name: string;
+    color: string;
+    selectedCells: number;
+  }) => void;
 }
 
 interface EditElementModalProps {
@@ -49,9 +55,10 @@ interface EditElementModalProps {
   onSaveToken: (tokenId: string, updates: Partial<UnitToken>) => void;
   onSaveOwnedToken?: (
     tokenId: string,
-    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints'>>,
+    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative'>>,
   ) => void;
   onRemoveToken: (tokenId: string) => void;
+  onDuplicateToken?: (tokenId: string) => void;
 }
 
 interface ElementsListModalProps {
@@ -62,6 +69,7 @@ interface ElementsListModalProps {
   onRemoveToken: (tokenId: string) => void;
   onLocateToken: (tokenId: string) => void;
   onEditToken: (tokenId: string) => void;
+  onDuplicateToken?: (tokenId: string) => void;
 }
 
 function sizeOptions(): DndSize[] {
@@ -80,6 +88,12 @@ function conditionOptions(type: TokenType): TokenCondition[] {
   }
 
   return [];
+}
+
+type ElementKind = TokenType | 'obstacle';
+
+function kindToTokenType(kind: ElementKind): TokenType {
+  return kind === 'obstacle' ? 'object' : kind;
 }
 
 function nextColor(type: TokenType, affiliation: TokenAffiliation, keepCurrent: boolean, current: string) {
@@ -141,6 +155,42 @@ function availableVehicles(
     const capacity = VEHICLE_PRESETS[candidate.vehicleKind ?? 'infernal-bike'].capacity;
     const occupants = candidate.vehicleOccupantIds ?? [];
     return occupants.includes(tokenId) || occupants.length < capacity;
+  });
+}
+
+function positionTokensToAvailableSlots(existingTokens: UnitToken[], tokensToPlace: UnitToken[]): UnitToken[] {
+  const occupiedTokens = [...existingTokens];
+
+  return tokensToPlace.map((token) => {
+    const footprint = {
+      width:
+        typeof token.widthCells === 'number' && token.widthCells > 0
+          ? Math.max(1, Math.floor(token.widthCells))
+          : token.size === 'large'
+            ? 2
+            : token.size === 'huge'
+              ? 3
+              : token.size === 'gargantuan'
+                ? 4
+                : 1,
+      height:
+        typeof token.heightCells === 'number' && token.heightCells > 0
+          ? Math.max(1, Math.floor(token.heightCells))
+          : token.size === 'large'
+            ? 2
+            : token.size === 'huge'
+              ? 3
+              : token.size === 'gargantuan'
+                ? 4
+                : 1,
+    };
+    const position = findFirstAvailablePositionToRight(occupiedTokens, footprint, token.position);
+    const placedToken = {
+      ...token,
+      position,
+    };
+    occupiedTokens.push(placedToken);
+    return placedToken;
   });
 }
 
@@ -449,13 +499,18 @@ export function NewElementModal({
   tokenCount,
   onClose,
   onAddTokens,
+  onStartObstaclePlacement,
 }: NewElementModalProps) {
   const [name, setName] = useState('');
-  const [type, setType] = useState<TokenType>('player');
+  const [kind, setKind] = useState<ElementKind>('player');
   const [size, setSize] = useState<DndSize>('medium');
   const [quantity, setQuantity] = useState(1);
   const [color, setColor] = useState(DEFAULT_TOKEN_COLORS.player);
   const [initiativeModifier, setInitiativeModifier] = useState(0);
+  const [widthCells, setWidthCells] = useState(1);
+  const [heightCells, setHeightCells] = useState(1);
+  const [blocksMovement, setBlocksMovement] = useState(false);
+  const [freeSelection, setFreeSelection] = useState(false);
   const [vehicleKind, setVehicleKind] = useState<VehicleKind>('infernal-bike');
   const [vehicleAffiliation, setVehicleAffiliation] = useState<TokenAffiliation>('player');
   const [showVehicleOccupants, setShowVehicleOccupants] = useState(true);
@@ -466,6 +521,7 @@ export function NewElementModal({
   const [newEnemyQuantity, setNewEnemyQuantity] = useState(1);
 
   useEffect(() => {
+    const type = kindToTokenType(kind);
     if (!isOpen) {
       return;
     }
@@ -477,27 +533,49 @@ export function NewElementModal({
     }
 
     setColor(DEFAULT_TOKEN_COLORS[type]);
-  }, [isOpen, type, vehicleAffiliation, vehicleKind]);
+    if (kind === 'obstacle') {
+      setBlocksMovement(true);
+      setWidthCells((current) => Math.max(1, current));
+      setHeightCells((current) => Math.max(1, current));
+    }
+  }, [isOpen, kind, vehicleAffiliation, vehicleKind]);
 
   useEffect(() => {
-    if (type !== 'vehicle') {
+    if (kindToTokenType(kind) !== 'vehicle') {
       return;
     }
 
     setVehicleSeats((current) => seatsFromOccupants(current.filter(Boolean), VEHICLE_PRESETS[vehicleKind].capacity));
-  }, [type, vehicleKind]);
+  }, [kind, vehicleKind]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const baseName = type === 'vehicle' ? VEHICLE_PRESETS[vehicleKind].label : name.trim();
-    const normalizedQuantity = type === 'vehicle' ? 1 : Math.max(1, Math.floor(quantity) || 1);
+    const type = kindToTokenType(kind);
+    const isObstacle = kind === 'obstacle';
+    const baseName =
+      type === 'vehicle'
+        ? VEHICLE_PRESETS[vehicleKind].label
+        : isObstacle
+          ? name.trim() || 'Ostacolo'
+          : name.trim();
+    const normalizedQuantity = type === 'vehicle' || isObstacle ? 1 : Math.max(1, Math.floor(quantity) || 1);
     if (!baseName) {
       return;
     }
 
+    if (isObstacle && freeSelection) {
+      onStartObstaclePlacement?.({
+        name: baseName,
+        color,
+        selectedCells: 0,
+      });
+      onClose();
+      return;
+    }
+
+    const tokenType = type;
     const createdTokens = Array.from({ length: normalizedQuantity }, (_, index) => {
       const tokenName = normalizedQuantity === 1 ? baseName : `${baseName} ${index + 1}`;
-      const tokenType = type;
       const tokenAffiliation =
         tokenType === 'vehicle'
           ? vehicleAffiliation
@@ -515,7 +593,12 @@ export function NewElementModal({
         tokenAffiliation,
         tokenType === 'vehicle' ? vehicleKind : null,
       );
-    });
+    }).map((token) => ({
+      ...token,
+      widthCells: tokenType === 'object' ? Math.max(1, Math.floor(widthCells) || 1) : null,
+      heightCells: tokenType === 'object' ? Math.max(1, Math.floor(heightCells) || 1) : null,
+      blocksMovement: tokenType === 'object' ? (isObstacle ? true : blocksMovement) : false,
+    }));
 
     if (type === 'vehicle') {
       const selectedOccupantIds = selectedSeatIds(vehicleSeats);
@@ -547,7 +630,7 @@ export function NewElementModal({
       }
 
       const occupantIds = [...selectedOccupantIds, ...createdEnemies.map((token) => token.id)];
-      const nextTokens = [...createdTokens, ...createdEnemies].map((token) => {
+      const nextTokens = positionTokensToAvailableSlots(tokens, [...createdTokens, ...createdEnemies]).map((token) => {
         if (token.type === 'vehicle') {
           return {
             ...token,
@@ -568,15 +651,19 @@ export function NewElementModal({
 
       onAddTokens(nextTokens);
     } else {
-      onAddTokens(createdTokens);
+      onAddTokens(positionTokensToAvailableSlots(tokens, createdTokens));
     }
 
     setName('');
-    setType('player');
+    setKind('player');
     setSize('medium');
     setQuantity(1);
     setColor(DEFAULT_TOKEN_COLORS.player);
     setInitiativeModifier(0);
+    setWidthCells(1);
+    setHeightCells(1);
+    setBlocksMovement(false);
+    setFreeSelection(false);
     setVehicleKind('infernal-bike');
     setVehicleAffiliation('player');
     setShowVehicleOccupants(true);
@@ -591,15 +678,16 @@ export function NewElementModal({
       <form className="token-form" onSubmit={handleSubmit}>
         <label>
           Tipo
-          <select value={type} onChange={(event) => setType(event.target.value as TokenType)}>
+          <select value={kind} onChange={(event) => setKind(event.target.value as ElementKind)}>
             <option value="player">PG</option>
             <option value="enemy">Nemico</option>
             <option value="object">Oggetto</option>
+            <option value="obstacle">Ostacolo</option>
             <option value="vehicle">Mezzo</option>
           </select>
         </label>
 
-        {type === 'vehicle' ? (
+        {kindToTokenType(kind) === 'vehicle' ? (
           <>
             <label>
               Mezzo
@@ -711,7 +799,7 @@ export function NewElementModal({
           </label>
         )}
 
-        {type !== 'vehicle' ? (
+        {kindToTokenType(kind) !== 'vehicle' && kind !== 'obstacle' && kindToTokenType(kind) !== 'object' ? (
           <label>
             Taglia
             <select
@@ -727,25 +815,77 @@ export function NewElementModal({
           </label>
         ) : null}
 
+        {kindToTokenType(kind) === 'object' ? (
+          <fieldset className="token-form__fieldset">
+            <legend>{kind === 'obstacle' ? 'Ingombro ostacolo' : 'Ingombro'}</legend>
+            <div className="vehicle-settings-row">
+              <label>
+                Larghezza caselle
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={widthCells}
+                  onChange={(event) => setWidthCells(Number(event.target.value) || 1)}
+                />
+              </label>
+              <label>
+                Altezza caselle
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={heightCells}
+                  onChange={(event) => setHeightCells(Number(event.target.value) || 1)}
+                />
+              </label>
+            </div>
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={kind === 'obstacle' ? true : blocksMovement}
+                disabled={kind === 'obstacle'}
+                onChange={(event) => setBlocksMovement(event.target.checked)}
+              />
+              <span>{kind === 'obstacle' ? 'Blocca il movimento dei player' : 'Blocca il movimento dei player'}</span>
+            </label>
+            {kind === 'obstacle' ? (
+              <>
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={freeSelection}
+                    onChange={(event) => setFreeSelection(event.target.checked)}
+                  />
+                  <span>Selezione libera sulla mappa</span>
+                </label>
+                <p className="form-hint">
+                  Se attiva, dopo il salvataggio potrai cliccare liberamente le celle sulla board e confermare l’ostacolo.
+                </p>
+              </>
+            ) : null}
+          </fieldset>
+        ) : null}
+
         <label>
           Quantita
           <input
             type="number"
             min="1"
             step="1"
-            value={type === 'vehicle' ? 1 : quantity}
-            disabled={type === 'vehicle'}
+            value={kindToTokenType(kind) === 'vehicle' || kind === 'obstacle' ? 1 : quantity}
+            disabled={kindToTokenType(kind) === 'vehicle' || kind === 'obstacle'}
             onChange={(event) => setQuantity(Number(event.target.value))}
           />
         </label>
 
         <ColorPaletteField
-          color={type === 'vehicle' ? defaultVehicleColor(vehicleAffiliation) : color}
-          disabled={type === 'vehicle'}
+          color={kindToTokenType(kind) === 'vehicle' ? defaultVehicleColor(vehicleAffiliation) : color}
+          disabled={kindToTokenType(kind) === 'vehicle'}
           onChange={setColor}
         />
 
-        {type !== 'object' && type !== 'vehicle' ? (
+        {kindToTokenType(kind) !== 'object' && kindToTokenType(kind) !== 'vehicle' ? (
           <label>
             Modificatore iniziativa
             <input
@@ -774,12 +914,15 @@ export function EditElementModal({
   onSaveToken,
   onSaveOwnedToken,
   onRemoveToken,
+  onDuplicateToken,
 }: EditElementModalProps) {
   const [name, setName] = useState('');
   const [type, setType] = useState<TokenType>('player');
   const [size, setSize] = useState<DndSize>('medium');
   const [positionX, setPositionX] = useState('1');
   const [positionY, setPositionY] = useState('A');
+  const [widthCells, setWidthCells] = useState(1);
+  const [heightCells, setHeightCells] = useState(1);
   const [color, setColor] = useState(DEFAULT_TOKEN_COLORS.player);
   const [initiativeModifier, setInitiativeModifier] = useState(0);
   const [vehicleKind, setVehicleKind] = useState<VehicleKind>('infernal-bike');
@@ -796,6 +939,9 @@ export function EditElementModal({
   const [maxHitPoints, setMaxHitPoints] = useState('');
   const [hitPointDelta, setHitPointDelta] = useState('0');
   const [isInvisible, setIsInvisible] = useState(false);
+  const [excludeFromInitiative, setExcludeFromInitiative] = useState(false);
+  const [blocksMovement, setBlocksMovement] = useState(false);
+  const [familiarName, setFamiliarName] = useState('');
 
   useEffect(() => {
     if (!token) {
@@ -807,6 +953,8 @@ export function EditElementModal({
     setSize(token.size);
     setPositionX(gridColumnToLabel(token.position.x));
     setPositionY(gridRowToLabel(token.position.y));
+    setWidthCells(token.widthCells ?? 1);
+    setHeightCells(token.heightCells ?? 1);
     setColor(token.color);
     setInitiativeModifier(token.initiativeModifier);
     setVehicleKind(token.vehicleKind ?? 'infernal-bike');
@@ -826,6 +974,9 @@ export function EditElementModal({
     setMaxHitPoints(token.maxHitPoints !== null && token.maxHitPoints !== undefined ? String(token.maxHitPoints) : '');
     setHitPointDelta('0');
     setIsInvisible(token.isInvisible === true);
+    setExcludeFromInitiative(token.excludeFromInitiative === true);
+    setBlocksMovement(token.blocksMovement === true);
+    setFamiliarName('');
   }, [token]);
 
   const compatibleVehicles = useMemo(() => {
@@ -835,6 +986,18 @@ export function EditElementModal({
 
     return availableVehicles(tokens, type, token.id);
   }, [token, tokens, type]);
+  const familiarTokens = useMemo(
+    () =>
+      token?.ownerUserId
+        ? tokens.filter(
+            (item) =>
+              item.ownerUserId === token.ownerUserId &&
+              item.type === 'player' &&
+              item.isFamiliar === true,
+          )
+        : [],
+    [token?.ownerUserId, tokens],
+  );
 
   if (!token) {
     return null;
@@ -853,6 +1016,43 @@ export function EditElementModal({
     );
   };
 
+  const handleAddFamiliar = () => {
+    if (!token.ownerUserId) {
+      return;
+    }
+
+    const nextName = familiarName.trim();
+    if (!nextName) {
+      return;
+    }
+
+    const familiarToken = createToken(
+      nextName,
+      'player',
+      'tiny',
+      tokens.length,
+      token.color,
+      0,
+      'player',
+      null,
+      'normal',
+      null,
+      token.ownerUserId,
+      null,
+    );
+    const positionedFamiliar = positionTokensToAvailableSlots(tokens, [
+      {
+        ...familiarToken,
+        isFamiliar: true,
+        isInvisible: false,
+        movementCells: 6,
+      },
+    ]);
+
+    onAddTokens(positionedFamiliar);
+    setFamiliarName('');
+  };
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -868,6 +1068,8 @@ export function EditElementModal({
       onSaveOwnedToken?.(token.id, {
         hitPoints: nextBaseHitPoints + delta,
         maxHitPoints: parsedMaxHitPoints,
+        conditions: conditions.filter((condition) => canUseCondition(type, condition)),
+        isInvisible: token.isFamiliar ? isInvisible : token.isInvisible,
       });
       onClose();
       return;
@@ -949,6 +1151,8 @@ export function EditElementModal({
         x: Math.max(0, (Math.floor(Number(positionX)) || 1) - 1),
         y: rowLabelToGridIndex(positionY),
       },
+      widthCells: type === 'object' ? Math.max(1, Math.floor(widthCells) || 1) : null,
+      heightCells: type === 'object' ? Math.max(1, Math.floor(heightCells) || 1) : null,
       color: nextColor,
       initiativeModifier: type === 'object' ? 0 : initiativeModifier,
       affiliation: nextAffiliation,
@@ -964,6 +1168,8 @@ export function EditElementModal({
       hitPoints: nextHitPoints,
       maxHitPoints: parsedMaxHitPoints,
       isInvisible,
+      blocksMovement: type === 'object' ? blocksMovement : false,
+      excludeFromInitiative,
       conditions: nextConditions,
     });
     onClose();
@@ -1196,19 +1402,55 @@ export function EditElementModal({
 
         {type !== 'vehicle' && type !== 'player' && type !== 'enemy' ? (
           <>
-            <label>
-              Taglia
-              <select
-                value={size}
-                onChange={(event) => setSize(event.target.value as DndSize)}
-              >
-                {sizeOptions().map((option) => (
-                  <option key={option} value={option}>
-                    {sizeLabel(option)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {type === 'object' ? (
+              <fieldset className="token-form__fieldset">
+                <legend>Ingombro</legend>
+                <div className="vehicle-settings-row">
+                  <label>
+                    Larghezza caselle
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={widthCells}
+                      onChange={(event) => setWidthCells(Number(event.target.value) || 1)}
+                    />
+                  </label>
+                  <label>
+                    Altezza caselle
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={heightCells}
+                      onChange={(event) => setHeightCells(Number(event.target.value) || 1)}
+                    />
+                  </label>
+                </div>
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={blocksMovement}
+                    onChange={(event) => setBlocksMovement(event.target.checked)}
+                  />
+                  <span>Blocca il movimento dei player</span>
+                </label>
+              </fieldset>
+            ) : (
+              <label>
+                Taglia
+                <select
+                  value={size}
+                  onChange={(event) => setSize(event.target.value as DndSize)}
+                >
+                  {sizeOptions().map((option) => (
+                    <option key={option} value={option}>
+                      {sizeLabel(option)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <div className="token-position-grid">
               <label>
@@ -1284,10 +1526,76 @@ export function EditElementModal({
           </label>
         ) : null}
 
+        {(token.type === 'player' && token.isFamiliar !== true && token.ownerUserId) ? (
+          <fieldset className="token-form__fieldset">
+            <legend>Famigli</legend>
+            <div className="vehicle-settings-row">
+              <label>
+                Nome famiglio
+                <input
+                  type="text"
+                  value={familiarName}
+                  onChange={(event) => setFamiliarName(event.target.value)}
+                  placeholder="Es. Corvo di Ilthar"
+                />
+              </label>
+              <button type="button" onClick={handleAddFamiliar}>
+                Aggiungi famiglio
+              </button>
+            </div>
+            {familiarTokens.length > 0 ? (
+              <div className="token-form__actions">
+                {familiarTokens.map((familiar) => (
+                  <button
+                    key={familiar.id}
+                    type="button"
+                    className="outline-button"
+                    onClick={() => {
+                      if (canManageStructure) {
+                        onSaveToken(familiar.id, { isInvisible: !familiar.isInvisible });
+                        return;
+                      }
+
+                      onSaveOwnedToken?.(familiar.id, { isInvisible: !familiar.isInvisible });
+                    }}
+                  >
+                    {familiar.isInvisible ? `Mostra ${familiar.name}` : `Nascondi ${familiar.name}`}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="form-hint">Nessun famiglio associato.</p>
+            )}
+          </fieldset>
+        ) : null}
+
+        {canManageStructure && (type === 'player' || type === 'enemy' || type === 'vehicle') ? (
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={excludeFromInitiative}
+              onChange={(event) => setExcludeFromInitiative(event.target.checked)}
+            />
+            <span>Escludi da "Roll for everyone"</span>
+          </label>
+        ) : null}
+
         <TokenConditionFields type={type} conditions={conditions} onToggle={handleConditionToggle} />
 
         <div className="token-form__actions">
           <button type="submit">Salva modifiche</button>
+          {canManageStructure && type !== 'player' && onDuplicateToken ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                onDuplicateToken(token.id);
+                onClose();
+              }}
+            >
+              Duplica elemento
+            </button>
+          ) : null}
           {canRemoveToken ? (
             <button
               type="button"
@@ -1314,6 +1622,7 @@ export function ElementsListModal({
   onRemoveToken,
   onLocateToken,
   onEditToken,
+  onDuplicateToken,
 }: ElementsListModalProps) {
   const [priorityType, setPriorityType] = useState<TokenType>('player');
   const groupedTokens = useMemo(() => {
@@ -1417,6 +1726,15 @@ export function ElementsListModal({
                         <button type="button" className="secondary-button secondary-button--small" onClick={() => onEditToken(token.id)}>
                           Modifica
                         </button>
+                        {token.type !== 'player' ? (
+                          <button
+                            type="button"
+                            className="secondary-button secondary-button--small"
+                            onClick={() => onDuplicateToken?.(token.id)}
+                          >
+                            Duplica
+                          </button>
+                        ) : null}
                         <button type="button" className="danger-button" onClick={() => onRemoveToken(token.id)}>
                           Rimuovi
                         </button>

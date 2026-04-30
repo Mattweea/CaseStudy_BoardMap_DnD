@@ -1,6 +1,7 @@
 import type {
   CharacterKey,
   DndSize,
+  GridPosition,
   InitiativeMode,
   TokenAffiliation,
   TokenCondition,
@@ -46,6 +47,22 @@ export function defaultVehicleColor(affiliation: TokenAffiliation): string {
   return affiliation === 'player' ? '#6e6e6e' : '#111111';
 }
 
+function sizeToCells(size: DndSize): number {
+  switch (size) {
+    case 'large':
+      return 2;
+    case 'huge':
+      return 3;
+    case 'gargantuan':
+      return 4;
+    case 'tiny':
+    case 'small':
+    case 'medium':
+    default:
+      return 1;
+  }
+}
+
 export function createToken(
   name: string,
   type: TokenType,
@@ -80,11 +97,72 @@ export function createToken(
     imageUrl: imageUrl ?? null,
     ownerUserId: ownerUserId ?? null,
     characterKey: characterKey ?? null,
+    groupId: null,
     hitPoints: null,
     maxHitPoints: null,
     isInvisible: false,
+    isFamiliar: false,
+    blocksMovement: false,
+    excludeFromInitiative: false,
     conditions: [],
   };
+}
+
+function tokenFootprint(token: UnitToken): { width: number; height: number } {
+  return {
+    width:
+      typeof token.widthCells === 'number' && token.widthCells > 0
+        ? Math.max(1, Math.floor(token.widthCells))
+        : sizeToCells(token.size),
+    height:
+      typeof token.heightCells === 'number' && token.heightCells > 0
+        ? Math.max(1, Math.floor(token.heightCells))
+        : sizeToCells(token.size),
+  };
+}
+
+function overlapsFootprints(
+  position: GridPosition,
+  footprint: { width: number; height: number },
+  token: UnitToken,
+): boolean {
+  const tokenSize = tokenFootprint(token);
+
+  return !(
+    position.x + footprint.width - 1 < token.position.x ||
+    token.position.x + tokenSize.width - 1 < position.x ||
+    position.y + footprint.height - 1 < token.position.y ||
+    token.position.y + tokenSize.height - 1 < position.y
+  );
+}
+
+export function findFirstAvailablePositionToRight(
+  tokens: UnitToken[],
+  footprint: { width: number; height: number },
+  start: GridPosition,
+): GridPosition {
+  const startX = Math.max(0, start.x);
+  const startY = Math.max(0, start.y);
+  const horizontalSearchLimit = Math.max(
+    startX + 1,
+    ...tokens.map((token) => token.position.x + tokenFootprint(token).width),
+  ) + 24;
+  const verticalSearchLimit = Math.max(
+    startY + 1,
+    ...tokens.map((token) => token.position.y + tokenFootprint(token).height),
+  ) + 24;
+
+  for (let y = startY; y <= verticalSearchLimit; y += 1) {
+    const xOrigin = y === startY ? startX : 0;
+    for (let x = xOrigin; x <= horizontalSearchLimit; x += 1) {
+      const candidate = { x, y };
+      if (!tokens.some((token) => overlapsFootprints(candidate, footprint, token))) {
+        return candidate;
+      }
+    }
+  }
+
+  return { x: startX, y: verticalSearchLimit + 1 };
 }
 
 export function findTokenName(tokens: UnitToken[], tokenId: string): string {

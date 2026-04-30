@@ -30,12 +30,19 @@ export interface GridPosition {
   y: number;
 }
 
+export interface MovementAxisUsage {
+  horizontal: number;
+  vertical: number;
+}
+
 export interface UnitToken {
   id: string;
   name: string;
   type: TokenType;
   size: DndSize;
   position: GridPosition;
+  widthCells?: number | null;
+  heightCells?: number | null;
   color: string;
   initiativeModifier: number;
   initiativeMode?: InitiativeMode;
@@ -48,20 +55,32 @@ export interface UnitToken {
   imageUrl?: string | null;
   ownerUserId?: string | null;
   characterKey?: CharacterKey | null;
+  groupId?: string | null;
   hitPoints?: number | null;
   maxHitPoints?: number | null;
   isInvisible?: boolean;
+  isFamiliar?: boolean;
+  blocksMovement?: boolean;
+  excludeFromInitiative?: boolean;
   conditions: TokenCondition[];
+}
+
+export interface DicePreviewState {
+  id: string;
+  flavor: string;
+  log: DiceRollLog;
 }
 
 export interface BattleMapState {
   tokens: UnitToken[];
   zoom: number;
   diceLogs: DiceRollLog[];
+  latestDicePreview: DicePreviewState | null;
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
   roundNumber: number;
   movementUsedByTokenId: Record<string, number>;
+  movementAxisUsageByTokenId: Record<string, MovementAxisUsage>;
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
 }
@@ -69,10 +88,12 @@ export interface BattleMapState {
 export interface BattleMapSharedState {
   tokens: UnitToken[];
   diceLogs: DiceRollLog[];
+  latestDicePreview: DicePreviewState | null;
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
   roundNumber: number;
   movementUsedByTokenId: Record<string, number>;
+  movementAxisUsageByTokenId: Record<string, MovementAxisUsage>;
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { BOARD_CONFIG } from '../constants/board';
 import type { GridPosition, UnitToken } from '../types';
@@ -7,7 +8,6 @@ import {
   clampZoom,
   getTokenFootprint,
   gridRowToLabel,
-  sizeToCells,
   viewportPointToWorldCell,
 } from '../utils/board';
 import { Token } from './Token';
@@ -22,15 +22,19 @@ interface BoardProps {
   canManageTokens?: boolean;
   movableTokenIds?: string[];
   onOpenManual: () => void;
-  onOpenNewElementModal: () => void;
   onOpenElementsListModal: () => void;
   onOpenEditTokenModal: (tokenId: string) => void;
   onToggleFullscreen: () => void;
-  onRemoveSelected?: () => void;
-  onAddSelectedToInitiative?: () => void;
   onMoveTokens: (moves: Array<{ tokenId: string; x: number; y: number }>) => void;
   onSelectionChange: (tokenIds: string[]) => void;
   onZoomChange: (zoom: number) => void;
+  obstaclePlacement?: {
+    color: string;
+    selectedCells: GridPosition[];
+    onToggleCell: (cell: GridPosition) => void;
+    onConfirm: () => void;
+    onCancel: () => void;
+  } | null;
 }
 
 const INITIAL_CAMERA = { x: 0, y: 0 };
@@ -48,6 +52,10 @@ function isCreatureToken(token: UnitToken) {
   return token.type === 'player' || token.type === 'enemy';
 }
 
+function isObstacleToken(token: UnitToken) {
+  return token.type === 'object' && token.blocksMovement === true;
+}
+
 function tokensOverlap(left: UnitToken, right: UnitToken): boolean {
   const leftFootprint = getTokenFootprint(left);
   const rightFootprint = getTokenFootprint(right);
@@ -58,6 +66,118 @@ function tokensOverlap(left: UnitToken, right: UnitToken): boolean {
     left.position.y + leftFootprint.height - 1 < right.position.y ||
     right.position.y + rightFootprint.height - 1 < left.position.y
   );
+}
+
+interface ObstacleCluster {
+  id: string;
+  name: string;
+  color: string;
+  tokenIds: string[];
+  anchorTokenId: string;
+  cells: GridPosition[];
+}
+
+function tokenCells(token: UnitToken): GridPosition[] {
+  const footprint = getTokenFootprint(token);
+  const cells: GridPosition[] = [];
+
+  for (let y = 0; y < footprint.height; y += 1) {
+    for (let x = 0; x < footprint.width; x += 1) {
+      cells.push({
+        x: token.position.x + x,
+        y: token.position.y + y,
+      });
+    }
+  }
+
+  return cells;
+}
+
+function buildObstacleClusters(tokens: UnitToken[]): ObstacleCluster[] {
+  const obstacleTokens = tokens.filter(isObstacleToken);
+  const cellMap = new Map<
+    string,
+    {
+      tokenId: string;
+      name: string;
+      color: string;
+      groupId: string | null;
+      cell: GridPosition;
+    }
+  >();
+
+  obstacleTokens.forEach((token) => {
+    tokenCells(token).forEach((cell) => {
+      cellMap.set(`${cell.x}:${cell.y}`, {
+        tokenId: token.id,
+        name: token.name,
+        color: token.color,
+        groupId: token.groupId ?? null,
+        cell,
+      });
+    });
+  });
+
+  const visited = new Set<string>();
+  const clusters: ObstacleCluster[] = [];
+
+  cellMap.forEach((entry, key) => {
+    if (visited.has(key)) {
+      return;
+    }
+
+    const queue = [entry];
+    const clusterCells: GridPosition[] = [];
+    const tokenIds = new Set<string>();
+    visited.add(key);
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) {
+        continue;
+      }
+
+      clusterCells.push(current.cell);
+      tokenIds.add(current.tokenId);
+
+      [
+        { x: current.cell.x + 1, y: current.cell.y },
+        { x: current.cell.x - 1, y: current.cell.y },
+        { x: current.cell.x, y: current.cell.y + 1 },
+        { x: current.cell.x, y: current.cell.y - 1 },
+      ].forEach((neighbor) => {
+        const neighborKey = `${neighbor.x}:${neighbor.y}`;
+        const neighborEntry = cellMap.get(neighborKey);
+        if (
+          neighborEntry &&
+          !visited.has(neighborKey) &&
+          (
+            entry.groupId
+              ? neighborEntry.groupId === entry.groupId
+              : neighborEntry.name === entry.name && neighborEntry.color === entry.color
+          )
+        ) {
+          visited.add(neighborKey);
+          queue.push(neighborEntry);
+        }
+      });
+    }
+
+    clusters.push({
+      id: `${entry.name}-${entry.color}-${key}`,
+      name: entry.name,
+      color: entry.color,
+      tokenIds: Array.from(tokenIds),
+      anchorTokenId: entry.tokenId,
+      cells: clusterCells,
+    });
+  });
+
+  return clusters;
+}
+
+function cellKey(cell: GridPosition) {
+  return `${cell.x}:${cell.y}`;
 }
 
 type PanInteraction = {
@@ -99,7 +219,18 @@ type SelectBoxInteraction = {
   additive: boolean;
 };
 
-type InteractionState = PanInteraction | PendingTokenInteraction | DragInteraction | SelectBoxInteraction;
+type ObstaclePaintInteraction = {
+  mode: 'obstacle-paint';
+  pointerId: number;
+  paintedCellKeys: string[];
+};
+
+type InteractionState =
+  | PanInteraction
+  | PendingTokenInteraction
+  | DragInteraction
+  | SelectBoxInteraction
+  | ObstaclePaintInteraction;
 
 export function Board({
   tokens,
@@ -111,15 +242,13 @@ export function Board({
   canManageTokens = true,
   movableTokenIds = [],
   onOpenManual,
-  onOpenNewElementModal,
   onOpenElementsListModal,
   onOpenEditTokenModal,
   onToggleFullscreen,
-  onRemoveSelected,
-  onAddSelectedToInitiative,
   onMoveTokens,
   onSelectionChange,
   onZoomChange,
+  obstaclePlacement = null,
 }: BoardProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -131,6 +260,11 @@ export function Board({
   });
   const movableTokenIdSet = useMemo(() => new Set(movableTokenIds), [movableTokenIds]);
   const editableTokenIdSet = useMemo(() => new Set(editableTokenIds), [editableTokenIds]);
+  const obstacleClusters = useMemo(() => buildObstacleClusters(tokens), [tokens]);
+  const obstacleTokenIdSet = useMemo(
+    () => new Set(obstacleClusters.flatMap((cluster) => cluster.tokenIds)),
+    [obstacleClusters],
+  );
 
   useEffect(() => {
     const node = shellRef.current;
@@ -293,6 +427,32 @@ export function Board({
         return;
       }
 
+      if (interaction.mode === 'obstacle-paint') {
+        if (event.pointerId !== interaction.pointerId || !obstaclePlacement) {
+          return;
+        }
+
+        const hoverCell = viewportPointToWorldCell(
+          event.clientX,
+          event.clientY,
+          stageRef.current.getBoundingClientRect(),
+          zoom,
+          camera,
+        );
+        const key = cellKey(hoverCell);
+
+        if (interaction.paintedCellKeys.includes(key)) {
+          return;
+        }
+
+        obstaclePlacement.onToggleCell(hoverCell);
+        setInteraction({
+          ...interaction,
+          paintedCellKeys: [...interaction.paintedCellKeys, key],
+        });
+        return;
+      }
+
       if (interaction.mode === 'pan') {
         if (event.pointerId !== interaction.pointerId) {
           return;
@@ -381,6 +541,13 @@ export function Board({
     };
 
     const completeInteraction = (event: PointerEvent) => {
+      if (interaction.mode === 'obstacle-paint') {
+        if (event.pointerId === interaction.pointerId) {
+          setInteraction(null);
+        }
+        return;
+      }
+
       if (interaction.mode === 'pan') {
         if (event.pointerId === interaction.pointerId) {
           setInteraction(null);
@@ -446,13 +613,29 @@ export function Board({
       window.removeEventListener('pointerup', completeInteraction);
       window.removeEventListener('pointercancel', completeInteraction);
     };
-  }, [camera, interaction, onMoveTokens, onSelectionChange, selectedTokenIds, tokens, zoom]);
+  }, [camera, interaction, obstaclePlacement, onMoveTokens, onSelectionChange, selectedTokenIds, tokens, zoom]);
 
   const handlePiecePointerDown = (
     event: ReactPointerEvent<HTMLButtonElement>,
     token: UnitToken,
   ) => {
+    if (obstaclePlacement) {
+      return;
+    }
+
     if (!stageRef.current) {
+      return;
+    }
+
+    if (event.button === 2) {
+      const additive = canManageTokens ? event.shiftKey : false;
+      onSelectionChange(
+        additive
+          ? selectedTokenIds.includes(token.id)
+            ? selectedTokenIds
+            : [...selectedTokenIds, token.id]
+          : [token.id],
+      );
       return;
     }
 
@@ -526,6 +709,27 @@ export function Board({
       return;
     }
 
+    if (obstaclePlacement && stageRef.current) {
+      if (event.button !== 0) {
+        return;
+      }
+
+      const cell = viewportPointToWorldCell(
+        event.clientX,
+        event.clientY,
+        stageRef.current.getBoundingClientRect(),
+        zoom,
+        camera,
+      );
+      obstaclePlacement.onToggleCell(cell);
+      setInteraction({
+        mode: 'obstacle-paint',
+        pointerId: event.pointerId,
+        paintedCellKeys: [cellKey(cell)],
+      });
+      return;
+    }
+
     if (event.ctrlKey || event.button === 1) {
       event.preventDefault();
       setInteraction({
@@ -563,7 +767,7 @@ export function Board({
     );
 
     const baseTokens = [...tokens]
-      .filter((token) => !hiddenOccupantIds.has(token.id))
+      .filter((token) => !hiddenOccupantIds.has(token.id) && !obstacleTokenIdSet.has(token.id))
       .sort((left, right) => {
       const leftContained = left.containedInVehicleId ? 1 : 0;
       const rightContained = right.containedInVehicleId ? 1 : 0;
@@ -575,7 +779,7 @@ export function Board({
       });
 
     return baseTokens;
-  }, [tokens]);
+  }, [obstacleTokenIdSet, tokens]);
 
   return (
     <section className={`board-panel ${isFullscreen ? 'board-panel--fullscreen' : ''}`}>
@@ -591,21 +795,6 @@ export function Board({
           <button type="button" onClick={onToggleFullscreen}>
             🤓 {isFullscreen ? 'Chiudi full screen' : 'Full screen'}
           </button>
-          {canManageTokens ? (
-            <button type="button" onClick={onOpenNewElementModal}>
-              ➕ Nuovo elemento
-            </button>
-          ) : null}
-          {canManageTokens && selectedTokenIds.length > 0 && onAddSelectedToInitiative ? (
-            <button type="button" onClick={onAddSelectedToInitiative}>
-              ⚔️ Aggiungi selezionati
-            </button>
-          ) : null}
-          {canManageTokens && selectedTokenIds.length > 0 && onRemoveSelected ? (
-            <button type="button" className="danger-button" onClick={onRemoveSelected}>
-              🗑️ Rimuovi selezionati
-            </button>
-          ) : null}
           <button type="button" onClick={onOpenElementsListModal}>
             🔎 Elementi in mappa
           </button>
@@ -679,14 +868,34 @@ export function Board({
               <div
                 className={`board-highlight ${hasInvalidDragOverlap ? 'board-highlight--invalid' : ''}`}
                 style={{
-                  width: sizeToCells(tokens.find((item) => item.id === interaction.anchorTokenId)?.size ?? 'medium') * BOARD_CONFIG.cellSize * zoom,
-                  height: sizeToCells(tokens.find((item) => item.id === interaction.anchorTokenId)?.size ?? 'medium') * BOARD_CONFIG.cellSize * zoom,
+                  width: getTokenFootprint(tokens.find((item) => item.id === interaction.anchorTokenId) ?? {
+                    size: 'medium',
+                  } as UnitToken).width * BOARD_CONFIG.cellSize * zoom,
+                  height: getTokenFootprint(tokens.find((item) => item.id === interaction.anchorTokenId) ?? {
+                    size: 'medium',
+                  } as UnitToken).height * BOARD_CONFIG.cellSize * zoom,
                   transform: `translate(${(interaction.hoverCell.x - camera.x) * BOARD_CONFIG.cellSize * zoom}px, ${
                     (interaction.hoverCell.y - camera.y) * BOARD_CONFIG.cellSize * zoom
                   }px)`,
                 }}
               />
             ) : null}
+
+            {obstaclePlacement?.selectedCells.map((cell) => (
+              <div
+                key={`obstacle-placement-${cell.x}-${cell.y}`}
+                className="board-highlight"
+                style={{
+                  width: BOARD_CONFIG.cellSize * zoom,
+                  height: BOARD_CONFIG.cellSize * zoom,
+                  background: obstaclePlacement.color,
+                  opacity: 0.45,
+                  transform: `translate(${(cell.x - camera.x) * BOARD_CONFIG.cellSize * zoom}px, ${
+                    (cell.y - camera.y) * BOARD_CONFIG.cellSize * zoom
+                  }px)`,
+                }}
+              />
+            ))}
 
             {orderedTokens.map((token) => {
               const worldPosition = draggedPositions.get(token.id) ?? token.position;
@@ -710,6 +919,71 @@ export function Board({
                   onPointerDown={handlePiecePointerDown}
                   onEdit={onOpenEditTokenModal}
                 />
+              );
+            })}
+
+            {obstacleClusters.map((cluster) => {
+              const minX = Math.min(...cluster.cells.map((cell) => cell.x));
+              const minY = Math.min(...cluster.cells.map((cell) => cell.y));
+              const maxX = Math.max(...cluster.cells.map((cell) => cell.x));
+              const maxY = Math.max(...cluster.cells.map((cell) => cell.y));
+              const clusterCellKeySet = new Set(cluster.cells.map((cell) => cellKey(cell)));
+
+              return (
+                <button
+                  key={cluster.id}
+                  type="button"
+                  className={`obstacle-cluster ${selectedTokenIds.some((id) => cluster.tokenIds.includes(id)) ? 'obstacle-cluster--selected' : ''}`}
+                  style={{
+                    width: (maxX - minX + 1) * BOARD_CONFIG.cellSize * zoom,
+                    height: (maxY - minY + 1) * BOARD_CONFIG.cellSize * zoom,
+                    left: (minX - camera.x) * BOARD_CONFIG.cellSize * zoom,
+                    top: (minY - camera.y) * BOARD_CONFIG.cellSize * zoom,
+                    '--obstacle-color': cluster.color,
+                  } as CSSProperties}
+                  onPointerDown={(event) => {
+                    if (obstaclePlacement) {
+                      return;
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onSelectionChange(cluster.tokenIds);
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (canManageTokens) {
+                      onSelectionChange(cluster.tokenIds);
+                      onOpenEditTokenModal(cluster.anchorTokenId);
+                    }
+                  }}
+                >
+                  {cluster.cells.map((cell) => (
+                    <span
+                      key={`${cluster.id}-${cell.x}-${cell.y}`}
+                      className="obstacle-cluster__cell"
+                      style={{
+                        width: BOARD_CONFIG.cellSize * zoom,
+                        height: BOARD_CONFIG.cellSize * zoom,
+                        left: (cell.x - minX) * BOARD_CONFIG.cellSize * zoom,
+                        top: (cell.y - minY) * BOARD_CONFIG.cellSize * zoom,
+                        borderTop: clusterCellKeySet.has(cellKey({ x: cell.x, y: cell.y - 1 }))
+                          ? '0'
+                          : '2px solid rgba(255, 245, 236, 0.34)',
+                        borderRight: clusterCellKeySet.has(cellKey({ x: cell.x + 1, y: cell.y }))
+                          ? '0'
+                          : '2px solid rgba(255, 245, 236, 0.34)',
+                        borderBottom: clusterCellKeySet.has(cellKey({ x: cell.x, y: cell.y + 1 }))
+                          ? '0'
+                          : '2px solid rgba(255, 245, 236, 0.34)',
+                        borderLeft: clusterCellKeySet.has(cellKey({ x: cell.x - 1, y: cell.y }))
+                          ? '0'
+                          : '2px solid rgba(255, 245, 236, 0.34)',
+                      }}
+                    />
+                  ))}
+                  <span className="obstacle-cluster__label">{cluster.name}</span>
+                </button>
               );
             })}
 

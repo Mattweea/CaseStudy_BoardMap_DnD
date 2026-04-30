@@ -53,6 +53,12 @@ export function Token({
     }
   };
 
+  const handleDoubleClick = () => {
+    if (canEdit) {
+      onEdit(token.id);
+    }
+  };
+
   return (
     <button
       type="button"
@@ -68,6 +74,7 @@ export function Token({
       style={style}
       onPointerDown={(event) => onPointerDown(event, token)}
       onContextMenu={handleContextMenu}
+      onDoubleClick={handleDoubleClick}
       aria-label={`Elemento ${token.name}, ${tokenTypeLabel(token.type)}`}
     >
       {token.conditions.length > 0 ? (

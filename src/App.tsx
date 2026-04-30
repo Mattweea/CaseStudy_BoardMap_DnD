@@ -11,6 +11,8 @@ import { Modal } from './components/Modal';
 import { findCharacterProfileByKey } from './constants/characters';
 import { useAuthSession } from './hooks/useAuthSession';
 import { useBattleMapState } from './hooks/useBattleMapState';
+import { getTokenFootprint } from './utils/board';
+import { findFirstAvailablePositionToRight } from './utils/tokens';
 import type { DiceRollLog } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
 
@@ -18,21 +20,21 @@ const FULLSCREEN_TRANSITION_MS = 260;
 const MANUAL_PDF_PATH =
   'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
 
-type SidebarSectionId = 'session' | 'dice' | 'initiative' | 'legend';
-
-const SIDEBAR_SECTION_ORDER: SidebarSectionId[] = ['session', 'dice', 'initiative', 'legend'];
-const SIDEBAR_SHORTCUTS: Array<{ id: SidebarSectionId; icon: string; label: string }> = [
-  { id: 'session', icon: '👤', label: 'Sessione' },
-  { id: 'dice', icon: '🎲', label: 'Dice Roller' },
-  { id: 'initiative', icon: '⚔️', label: 'Ordine Dei Turni' },
-  { id: 'legend', icon: '?', label: 'Legenda Comandi' },
-];
+type SidebarSectionId = 'session' | 'actions' | 'dice' | 'initiative' | 'legend';
 
 const KEYBOARD_MOVEMENTS: Record<string, { dx: number; dy: number }> = {
   ArrowUp: { dx: 0, dy: -1 },
   ArrowDown: { dx: 0, dy: 1 },
   ArrowLeft: { dx: -1, dy: 0 },
   ArrowRight: { dx: 1, dy: 0 },
+  w: { dx: 0, dy: -1 },
+  W: { dx: 0, dy: -1 },
+  a: { dx: -1, dy: 0 },
+  A: { dx: -1, dy: 0 },
+  s: { dx: 0, dy: 1 },
+  S: { dx: 0, dy: 1 },
+  d: { dx: 1, dy: 0 },
+  D: { dx: 1, dy: 0 },
   Home: { dx: -1, dy: -1 },
   PageUp: { dx: 1, dy: -1 },
   End: { dx: -1, dy: 1 },
@@ -59,10 +61,21 @@ interface DiceResultScene {
   log: DiceRollLog;
 }
 
+interface PendingObstaclePlacement {
+  name: string;
+  color: string;
+  cells: Array<{ x: number; y: number }>;
+}
+
+function cellKey(cell: { x: number; y: number }) {
+  return `${cell.x}:${cell.y}`;
+}
+
 function App() {
   const { user, isLoading, isSubmitting, error, login, logout } = useAuthSession();
   const {
     isReady: isBattleMapReady,
+    isMutating,
     state,
     addTokens,
     addDiceLog,
@@ -102,16 +115,23 @@ function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [sidebarLeadSection, setSidebarLeadSection] = useState<SidebarSectionId | null>(null);
   const [isBootLoading, setIsBootLoading] = useState(true);
+  const [pendingObstaclePlacement, setPendingObstaclePlacement] = useState<PendingObstaclePlacement | null>(null);
   const [boardFullscreenPhase, setBoardFullscreenPhase] = useState<
     'closed' | 'opening' | 'open' | 'closing'
   >('closed');
   const sidebarRef = useRef<HTMLElement | null>(null);
+  const reopenEditTimeoutRef = useRef<number | null>(null);
+  const lastDicePreviewIdRef = useRef<string | null>(null);
   const canManageBattleMap = user?.role === 'master';
   const sessionCharacter = findCharacterProfileByKey(user?.characterKey);
+  const ownedTokens = state.tokens.filter((token) => token.ownerUserId === user?.id);
   const sessionToken =
-    state.tokens.find((token) => token.ownerUserId === user?.id) ??
+    ownedTokens.find((token) => token.type === 'player' && token.isFamiliar !== true) ??
     state.tokens.find((token) => token.id === user?.playerTokenId) ??
     null;
+  const ownedFamiliarIds = ownedTokens
+    .filter((token) => token.type === 'player' && token.isFamiliar === true)
+    .map((token) => token.id);
   const sessionVehicle =
     sessionToken
       ? state.tokens.find(
@@ -127,15 +147,35 @@ function App() {
   const isPlayersTurn = Boolean(sessionToken && state.activeTurnTokenId === sessionToken.id);
   const activeTurnToken =
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
+  const sidebarSections: SidebarSectionId[] = canManageBattleMap
+    ? ['session', 'actions', 'dice', 'initiative', 'legend']
+    : ['session', 'dice', 'initiative', 'legend'];
+  const sidebarShortcuts: Array<{ id: SidebarSectionId; icon: string; label: string }> = canManageBattleMap
+    ? [
+        { id: 'session', icon: '👤', label: 'Sessione' },
+        { id: 'actions', icon: '➕', label: 'Azioni Master' },
+        { id: 'dice', icon: '🎲', label: 'Dice Roller' },
+        { id: 'initiative', icon: '⚔️', label: 'Ordine Dei Turni' },
+        { id: 'legend', icon: '?', label: 'Legenda Comandi' },
+      ]
+    : [
+        { id: 'session', icon: '👤', label: 'Sessione' },
+        { id: 'dice', icon: '🎲', label: 'Dice Roller' },
+        { id: 'initiative', icon: '⚔️', label: 'Ordine Dei Turni' },
+        { id: 'legend', icon: '?', label: 'Legenda Comandi' },
+      ];
+  const visibleBoardTokens = canManageBattleMap
+    ? state.tokens
+    : state.tokens.filter((token) => !token.isInvisible || token.ownerUserId === user?.id);
   const editableTokenIds = canManageBattleMap
     ? state.tokens.map((token) => token.id)
     : sessionToken
-      ? [sessionToken.id]
+      ? [sessionToken.id, ...ownedFamiliarIds]
       : [];
   const movableTokenIds = canManageBattleMap
     ? state.tokens.map((token) => token.id)
     : sessionToken
-      ? [sessionToken.id, ...(sessionVehicle ? [sessionVehicle.id] : [])]
+      ? [sessionToken.id, ...ownedFamiliarIds, ...(sessionVehicle ? [sessionVehicle.id] : [])]
       : [];
   const selectedCreatureIds = selectedTokenIds.filter((tokenId) =>
     state.tokens.some(
@@ -161,6 +201,14 @@ function App() {
     }, 7400);
 
     return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (reopenEditTimeoutRef.current !== null) {
+        window.clearTimeout(reopenEditTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -205,6 +253,19 @@ function App() {
       setSelectedTokenIds((current) => (current.length > 0 ? current : [state.tokens[0].id]));
     }
   }, [canManageBattleMap, sessionToken, state.tokens, user]);
+
+  useEffect(() => {
+    if (!state.latestDicePreview) {
+      return;
+    }
+
+    if (lastDicePreviewIdRef.current === state.latestDicePreview.id) {
+      return;
+    }
+
+    lastDicePreviewIdRef.current = state.latestDicePreview.id;
+    setLatestDiceResult(state.latestDicePreview);
+  }, [state.latestDicePreview]);
 
   function moveSessionTokenBy(deltaX: number, deltaY: number) {
     if (!sessionToken) {
@@ -270,20 +331,32 @@ function App() {
   };
 
   const openEditTokenModal = (tokenId: string) => {
-    if (!canManageBattleMap && sessionToken?.id !== tokenId) {
+    const isOwnedEditableToken = editableTokenIds.includes(tokenId);
+    if (!canManageBattleMap && !isOwnedEditableToken) {
       return;
     }
 
     locateToken(tokenId);
     setIsElementsListModalOpen(false);
+    if (editingTokenId === tokenId) {
+      setEditingTokenId(null);
+      if (reopenEditTimeoutRef.current !== null) {
+        window.clearTimeout(reopenEditTimeoutRef.current);
+      }
+      reopenEditTimeoutRef.current = window.setTimeout(() => {
+        setEditingTokenId(tokenId);
+      }, 0);
+      return;
+    }
+
     setEditingTokenId(tokenId);
   };
 
   const editingToken = state.tokens.find((token) => token.id === editingTokenId) ?? null;
   const isBoardFullscreenVisible = boardFullscreenPhase !== 'closed';
   const orderedSidebarSections = sidebarLeadSection
-    ? [sidebarLeadSection, ...SIDEBAR_SECTION_ORDER.filter((sectionId) => sectionId !== sidebarLeadSection)]
-    : SIDEBAR_SECTION_ORDER;
+    ? [sidebarLeadSection, ...sidebarSections.filter((sectionId) => sectionId !== sidebarLeadSection)]
+    : sidebarSections;
 
   const handleSidebarToggle = () => {
     if (isSidebarCollapsed) {
@@ -321,6 +394,78 @@ function App() {
         ];
       }),
     );
+  };
+
+  const duplicateToken = (tokenId: string) => {
+    if (!canManageBattleMap) {
+      return;
+    }
+
+    const sourceToken = state.tokens.find((token) => token.id === tokenId);
+    if (!sourceToken || sourceToken.type === 'player') {
+      return;
+    }
+
+    const footprint = getTokenFootprint(sourceToken);
+    const position = findFirstAvailablePositionToRight(
+      state.tokens,
+      footprint,
+      {
+        x: sourceToken.position.x + footprint.width,
+        y: sourceToken.position.y,
+      },
+    );
+
+    addTokens([
+      {
+        ...sourceToken,
+        id: crypto.randomUUID(),
+        name: `${sourceToken.name} copia`,
+        position,
+        vehicleOccupantIds: [],
+        containedInVehicleId: null,
+      },
+    ]);
+  };
+
+  const confirmObstaclePlacement = () => {
+    if (!pendingObstaclePlacement || pendingObstaclePlacement.cells.length === 0) {
+      return;
+    }
+
+    const obstacleGroupId = crypto.randomUUID();
+    addTokens(
+      pendingObstaclePlacement.cells.map((cell) => ({
+        id: crypto.randomUUID(),
+        name: pendingObstaclePlacement.name,
+        type: 'object' as const,
+        size: 'medium' as const,
+        position: cell,
+        widthCells: 1,
+        heightCells: 1,
+        color: pendingObstaclePlacement.color,
+        initiativeModifier: 0,
+        initiativeMode: 'normal' as const,
+        affiliation: null,
+        vehicleKind: null,
+        vehicleOccupantIds: [],
+        showVehicleOccupants: undefined,
+        containedInVehicleId: null,
+        imageUrl: null,
+        ownerUserId: null,
+        characterKey: null,
+        groupId: obstacleGroupId,
+        hitPoints: null,
+        maxHitPoints: null,
+        isInvisible: false,
+        isFamiliar: false,
+        blocksMovement: true,
+        excludeFromInitiative: false,
+        conditions: [],
+      })),
+    );
+
+    setPendingObstaclePlacement(null);
   };
 
   const renderSidebarSection = (sectionId: SidebarSectionId) => {
@@ -375,23 +520,25 @@ function App() {
                 <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(0, -1)}>↑</button>
                 <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(1, -1)}>↗</button>
                 <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(-1, 0)}>←</button>
-                <button
-                  type="button"
-                  className="movement-pad__button movement-pad__button--center"
-                  onClick={() => void addOwnedExtraMovement(sessionToken.id, -1)}
-                  disabled={extraMovement <= 0}
-                  title={extraMovement <= 0 ? 'Nessun movimento extra da rimuovere' : 'Rimuovi 1 casella di movimento extra'}
-                >
-                  -1
-                </button>
-                <button
-                  type="button"
-                  className="movement-pad__button movement-pad__button--center"
-                  onClick={() => void addOwnedExtraMovement(sessionToken.id, 1)}
-                  title="Aggiungi 1 casella di movimento extra"
-                >
-                  +1
-                </button>
+                <div className="movement-pad__center" aria-label="Controlli movimento extra">
+                  <button
+                    type="button"
+                    className="movement-pad__button movement-pad__button--extra movement-pad__button--extra-minus"
+                    onClick={() => void addOwnedExtraMovement(sessionToken.id, -1)}
+                    disabled={extraMovement <= 0}
+                    title={extraMovement <= 0 ? 'Nessun movimento extra da rimuovere' : 'Rimuovi 1 casella di movimento extra'}
+                  >
+                    -1
+                  </button>
+                  <button
+                    type="button"
+                    className="movement-pad__button movement-pad__button--extra movement-pad__button--extra-plus"
+                    onClick={() => void addOwnedExtraMovement(sessionToken.id, 1)}
+                    title="Aggiungi 1 casella di movimento extra"
+                  >
+                    +1
+                  </button>
+                </div>
                 <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(1, 0)}>→</button>
                 <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(-1, 1)}>↙</button>
                 <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(0, 1)}>↓</button>
@@ -415,6 +562,7 @@ function App() {
                 type="button"
                 className="icon-button"
                 onClick={() => void undoLastAction()}
+                disabled={isMutating}
                 title="Undo"
                 aria-label="Undo"
               >
@@ -462,10 +610,82 @@ function App() {
             rollerName={user?.displayName}
             isResultOpen={latestDiceResult !== null}
             onAddLog={addDiceLog}
-            onShowResult={setLatestDiceResult}
             onOpenLogs={() => setIsDiceLogModalOpen(true)}
           />
         );
+      case 'actions':
+        return canManageBattleMap ? (
+          <section key="actions" className="sidebar__section">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Controlli</p>
+                <h2>Azioni</h2>
+              </div>
+            </div>
+            <div className="action-card">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => setIsNewElementModalOpen(true)}
+              >
+                ➕ Nuovo elemento
+              </button>
+
+              {pendingObstaclePlacement ? (
+                <div className="action-card__block">
+                  <p className="action-card__label">Posa ostacolo libera</p>
+                  <p className="action-card__meta">
+                    Celle selezionate: <strong>{pendingObstaclePlacement?.cells.length ?? 0}</strong>
+                  </p>
+                  <div className="action-card__buttons">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={confirmObstaclePlacement}
+                      disabled={(pendingObstaclePlacement?.cells.length ?? 0) === 0}
+                    >
+                      Conferma ostacolo
+                    </button>
+                    <button
+                      type="button"
+                      className="outline-button"
+                      onClick={() => setPendingObstaclePlacement(null)}
+                    >
+                      Annulla posa
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedTokenIds.length > 0 ? (
+                <div className="action-card__block">
+                  <p className="action-card__label">Selezione corrente</p>
+                  <p className="action-card__meta">
+                    Elementi selezionati: <strong>{selectedTokenIds.length}</strong>
+                  </p>
+                  <div className="action-card__buttons">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={addSelectedToInitiative}
+                      disabled={selectedCreatureIds.length === 0}
+                    >
+                      ⚔️ Aggiungi selezionati
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      onClick={() => removeTokens(selectedTokenIds)}
+                      disabled={selectedTokenIds.length === 0}
+                    >
+                      🗑️ Rimuovi selezionati
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null;
       case 'initiative':
         return (
           <InitiativePanel
@@ -524,7 +744,7 @@ function App() {
                   <p className="command-legend__title">Master</p>
                   <p><strong>Drag</strong>: muovi token selezionati.</p>
                   <p><strong>Tasto destro</strong>: edit completo.</p>
-                  <p><strong>➕</strong>: crea elemento.</p>
+                  <p><strong>+</strong>: apre la card Azioni nella sidebar.</p>
                   <p><strong>⚔️</strong>: aggiungi selezionati ai turni.</p>
                   <p><strong>🗑️</strong>: rimuovi selezionati.</p>
                   <p><strong>Canc</strong>: rimuovi selezionati.</p>
@@ -589,7 +809,7 @@ function App() {
 
         {isSidebarCollapsed ? (
           <div className="sidebar__shortcuts">
-            {SIDEBAR_SHORTCUTS.map((shortcut) => (
+            {sidebarShortcuts.map((shortcut) => (
               <button
                 key={shortcut.id}
                 type="button"
@@ -609,7 +829,7 @@ function App() {
 
       <main className="app-main">
         <Board
-          tokens={state.tokens}
+          tokens={visibleBoardTokens}
           zoom={state.zoom}
           selectedTokenIds={selectedTokenIds}
           editableTokenIds={editableTokenIds}
@@ -618,15 +838,8 @@ function App() {
           movableTokenIds={movableTokenIds}
           onToggleFullscreen={() => setBoardFullscreenPhase('opening')}
           onOpenManual={() => setIsManualModalOpen(true)}
-          onOpenNewElementModal={() => {
-            if (canManageBattleMap) {
-              setIsNewElementModalOpen(true);
-            }
-          }}
           onOpenElementsListModal={() => setIsElementsListModalOpen(true)}
           onOpenEditTokenModal={openEditTokenModal}
-          onRemoveSelected={() => removeTokens(selectedTokenIds)}
-          onAddSelectedToInitiative={addSelectedToInitiative}
           onMoveTokens={(moves) => {
             if (canManageBattleMap) {
               moveTokens(moves);
@@ -640,6 +853,32 @@ function App() {
           }}
           onSelectionChange={setSelectedTokenIds}
           onZoomChange={setZoom}
+          obstaclePlacement={
+            pendingObstaclePlacement
+              ? {
+                  color: pendingObstaclePlacement.color,
+                  selectedCells: pendingObstaclePlacement.cells,
+                  onToggleCell: (cell) => {
+                    setPendingObstaclePlacement((current) => {
+                      if (!current) {
+                        return current;
+                      }
+
+                      const key = cellKey(cell);
+                      const hasCell = current.cells.some((entry) => cellKey(entry) === key);
+                      return {
+                        ...current,
+                        cells: hasCell
+                          ? current.cells.filter((entry) => cellKey(entry) !== key)
+                          : [...current.cells, cell],
+                      };
+                    });
+                  },
+                  onConfirm: confirmObstaclePlacement,
+                  onCancel: () => setPendingObstaclePlacement(null),
+                }
+              : null
+          }
         />
       </main>
 
@@ -648,7 +887,7 @@ function App() {
           className={`board-fullscreen-overlay board-fullscreen-overlay--${boardFullscreenPhase}`}
         >
           <Board
-            tokens={state.tokens}
+            tokens={visibleBoardTokens}
             zoom={state.zoom}
             selectedTokenIds={selectedTokenIds}
             editableTokenIds={editableTokenIds}
@@ -658,15 +897,8 @@ function App() {
             movableTokenIds={movableTokenIds}
             onToggleFullscreen={() => setBoardFullscreenPhase('closing')}
             onOpenManual={() => setIsManualModalOpen(true)}
-            onOpenNewElementModal={() => {
-              if (canManageBattleMap) {
-                setIsNewElementModalOpen(true);
-              }
-            }}
             onOpenElementsListModal={() => setIsElementsListModalOpen(true)}
             onOpenEditTokenModal={openEditTokenModal}
-            onRemoveSelected={() => removeTokens(selectedTokenIds)}
-            onAddSelectedToInitiative={addSelectedToInitiative}
             onMoveTokens={(moves) => {
               if (canManageBattleMap) {
                 moveTokens(moves);
@@ -680,6 +912,32 @@ function App() {
             }}
             onSelectionChange={setSelectedTokenIds}
             onZoomChange={setZoom}
+            obstaclePlacement={
+              pendingObstaclePlacement
+                ? {
+                    color: pendingObstaclePlacement.color,
+                    selectedCells: pendingObstaclePlacement.cells,
+                    onToggleCell: (cell) => {
+                      setPendingObstaclePlacement((current) => {
+                        if (!current) {
+                          return current;
+                        }
+
+                        const key = cellKey(cell);
+                        const hasCell = current.cells.some((entry) => cellKey(entry) === key);
+                        return {
+                          ...current,
+                          cells: hasCell
+                            ? current.cells.filter((entry) => cellKey(entry) !== key)
+                            : [...current.cells, cell],
+                        };
+                      });
+                    },
+                    onConfirm: confirmObstaclePlacement,
+                    onCancel: () => setPendingObstaclePlacement(null),
+                  }
+                : null
+            }
           />
         </div>
       ) : null}
@@ -691,6 +949,13 @@ function App() {
           tokenCount={state.tokens.length}
           onClose={() => setIsNewElementModalOpen(false)}
           onAddTokens={addTokens}
+          onStartObstaclePlacement={({ name, color }) => {
+            setPendingObstaclePlacement({
+              name,
+              color,
+              cells: [],
+            });
+          }}
         />
       ) : null}
 
@@ -711,11 +976,12 @@ function App() {
           }
           setEditingTokenId(null);
         }}
+        onDuplicateToken={(tokenId) => duplicateToken(tokenId)}
       />
 
       <ElementsListModal
         isOpen={isElementsListModalOpen}
-        tokens={state.tokens}
+        tokens={visibleBoardTokens}
         readOnly={!canManageBattleMap}
         onClose={() => setIsElementsListModalOpen(false)}
         onRemoveToken={(tokenId) => {
@@ -725,6 +991,7 @@ function App() {
         }}
         onLocateToken={locateToken}
         onEditToken={openEditTokenModal}
+        onDuplicateToken={(tokenId) => duplicateToken(tokenId)}
       />
 
       <Modal

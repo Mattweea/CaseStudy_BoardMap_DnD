@@ -74,17 +74,19 @@ export function InitiativeRollModal({
   };
 
   const rollForEveryone = () => {
-    const nextEntries = creatures.map((token) => {
+    const nextEntries = creatures
+      .filter((token) => token.excludeFromInitiative !== true)
+      .map((token) => {
       const d20Value =
         token.initiativeMode === 'advantage'
           ? rollDice(20, 1, 0, 'advantage').keptRolls[0] ?? rollSingleDie(20)
           : rollSingleDie(20);
-      return {
-        tokenId: token.id,
-        value: d20Value + token.initiativeModifier,
-        source: 'rolled',
-      } satisfies InitiativeEntry;
-    });
+        return {
+          tokenId: token.id,
+          value: d20Value + token.initiativeModifier,
+          source: 'rolled',
+        } satisfies InitiativeEntry;
+      });
 
     setManualValues(
       nextEntries.reduce<Record<string, string>>((accumulator, entry) => {
@@ -164,6 +166,7 @@ export function InitiativeRollModal({
                 <span>{tokenTypeLabel(token.type)}</span>
                 <span>Mod. iniziativa: {token.initiativeModifier >= 0 ? `+${token.initiativeModifier}` : token.initiativeModifier}</span>
                 {token.initiativeMode === 'advantage' ? <span>Roll iniziativa con vantaggio</span> : null}
+                {token.excludeFromInitiative ? <span>Escluso da "Roll for everyone"</span> : null}
                 <span>
                   {currentEntry ? `${currentEntry.value} (${currentEntry.source})` : 'Nessuna iniziativa'}
                 </span>

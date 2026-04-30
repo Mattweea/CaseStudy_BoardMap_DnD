@@ -92,6 +92,14 @@ export function gridColumnToLabel(index: number): string {
 }
 
 export function getTokenFootprint(token: UnitToken): { width: number; height: number } {
-  const cells = sizeToCells(token.size);
-  return { width: cells, height: cells };
+  const width =
+    typeof token.widthCells === 'number' && token.widthCells > 0
+      ? Math.max(1, Math.floor(token.widthCells))
+      : sizeToCells(token.size);
+  const height =
+    typeof token.heightCells === 'number' && token.heightCells > 0
+      ? Math.max(1, Math.floor(token.heightCells))
+      : sizeToCells(token.size);
+
+  return { width, height };
 }

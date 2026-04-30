@@ -17,8 +17,7 @@ interface DicePanelProps {
   actorKey?: CharacterKey | null;
   rollerName?: string | null;
   isResultOpen: boolean;
-  onAddLog: (log: DiceRollLog) => void;
-  onShowResult: (payload: { log: DiceRollLog; flavor: string }) => void;
+  onAddLog: (log: DiceRollLog, flavor?: string) => void;
   onOpenLogs: () => void;
 }
 
@@ -28,7 +27,6 @@ export function DicePanel({
   rollerName,
   isResultOpen,
   onAddLog,
-  onShowResult,
   onOpenLogs,
 }: DicePanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -82,8 +80,7 @@ export function DicePanel({
         mode,
       };
 
-      onAddLog(log);
-      onShowResult({ log, flavor: nextFlavor });
+      onAddLog(log, nextFlavor);
       rollingTimeoutRef.current = null;
     }, ROLLING_DURATION_MS);
   };

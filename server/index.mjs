@@ -47,10 +47,12 @@ const demoUsers = CHARACTER_PROFILES.map((profile) => ({
 const initialSharedState = {
   tokens: [],
   diceLogs: [],
+  latestDicePreview: null,
   initiatives: [],
   activeTurnTokenId: null,
   roundNumber: 1,
   movementUsedByTokenId: {},
+  movementAxisUsageByTokenId: {},
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
 };
@@ -173,6 +175,14 @@ function normalizeSharedState(parsed) {
           ...token,
           type,
           size: token.size ?? (token.vehicleKind ? VEHICLE_PRESETS[token.vehicleKind].size : 'medium'),
+          widthCells:
+            typeof token.widthCells === 'number' && token.widthCells > 0
+              ? Math.max(1, Math.floor(token.widthCells))
+              : null,
+          heightCells:
+            typeof token.heightCells === 'number' && token.heightCells > 0
+              ? Math.max(1, Math.floor(token.heightCells))
+              : null,
           color: token.color ?? fallbackColor,
           initiativeModifier:
             typeof token.initiativeModifier === 'number' ? token.initiativeModifier : 0,
@@ -193,9 +203,13 @@ function normalizeSharedState(parsed) {
           imageUrl: typeof token.imageUrl === 'string' ? token.imageUrl : null,
           ownerUserId: typeof token.ownerUserId === 'string' ? token.ownerUserId : null,
           characterKey: typeof token.characterKey === 'string' ? token.characterKey : null,
+          groupId: typeof token.groupId === 'string' ? token.groupId : null,
           hitPoints: typeof token.hitPoints === 'number' ? token.hitPoints : null,
           maxHitPoints: typeof token.maxHitPoints === 'number' ? token.maxHitPoints : null,
           isInvisible: token.isInvisible === true,
+          isFamiliar: token.isFamiliar === true,
+          blocksMovement: token.blocksMovement === true,
+          excludeFromInitiative: token.excludeFromInitiative === true,
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
         };
       })
@@ -212,6 +226,23 @@ function normalizeSharedState(parsed) {
           formula: log.formula ?? log.label,
         }))
       : [],
+    latestDicePreview:
+      parsed?.latestDicePreview &&
+      typeof parsed.latestDicePreview === 'object' &&
+      typeof parsed.latestDicePreview.id === 'string' &&
+      typeof parsed.latestDicePreview.flavor === 'string' &&
+      parsed.latestDicePreview.log &&
+      typeof parsed.latestDicePreview.log === 'object'
+        ? {
+            id: parsed.latestDicePreview.id,
+            flavor: parsed.latestDicePreview.flavor,
+            log: {
+              ...parsed.latestDicePreview.log,
+              formula:
+                parsed.latestDicePreview.log.formula ?? parsed.latestDicePreview.log.label ?? '',
+            },
+          }
+        : null,
     initiatives,
     activeTurnTokenId:
       typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null,
@@ -225,6 +256,26 @@ function normalizeSharedState(parsed) {
                 typeof used === 'number' &&
                 used >= 0,
             ),
+          )
+        : {},
+    movementAxisUsageByTokenId:
+      parsed?.movementAxisUsageByTokenId && typeof parsed.movementAxisUsageByTokenId === 'object'
+        ? Object.fromEntries(
+            Object.entries(parsed.movementAxisUsageByTokenId).flatMap(([tokenId, usage]) => {
+              if (
+                !tokens.some((token) => token.id === tokenId) ||
+                !usage ||
+                typeof usage !== 'object' ||
+                typeof usage.horizontal !== 'number' ||
+                typeof usage.vertical !== 'number' ||
+                usage.horizontal < 0 ||
+                usage.vertical < 0
+              ) {
+                return [];
+              }
+
+              return [[tokenId, { horizontal: usage.horizontal, vertical: usage.vertical }]];
+            }),
           )
         : {},
     dashUsedByTokenId:
@@ -271,8 +322,16 @@ function sizeToCells(size) {
 }
 
 function getTokenFootprint(token) {
-  const cells = sizeToCells(token.size);
-  return { width: cells, height: cells };
+  return {
+    width:
+      typeof token.widthCells === 'number' && token.widthCells > 0
+        ? Math.max(1, Math.floor(token.widthCells))
+        : sizeToCells(token.size),
+    height:
+      typeof token.heightCells === 'number' && token.heightCells > 0
+        ? Math.max(1, Math.floor(token.heightCells))
+        : sizeToCells(token.size),
+  };
 }
 
 function isCreatureToken(token) {
@@ -335,13 +394,110 @@ function validateSharedState(nextState) {
   return null;
 }
 
+function isMovementBlockingToken(token) {
+  return token.blocksMovement === true;
+}
+
+function canTokenIgnoreObstacles(token, user) {
+  return user?.role === 'master' || token.type === 'vehicle';
+}
+
+function findBlockingObstacle(tokens, movingTokenId, position, footprint) {
+  return tokens.find((token) => {
+    if (token.id === movingTokenId || !isMovementBlockingToken(token)) {
+      return false;
+    }
+
+    const obstacleFootprint = getTokenFootprint(token);
+    return !(
+      position.x + footprint.width - 1 < token.position.x ||
+      token.position.x + obstacleFootprint.width - 1 < position.x ||
+      position.y + footprint.height - 1 < token.position.y ||
+      token.position.y + obstacleFootprint.height - 1 < position.y
+    );
+  }) ?? null;
+}
+
+function findBlockedMovement(tokens, movingToken, from, to) {
+  const footprint = getTokenFootprint(movingToken);
+  const stepX = Math.sign(to.x - from.x);
+  const stepY = Math.sign(to.y - from.y);
+  const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y));
+  let currentX = from.x;
+  let currentY = from.y;
+
+  for (let index = 0; index < steps; index += 1) {
+    if (currentX !== to.x) {
+      currentX += stepX;
+    }
+    if (currentY !== to.y) {
+      currentY += stepY;
+    }
+
+    const obstacle = findBlockingObstacle(tokens, movingToken.id, { x: currentX, y: currentY }, footprint);
+    if (obstacle) {
+      return obstacle;
+    }
+  }
+
+  return null;
+}
+
+function calculateMovementAxisUsage(previousUsage, from, to) {
+  return {
+    horizontal: (previousUsage?.horizontal ?? 0) + Math.abs(to.x - from.x),
+    vertical: (previousUsage?.vertical ?? 0) + Math.abs(to.y - from.y),
+  };
+}
+
+function movementUsedFromAxisUsage(usage) {
+  return Math.max(usage?.horizontal ?? 0, usage?.vertical ?? 0);
+}
+
+function firstAvailablePositionToRight(tokens, footprint, start) {
+  const startX = Math.max(0, start.x);
+  const startY = Math.max(0, start.y);
+  const horizontalSearchLimit = Math.max(
+    startX + 1,
+    ...tokens.map((token) => token.position.x + getTokenFootprint(token).width),
+  ) + 24;
+  const verticalSearchLimit = Math.max(
+    startY + 1,
+    ...tokens.map((token) => token.position.y + getTokenFootprint(token).height),
+  ) + 24;
+
+  for (let y = startY; y <= verticalSearchLimit; y += 1) {
+    const xOrigin = y === startY ? startX : 0;
+    for (let x = xOrigin; x <= horizontalSearchLimit; x += 1) {
+      const position = { x, y };
+      const overlaps = tokens.some((token) => {
+        const tokenFootprint = getTokenFootprint(token);
+        return !(
+          position.x + footprint.width - 1 < token.position.x ||
+          token.position.x + tokenFootprint.width - 1 < position.x ||
+          position.y + footprint.height - 1 < token.position.y ||
+          token.position.y + tokenFootprint.height - 1 < position.y
+        );
+      });
+
+      if (!overlaps) {
+        return position;
+      }
+    }
+  }
+
+  return { x: startX, y: verticalSearchLimit + 1 };
+}
+
 function findUserControlledVehicle(user) {
   if (!user) {
     return null;
   }
 
   const playerToken =
-    battleMapState.tokens.find((token) => token.ownerUserId === user.id && token.type === 'player') ?? null;
+    battleMapState.tokens.find(
+      (token) => token.ownerUserId === user.id && token.type === 'player' && token.isFamiliar !== true,
+    ) ?? null;
   if (!playerToken) {
     return null;
   }
@@ -361,24 +517,7 @@ function sanitizeStateForUser(state, user) {
     return state;
   }
 
-  return normalizeSharedState({
-    ...state,
-    tokens: state.tokens.filter((token) => !token.isInvisible || token.ownerUserId === user.id),
-    initiatives: state.initiatives.filter((entry) =>
-      state.tokens.some(
-        (token) =>
-          token.id === entry.tokenId && (!token.isInvisible || token.ownerUserId === user.id),
-      ),
-    ),
-    activeTurnTokenId:
-      state.activeTurnTokenId &&
-      state.tokens.some(
-        (token) =>
-          token.id === state.activeTurnTokenId && (!token.isInvisible || token.ownerUserId === user.id),
-      )
-        ? state.activeTurnTokenId
-        : null,
-  });
+  return normalizeSharedState(state);
 }
 
 function nextSnapshot(user = null) {
@@ -481,11 +620,23 @@ function broadcastSnapshot() {
 }
 
 function replaceBattleMapState(nextState) {
-  pushMasterUndoState();
+  return commitBattleMapState(nextState, { recordMasterUndo: true, validate: true });
+}
+
+function commitBattleMapState(nextState, options = {}) {
+  const { recordMasterUndo = false, validate = true } = options;
+
+  if (recordMasterUndo) {
+    pushMasterUndoState();
+  }
+
   const normalizedState = normalizeSharedState(nextState);
-  const validationError = validateSharedState(normalizedState);
+  const validationError = validate ? validateSharedState(normalizedState) : null;
   if (validationError) {
-    masterUndoStack.pop();
+    if (recordMasterUndo) {
+      masterUndoStack.pop();
+    }
+
     return {
       ...validationError,
       ...nextSnapshot(),
@@ -512,24 +663,32 @@ async function restoreLastSessionSnapshot() {
   return nextSnapshot();
 }
 
-function appendDiceLog(log) {
-  battleMapState = {
+function appendDiceLog(user, log, flavor = '') {
+  return commitBattleMapState({
     ...battleMapState,
     diceLogs: [log, ...battleMapState.diceLogs].slice(0, 30),
-  };
-  bumpBattleMapVersion();
-  broadcastSnapshot();
-  return nextSnapshot();
+    latestDicePreview:
+      typeof flavor === 'string' && flavor.trim()
+        ? {
+            id: crypto.randomUUID(),
+            flavor,
+            log,
+          }
+        : battleMapState.latestDicePreview,
+  }, {
+    recordMasterUndo: user?.role === 'master',
+    validate: false,
+  });
 }
 
-function clearBattleMapDiceLogs() {
-  battleMapState = {
+function clearBattleMapDiceLogs(user) {
+  return commitBattleMapState({
     ...battleMapState,
     diceLogs: [],
-  };
-  bumpBattleMapVersion();
-  broadcastSnapshot();
-  return nextSnapshot();
+  }, {
+    recordMasterUndo: user?.role === 'master',
+    validate: false,
+  });
 }
 
 function applyRoundWrapState(nextState, direction) {
@@ -539,6 +698,7 @@ function applyRoundWrapState(nextState, direction) {
       ...nextState,
       roundNumber: 1,
       movementUsedByTokenId: {},
+      movementAxisUsageByTokenId: {},
       dashUsedByTokenId: {},
       extraMovementByTokenId: {},
     };
@@ -557,6 +717,7 @@ function applyRoundWrapState(nextState, direction) {
         ...nextState,
         roundNumber: Math.max(1, nextState.roundNumber + (direction === 'next' ? 1 : -1)),
         movementUsedByTokenId: {},
+        movementAxisUsageByTokenId: {},
         dashUsedByTokenId: {},
         extraMovementByTokenId: {},
       }
@@ -580,15 +741,23 @@ function moveOwnedToken(user, tokenId, x, y) {
 
   const hasInitiativeOrder = battleMapState.initiatives.length > 0;
   const movementSourceToken = isControlledVehicle
-    ? battleMapState.tokens.find((candidate) => candidate.ownerUserId === user.id && candidate.type === 'player') ?? null
+    ? battleMapState.tokens.find(
+        (candidate) =>
+          candidate.ownerUserId === user.id && candidate.type === 'player' && candidate.isFamiliar !== true,
+      ) ?? null
     : token;
   const movementSourceId = movementSourceToken?.id ?? tokenId;
   const movementCells = typeof movementSourceToken?.movementCells === 'number' ? movementSourceToken.movementCells : 0;
   const extraMovement = battleMapState.extraMovementByTokenId[movementSourceId] ?? 0;
-  const usedCells = battleMapState.movementUsedByTokenId[movementSourceId] ?? 0;
+  const previousAxisUsage = battleMapState.movementAxisUsageByTokenId[movementSourceId] ?? {
+    horizontal: 0,
+    vertical: 0,
+  };
+  const usedCells = movementUsedFromAxisUsage(previousAxisUsage);
   const hasDashed = battleMapState.dashUsedByTokenId[movementSourceId] === true;
   const movementBudget = movementCells * (hasDashed ? 2 : 1) + extraMovement;
-  const moveDistance = gridDistance(token.position, { x, y });
+  const nextAxisUsage = calculateMovementAxisUsage(previousAxisUsage, token.position, { x, y });
+  const moveDistance = movementUsedFromAxisUsage(nextAxisUsage) - usedCells;
 
   if (hasInitiativeOrder && user.role !== 'master' && usedCells + moveDistance > movementBudget) {
     return {
@@ -596,6 +765,17 @@ function moveOwnedToken(user, tokenId, x, y) {
       message: `Movimento insufficiente: restano ${Math.max(0, movementBudget - usedCells)} caselle in questo round.`,
       snapshot: nextSnapshot(),
     };
+  }
+
+  if (!canTokenIgnoreObstacles(token, user)) {
+    const blockingObstacle = findBlockedMovement(battleMapState.tokens, token, token.position, { x, y });
+    if (blockingObstacle) {
+      return {
+        status: 400,
+        message: `${blockingObstacle.name} blocca il movimento.`,
+        snapshot: nextSnapshot(),
+      };
+    }
   }
 
   const nextTokens = applyVehicleAwareUpdates(
@@ -610,9 +790,15 @@ function moveOwnedToken(user, tokenId, x, y) {
     movementUsedByTokenId: hasInitiativeOrder
       ? {
           ...battleMapState.movementUsedByTokenId,
-          [movementSourceId]: usedCells + moveDistance,
+          [movementSourceId]: movementUsedFromAxisUsage(nextAxisUsage),
         }
       : battleMapState.movementUsedByTokenId,
+    movementAxisUsageByTokenId: hasInitiativeOrder
+      ? {
+          ...battleMapState.movementAxisUsageByTokenId,
+          [movementSourceId]: nextAxisUsage,
+        }
+      : battleMapState.movementAxisUsageByTokenId,
     dashUsedByTokenId: battleMapState.dashUsedByTokenId,
   });
   const validationError = validateSharedState(nextState);
@@ -623,6 +809,10 @@ function moveOwnedToken(user, tokenId, x, y) {
     };
   }
 
+  if (user.role === 'master') {
+    return commitBattleMapState(nextState, { recordMasterUndo: true, validate: false });
+  }
+
   battleMapState = nextState;
   if (user.role !== 'master') {
     pushPlayerUndoAction(user.id, {
@@ -631,6 +821,7 @@ function moveOwnedToken(user, tokenId, x, y) {
       previousPosition: token.position,
       movementSourceId,
       previousMovementUsed: usedCells,
+      previousMovementAxisUsage: previousAxisUsage,
     });
   }
   bumpBattleMapVersion();
@@ -697,20 +888,37 @@ function updateOwnedToken(user, tokenId, updates) {
     nextUpdates.maxHitPoints = null;
   }
 
+  if (Array.isArray(updates?.conditions)) {
+    nextUpdates.conditions = updates.conditions.filter((condition) => typeof condition === 'string');
+  }
+
+  if (user.role === 'master' && typeof updates?.excludeFromInitiative === 'boolean') {
+    nextUpdates.excludeFromInitiative = updates.excludeFromInitiative;
+  }
+
+  if (
+    (user.role === 'master' || token.isFamiliar === true) &&
+    typeof updates?.isInvisible === 'boolean'
+  ) {
+    nextUpdates.isInvisible = updates.isInvisible;
+  }
+
   if (Object.keys(nextUpdates).length === 0) {
     return { status: 400, message: 'Nessun aggiornamento valido.' };
   }
 
-  if (user.role === 'master') {
-    pushMasterUndoState();
-  }
-
-  battleMapState = normalizeSharedState({
+  const nextState = normalizeSharedState({
     ...battleMapState,
     tokens: battleMapState.tokens.map((currentToken) =>
       currentToken.id === tokenId ? { ...currentToken, ...nextUpdates } : currentToken,
     ),
   });
+
+  if (user.role === 'master') {
+    return commitBattleMapState(nextState, { recordMasterUndo: true, validate: false });
+  }
+
+  battleMapState = nextState;
 
   if (user.role !== 'master') {
     pushPlayerUndoAction(user.id, {
@@ -719,6 +927,8 @@ function updateOwnedToken(user, tokenId, updates) {
       previousValues: {
         hitPoints: token.hitPoints ?? null,
         maxHitPoints: token.maxHitPoints ?? null,
+        conditions: token.conditions ?? [],
+        isInvisible: token.isInvisible === true,
       },
     });
   }
@@ -750,17 +960,19 @@ function addExtraMovement(user, tokenId, amount) {
     return { status: 400, message: 'Nessuna variazione di movimento disponibile.' };
   }
 
-  if (user.role === 'master') {
-    pushMasterUndoState();
-  }
-
-  battleMapState = normalizeSharedState({
+  const nextState = normalizeSharedState({
     ...battleMapState,
     extraMovementByTokenId: {
       ...battleMapState.extraMovementByTokenId,
       [tokenId]: nextAmount,
     },
   });
+
+  if (user.role === 'master') {
+    return commitBattleMapState(nextState, { recordMasterUndo: true, validate: false });
+  }
+
+  battleMapState = nextState;
 
   if (user.role !== 'master') {
     pushPlayerUndoAction(user.id, {
@@ -805,6 +1017,10 @@ function undoLastAction(user) {
       movementUsedByTokenId: {
         ...battleMapState.movementUsedByTokenId,
         [action.movementSourceId]: action.previousMovementUsed,
+      },
+      movementAxisUsageByTokenId: {
+        ...battleMapState.movementAxisUsageByTokenId,
+        [action.movementSourceId]: action.previousMovementAxisUsage,
       },
     });
   }
@@ -921,7 +1137,9 @@ function serializeCookie(name, value, options = {}) {
 function sanitizeUser(user) {
   const profile = findCharacterProfileById(user.id);
   const playerToken =
-    battleMapState.tokens.find((token) => token.ownerUserId === user.id) ??
+    battleMapState.tokens.find(
+      (token) => token.ownerUserId === user.id && token.type === 'player' && token.isFamiliar !== true,
+    ) ??
     battleMapState.tokens.find((token) => token.characterKey === profile?.key) ??
     null;
 
@@ -959,9 +1177,13 @@ function createCharacterToken(profile, userId) {
     imageUrl: profile.imageUrl,
     ownerUserId: userId,
     characterKey: profile.key,
+    groupId: null,
     hitPoints: null,
     maxHitPoints: null,
     isInvisible: false,
+    isFamiliar: false,
+    blocksMovement: false,
+    excludeFromInitiative: false,
     conditions: [],
   };
 }
@@ -1233,7 +1455,7 @@ app.post('/api/battle-map/dice-logs', async (request, reply) => {
     return { message: 'Payload log non valido.' };
   }
 
-  return appendDiceLog(body.log);
+  return appendDiceLog(user, body.log, typeof body.flavor === 'string' ? body.flavor : '');
 });
 
 app.delete('/api/battle-map/dice-logs', async (request, reply) => {
@@ -1242,7 +1464,7 @@ app.delete('/api/battle-map/dice-logs', async (request, reply) => {
     return;
   }
 
-  return clearBattleMapDiceLogs();
+  return clearBattleMapDiceLogs(user);
 });
 
 app.post('/api/battle-map/move', async (request, reply) => {

@@ -3,8 +3,8 @@ import { useAnimatedPresence } from '../hooks/useAnimatedPresence';
 import type { DiceRollLog } from '../types';
 
 const RESULT_EXIT_DURATION_MS = 180;
-const RESULT_REVEAL_DELAY_MS = 920;
-const RESULT_CLOSE_DELAY_MS = 4300;
+const RESULT_REVEAL_DELAY_MS = 1200;
+const RESULT_CLOSE_DELAY_MS = 6200;
 
 interface DiceResultScene {
   flavor: string;
@@ -55,7 +55,7 @@ export function DiceResultModal({ result, onClose }: DiceResultModalProps) {
     >
       <div className="dice-result-card" data-state={isVisible ? 'open' : 'closed'}>
         <p className="eyebrow dice-result-card__eyebrow">Risultato</p>
-        {result.log.rollerName ? <p className="dice-result-card__roller">{result.log.rollerName}</p> : null}
+        {result.log.rollerName ? <p className="dice-result-card__roller">{`${result.log.rollerName} lancia i dadi...`}</p> : null}
         <p className="dice-result-card__flavor">{result.flavor}</p>
 
         <div

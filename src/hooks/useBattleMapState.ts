@@ -113,10 +113,12 @@ function applyVehicleAwareUpdates(tokens: UnitToken[]): UnitToken[] {
 const initialSharedState: BattleMapSharedState = {
   tokens: [],
   diceLogs: [],
+  latestDicePreview: null,
   initiatives: [],
   activeTurnTokenId: null,
   roundNumber: 1,
   movementUsedByTokenId: {},
+  movementAxisUsageByTokenId: {},
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
 };
@@ -128,6 +130,21 @@ function readStoredZoom() {
 
   const rawValue = window.localStorage.getItem(ZOOM_STORAGE_KEY);
   return clampZoom(rawValue ? Number(rawValue) : 1);
+}
+
+function calculateMovementAxisUsage(
+  previousUsage: { horizontal: number; vertical: number } | undefined,
+  from: GridPosition,
+  to: GridPosition,
+) {
+  return {
+    horizontal: (previousUsage?.horizontal ?? 0) + Math.abs(to.x - from.x),
+    vertical: (previousUsage?.vertical ?? 0) + Math.abs(to.y - from.y),
+  };
+}
+
+function movementUsedFromAxisUsage(usage: { horizontal: number; vertical: number } | undefined) {
+  return Math.max(usage?.horizontal ?? 0, usage?.vertical ?? 0);
 }
 
 function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): BattleMapSharedState {
@@ -147,6 +164,14 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           ...token,
           type,
           size: token.size ?? (token.vehicleKind ? VEHICLE_PRESETS[token.vehicleKind].size : 'medium'),
+          widthCells:
+            typeof token.widthCells === 'number' && token.widthCells > 0
+              ? Math.max(1, Math.floor(token.widthCells))
+              : null,
+          heightCells:
+            typeof token.heightCells === 'number' && token.heightCells > 0
+              ? Math.max(1, Math.floor(token.heightCells))
+              : null,
           color: token.color ?? fallbackColor,
           initiativeModifier:
             typeof token.initiativeModifier === 'number' ? token.initiativeModifier : 0,
@@ -167,9 +192,13 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           imageUrl: typeof token.imageUrl === 'string' ? token.imageUrl : null,
           ownerUserId: typeof token.ownerUserId === 'string' ? token.ownerUserId : null,
           characterKey: typeof token.characterKey === 'string' ? token.characterKey : null,
+          groupId: typeof token.groupId === 'string' ? token.groupId : null,
           hitPoints: typeof token.hitPoints === 'number' ? token.hitPoints : null,
           maxHitPoints: typeof token.maxHitPoints === 'number' ? token.maxHitPoints : null,
           isInvisible: token.isInvisible === true,
+          isFamiliar: token.isFamiliar === true,
+          blocksMovement: token.blocksMovement === true,
+          excludeFromInitiative: token.excludeFromInitiative === true,
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
         };
       })
@@ -186,6 +215,23 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           formula: log.formula ?? log.label,
         }))
       : [],
+    latestDicePreview:
+      parsed?.latestDicePreview &&
+      typeof parsed.latestDicePreview === 'object' &&
+      typeof parsed.latestDicePreview.id === 'string' &&
+      typeof parsed.latestDicePreview.flavor === 'string' &&
+      parsed.latestDicePreview.log &&
+      typeof parsed.latestDicePreview.log === 'object'
+        ? {
+            id: parsed.latestDicePreview.id,
+            flavor: parsed.latestDicePreview.flavor,
+            log: {
+              ...parsed.latestDicePreview.log,
+              formula:
+                parsed.latestDicePreview.log.formula ?? parsed.latestDicePreview.log.label ?? '',
+            },
+          }
+        : null,
     initiatives,
     activeTurnTokenId:
       typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null,
@@ -199,6 +245,26 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
                 typeof used === 'number' &&
                 used >= 0,
             ),
+          )
+        : {},
+    movementAxisUsageByTokenId:
+      parsed?.movementAxisUsageByTokenId && typeof parsed.movementAxisUsageByTokenId === 'object'
+        ? Object.fromEntries(
+            Object.entries(parsed.movementAxisUsageByTokenId).flatMap(([tokenId, usage]) => {
+              if (
+                !tokens.some((token) => token.id === tokenId) ||
+                !usage ||
+                typeof usage !== 'object' ||
+                typeof usage.horizontal !== 'number' ||
+                typeof usage.vertical !== 'number' ||
+                usage.horizontal < 0 ||
+                usage.vertical < 0
+              ) {
+                return [];
+              }
+
+              return [[tokenId, { horizontal: usage.horizontal, vertical: usage.vertical }]];
+            }),
           )
         : {},
     dashUsedByTokenId:
@@ -258,6 +324,7 @@ export function useBattleMapState() {
   const [zoom, setZoomState] = useState(readStoredZoom);
   const [version, setVersion] = useState(0);
   const [isReady, setIsReady] = useState(false);
+  const [isMutating, setIsMutating] = useState(false);
   const [sessionStatus, setSessionStatus] = useState<BattleMapSessionStatus>({
     hasSnapshot: false,
     savedAt: null,
@@ -265,6 +332,8 @@ export function useBattleMapState() {
   });
   const sharedStateRef = useRef(sharedState);
   const versionRef = useRef(version);
+  const mutationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const mutationCountRef = useRef(0);
 
   useEffect(() => {
     sharedStateRef.current = sharedState;
@@ -354,111 +423,143 @@ export function useBattleMapState() {
     setSharedState(nextState);
   };
 
+  const enqueueMutation = <T,>(task: () => Promise<T>): Promise<T> => {
+    mutationCountRef.current += 1;
+    setIsMutating(true);
+
+    const run = mutationQueueRef.current.then(task, task);
+    mutationQueueRef.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+
+    return run.finally(() => {
+      mutationCountRef.current = Math.max(0, mutationCountRef.current - 1);
+      if (mutationCountRef.current === 0) {
+        setIsMutating(false);
+      }
+    });
+  };
+
   const commitSharedState = async (
     updater: (current: BattleMapSharedState) => BattleMapSharedState,
   ) => {
-    const previousState = sharedStateRef.current;
-    const previousVersion = versionRef.current;
-    const nextState = normalizeSharedState(updater(sharedStateRef.current));
-    setOptimisticState(nextState);
+    return enqueueMutation(async () => {
+      const previousState = sharedStateRef.current;
+      const previousVersion = versionRef.current;
+      const nextState = normalizeSharedState(updater(sharedStateRef.current));
+      setOptimisticState(nextState);
 
-    try {
-      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-        '/battle-map/state',
-        {
-          method: 'PUT',
-          body: JSON.stringify({
-            baseVersion: previousVersion,
-            state: nextState,
-          }),
-        },
-      );
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/state',
+          {
+            method: 'PUT',
+            body: JSON.stringify({
+              baseVersion: previousVersion,
+              state: nextState,
+            }),
+          },
+        );
 
-      applySnapshot(payload.state, payload.version);
-    } catch (error) {
-      console.error(error);
+        applySnapshot(payload.state, payload.version);
+      } catch (error) {
+        console.error(error);
 
-      const conflictState =
-        error instanceof Error && 'payload' in error
-          ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
-          : undefined;
+        const conflictState =
+          error instanceof Error && 'payload' in error
+            ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+            : undefined;
 
-      if (conflictState?.state && typeof conflictState.version === 'number') {
-        const rebasedState = normalizeSharedState(updater(normalizeSharedState(conflictState.state)));
-        setOptimisticState(rebasedState);
+        if (conflictState?.state && typeof conflictState.version === 'number') {
+          const rebasedState = normalizeSharedState(updater(normalizeSharedState(conflictState.state)));
+          setOptimisticState(rebasedState);
 
-        try {
-          const retryPayload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-            '/battle-map/state',
-            {
-              method: 'PUT',
-              body: JSON.stringify({
-                baseVersion: conflictState.version,
-                state: rebasedState,
-              }),
-            },
-          );
+          try {
+            const retryPayload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+              '/battle-map/state',
+              {
+                method: 'PUT',
+                body: JSON.stringify({
+                  baseVersion: conflictState.version,
+                  state: rebasedState,
+                }),
+              },
+            );
 
-          applySnapshot(retryPayload.state, retryPayload.version);
-          return;
-        } catch (retryError) {
-          console.error(retryError);
-
-          const retryConflict =
-            retryError instanceof Error && 'payload' in retryError
-              ? (retryError.payload as { state?: BattleMapSharedState; version?: number } | undefined)
-              : undefined;
-
-          if (retryConflict?.state && typeof retryConflict.version === 'number') {
-            applySnapshot(retryConflict.state, retryConflict.version);
+            applySnapshot(retryPayload.state, retryPayload.version);
             return;
+          } catch (retryError) {
+            console.error(retryError);
+
+            const retryConflict =
+              retryError instanceof Error && 'payload' in retryError
+                ? (retryError.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+                : undefined;
+
+            if (retryConflict?.state && typeof retryConflict.version === 'number') {
+              applySnapshot(retryConflict.state, retryConflict.version);
+              return;
+            }
           }
         }
-      }
 
-      applySnapshot(previousState, previousVersion);
-    }
+        applySnapshot(previousState, previousVersion);
+      }
+    });
   };
 
-  const addDiceLog = async (log: DiceRollLog) => {
-    const optimisticState = {
-      ...sharedStateRef.current,
-      diceLogs: [log, ...sharedStateRef.current.diceLogs].slice(0, 30),
-    };
-    setOptimisticState(optimisticState);
+  const addDiceLog = async (log: DiceRollLog, flavor?: string) => {
+    return enqueueMutation(async () => {
+      const optimisticState = {
+        ...sharedStateRef.current,
+        diceLogs: [log, ...sharedStateRef.current.diceLogs].slice(0, 30),
+        latestDicePreview:
+          typeof flavor === 'string' && flavor.trim()
+            ? {
+                id: crypto.randomUUID(),
+                flavor,
+                log,
+              }
+            : sharedStateRef.current.latestDicePreview,
+      };
+      setOptimisticState(optimisticState);
 
-    try {
-      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-        '/battle-map/dice-logs',
-        {
-          method: 'POST',
-          body: JSON.stringify({ log }),
-        },
-      );
-      applySnapshot(payload.state, payload.version);
-    } catch (error) {
-      console.error(error);
-    }
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/dice-logs',
+          {
+            method: 'POST',
+            body: JSON.stringify({ log, flavor }),
+          },
+        );
+        applySnapshot(payload.state, payload.version);
+      } catch (error) {
+        console.error(error);
+      }
+    });
   };
 
   const clearDiceLogs = async () => {
-    const optimisticState = {
-      ...sharedStateRef.current,
-      diceLogs: [],
-    };
-    setOptimisticState(optimisticState);
+    return enqueueMutation(async () => {
+      const optimisticState = {
+        ...sharedStateRef.current,
+        diceLogs: [],
+      };
+      setOptimisticState(optimisticState);
 
-    try {
-      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-        '/battle-map/dice-logs',
-        {
-          method: 'DELETE',
-        },
-      );
-      applySnapshot(payload.state, payload.version);
-    } catch (error) {
-      console.error(error);
-    }
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/dice-logs',
+          {
+            method: 'DELETE',
+          },
+        );
+        applySnapshot(payload.state, payload.version);
+      } catch (error) {
+        console.error(error);
+      }
+    });
   };
 
   const setZoom = (nextZoom: number) => {
@@ -541,57 +642,66 @@ export function useBattleMapState() {
   };
 
   const moveOwnedToken = async (tokenId: string, x: number, y: number) => {
-    const previousState = sharedStateRef.current;
-    const previousVersion = versionRef.current;
-    const optimisticToken = previousState.tokens.find((token) => token.id === tokenId);
-    if (!optimisticToken) {
-      return;
-    }
-
-    const hasInitiativeOrder = previousState.initiatives.length > 0;
-    const optimisticDistance = Math.max(
-      Math.abs(optimisticToken.position.x - x),
-      Math.abs(optimisticToken.position.y - y),
-    );
-    const optimisticState = normalizeSharedState({
-      ...previousState,
-      tokens: applyVehicleAwareUpdates(
-        previousState.tokens.map((token) =>
-          token.id === tokenId ? { ...token, position: { x, y } } : token,
-        ),
-      ),
-      movementUsedByTokenId: hasInitiativeOrder
-        ? {
-            ...previousState.movementUsedByTokenId,
-            [tokenId]: (previousState.movementUsedByTokenId[tokenId] ?? 0) + optimisticDistance,
-          }
-        : previousState.movementUsedByTokenId,
-      dashUsedByTokenId: previousState.dashUsedByTokenId,
-    });
-    setOptimisticState(optimisticState);
-
-    try {
-      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-        '/battle-map/move',
-        {
-          method: 'POST',
-          body: JSON.stringify({ tokenId, x, y }),
-        },
-      );
-      applySnapshot(payload.state, payload.version);
-    } catch (error) {
-      console.error(error);
-      const payload =
-        error instanceof Error && 'payload' in error
-          ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
-          : undefined;
-
-      if (payload?.state && typeof payload.version === 'number') {
-        applySnapshot(payload.state, payload.version);
-      } else {
-        applySnapshot(previousState, previousVersion);
+    return enqueueMutation(async () => {
+      const previousState = sharedStateRef.current;
+      const previousVersion = versionRef.current;
+      const optimisticToken = previousState.tokens.find((token) => token.id === tokenId);
+      if (!optimisticToken) {
+        return;
       }
-    }
+
+      const hasInitiativeOrder = previousState.initiatives.length > 0;
+      const previousAxisUsage = previousState.movementAxisUsageByTokenId[tokenId] ?? {
+        horizontal: 0,
+        vertical: 0,
+      };
+      const nextAxisUsage = calculateMovementAxisUsage(previousAxisUsage, optimisticToken.position, { x, y });
+      const optimisticState = normalizeSharedState({
+        ...previousState,
+        tokens: applyVehicleAwareUpdates(
+          previousState.tokens.map((token) =>
+            token.id === tokenId ? { ...token, position: { x, y } } : token,
+          ),
+        ),
+        movementUsedByTokenId: hasInitiativeOrder
+          ? {
+              ...previousState.movementUsedByTokenId,
+              [tokenId]: movementUsedFromAxisUsage(nextAxisUsage),
+            }
+          : previousState.movementUsedByTokenId,
+        movementAxisUsageByTokenId: hasInitiativeOrder
+          ? {
+              ...previousState.movementAxisUsageByTokenId,
+              [tokenId]: nextAxisUsage,
+            }
+          : previousState.movementAxisUsageByTokenId,
+        dashUsedByTokenId: previousState.dashUsedByTokenId,
+      });
+      setOptimisticState(optimisticState);
+
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/move',
+          {
+            method: 'POST',
+            body: JSON.stringify({ tokenId, x, y }),
+          },
+        );
+        applySnapshot(payload.state, payload.version);
+      } catch (error) {
+        console.error(error);
+        const payload =
+          error instanceof Error && 'payload' in error
+            ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+            : undefined;
+
+        if (payload?.state && typeof payload.version === 'number') {
+          applySnapshot(payload.state, payload.version);
+        } else {
+          applySnapshot(previousState, previousVersion);
+        }
+      }
+    });
   };
 
   const addTokens = (tokens: BattleMapSharedState['tokens']) => {
@@ -631,6 +741,9 @@ export function useBattleMapState() {
         movementUsedByTokenId: Object.fromEntries(
           Object.entries(current.movementUsedByTokenId).filter(([currentTokenId]) => currentTokenId !== tokenId),
         ),
+        movementAxisUsageByTokenId: Object.fromEntries(
+          Object.entries(current.movementAxisUsageByTokenId).filter(([currentTokenId]) => currentTokenId !== tokenId),
+        ),
         dashUsedByTokenId: Object.fromEntries(
           Object.entries(current.dashUsedByTokenId).filter(([currentTokenId]) => currentTokenId !== tokenId),
         ),
@@ -659,6 +772,9 @@ export function useBattleMapState() {
           : current.activeTurnTokenId,
         movementUsedByTokenId: Object.fromEntries(
           Object.entries(current.movementUsedByTokenId).filter(([tokenId]) => !tokenIdSet.has(tokenId)),
+        ),
+        movementAxisUsageByTokenId: Object.fromEntries(
+          Object.entries(current.movementAxisUsageByTokenId).filter(([tokenId]) => !tokenIdSet.has(tokenId)),
         ),
         dashUsedByTokenId: Object.fromEntries(
           Object.entries(current.dashUsedByTokenId).filter(([tokenId]) => !tokenIdSet.has(tokenId)),
@@ -690,6 +806,7 @@ export function useBattleMapState() {
         initiatives: nextEntries,
         activeTurnTokenId: current.activeTurnTokenId ?? nextEntries[0]?.tokenId ?? null,
         movementUsedByTokenId: current.movementUsedByTokenId,
+        movementAxisUsageByTokenId: current.movementAxisUsageByTokenId,
         dashUsedByTokenId: current.dashUsedByTokenId,
         extraMovementByTokenId: current.extraMovementByTokenId,
       };
@@ -725,6 +842,7 @@ export function useBattleMapState() {
         initiatives: nextEntries,
         activeTurnTokenId: current.activeTurnTokenId ?? nextEntries[0]?.tokenId ?? null,
         movementUsedByTokenId: current.movementUsedByTokenId,
+        movementAxisUsageByTokenId: current.movementAxisUsageByTokenId,
         dashUsedByTokenId: current.dashUsedByTokenId,
         extraMovementByTokenId: current.extraMovementByTokenId,
       };
@@ -776,6 +894,7 @@ export function useBattleMapState() {
       activeTurnTokenId: null,
       roundNumber: 1,
       movementUsedByTokenId: {},
+      movementAxisUsageByTokenId: {},
       dashUsedByTokenId: {},
       extraMovementByTokenId: {},
     }));
@@ -807,6 +926,7 @@ export function useBattleMapState() {
           ? Math.max(1, current.roundNumber + (direction === 'next' ? 1 : -1))
           : current.roundNumber,
         movementUsedByTokenId: wrappedRound ? {} : current.movementUsedByTokenId,
+        movementAxisUsageByTokenId: wrappedRound ? {} : current.movementAxisUsageByTokenId,
         dashUsedByTokenId: wrappedRound ? {} : current.dashUsedByTokenId,
         extraMovementByTokenId: wrappedRound ? {} : current.extraMovementByTokenId,
       };
@@ -814,85 +934,93 @@ export function useBattleMapState() {
   };
 
   const useDashAction = async (tokenId: string) => {
-    const optimisticState = normalizeSharedState({
-      ...sharedStateRef.current,
-      dashUsedByTokenId: {
-        ...sharedStateRef.current.dashUsedByTokenId,
-        [tokenId]: true,
-      },
-    });
-    setOptimisticState(optimisticState);
-
-    try {
-      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-        '/battle-map/dash',
-        {
-          method: 'POST',
-          body: JSON.stringify({ tokenId }),
+    return enqueueMutation(async () => {
+      const optimisticState = normalizeSharedState({
+        ...sharedStateRef.current,
+        dashUsedByTokenId: {
+          ...sharedStateRef.current.dashUsedByTokenId,
+          [tokenId]: true,
         },
-      );
-      applySnapshot(payload.state, payload.version);
-    } catch (error) {
-      console.error(error);
-      const payload =
-        error instanceof Error && 'payload' in error
-          ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
-          : undefined;
+      });
+      setOptimisticState(optimisticState);
 
-      if (payload?.state && typeof payload.version === 'number') {
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/dash',
+          {
+            method: 'POST',
+            body: JSON.stringify({ tokenId }),
+          },
+        );
         applySnapshot(payload.state, payload.version);
+      } catch (error) {
+        console.error(error);
+        const payload =
+          error instanceof Error && 'payload' in error
+            ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+            : undefined;
+
+        if (payload?.state && typeof payload.version === 'number') {
+          applySnapshot(payload.state, payload.version);
+        }
       }
-    }
+    });
   };
 
   const updateOwnedToken = async (
     tokenId: string,
-    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints'>>,
+    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative'>>,
   ) => {
-    const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-      '/battle-map/token-update',
-      {
-        method: 'POST',
-        body: JSON.stringify({ tokenId, updates }),
-      },
-    );
-
-    applySnapshot(payload.state, payload.version);
-  };
-
-  const addOwnedExtraMovement = async (tokenId: string, amount = 1) => {
-    const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-      '/battle-map/extra-movement',
-      {
-        method: 'POST',
-        body: JSON.stringify({ tokenId, amount }),
-      },
-    );
-
-    applySnapshot(payload.state, payload.version);
-  };
-
-  const undoLastAction = async () => {
-    try {
+    return enqueueMutation(async () => {
       const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-        '/battle-map/undo',
+        '/battle-map/token-update',
         {
           method: 'POST',
+          body: JSON.stringify({ tokenId, updates }),
         },
       );
 
       applySnapshot(payload.state, payload.version);
-    } catch (error) {
-      console.error(error);
-      const payload =
-        error instanceof Error && 'payload' in error
-          ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
-          : undefined;
+    });
+  };
 
-      if (payload?.state && typeof payload.version === 'number') {
+  const addOwnedExtraMovement = async (tokenId: string, amount = 1) => {
+    return enqueueMutation(async () => {
+      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+        '/battle-map/extra-movement',
+        {
+          method: 'POST',
+          body: JSON.stringify({ tokenId, amount }),
+        },
+      );
+
+      applySnapshot(payload.state, payload.version);
+    });
+  };
+
+  const undoLastAction = async () => {
+    return enqueueMutation(async () => {
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/undo',
+          {
+            method: 'POST',
+          },
+        );
+
         applySnapshot(payload.state, payload.version);
+      } catch (error) {
+        console.error(error);
+        const payload =
+          error instanceof Error && 'payload' in error
+            ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+            : undefined;
+
+        if (payload?.state && typeof payload.version === 'number') {
+          applySnapshot(payload.state, payload.version);
+        }
       }
-    }
+    });
   };
 
   const setActiveTurnToken = (tokenId: string) => {
@@ -937,6 +1065,7 @@ export function useBattleMapState() {
   return {
     boardConfig: BOARD_CONFIG,
     isReady,
+    isMutating,
     state,
     setZoom,
     moveToken,
