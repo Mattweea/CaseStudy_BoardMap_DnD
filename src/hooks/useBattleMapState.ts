@@ -121,6 +121,8 @@ const initialSharedState: BattleMapSharedState = {
   movementAxisUsageByTokenId: {},
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
+  isBoardBackgroundHidden: false,
+  sharedNotes: '',
 };
 
 function readStoredZoom() {
@@ -287,17 +289,21 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
             ),
           )
         : {},
+    isBoardBackgroundHidden: parsed?.isBoardBackgroundHidden === true,
+    sharedNotes: typeof parsed?.sharedNotes === 'string' ? parsed.sharedNotes : '',
   };
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (init?.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
     ...init,
+    headers,
   });
 
   const payload = (await response.json().catch(() => ({}))) as T & {
@@ -319,7 +325,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return payload;
 }
 
-export function useBattleMapState() {
+export function useBattleMapState(isAuthenticated: boolean) {
   const [sharedState, setSharedState] = useState<BattleMapSharedState>(initialSharedState);
   const [zoom, setZoomState] = useState(readStoredZoom);
   const [version, setVersion] = useState(0);
@@ -348,6 +354,16 @@ export function useBattleMapState() {
   }, [zoom]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setIsReady(false);
+      setSessionStatus({
+        hasSnapshot: false,
+        savedAt: null,
+        version: null,
+      });
+      return undefined;
+    }
+
     let isMounted = true;
 
     const loadState = async () => {
@@ -381,7 +397,7 @@ export function useBattleMapState() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!isReady) {
@@ -402,7 +418,8 @@ export function useBattleMapState() {
       }
     };
     eventSource.onerror = () => {
-      eventSource.close();
+      // Keep the connection object alive: EventSource will retry automatically.
+      // Closing here left some clients stale until a manual refresh.
     };
 
     return () => {
@@ -1030,6 +1047,38 @@ export function useBattleMapState() {
     }));
   };
 
+  const setBoardBackgroundHidden = (hidden: boolean) => {
+    void commitSharedState((current) => ({
+      ...current,
+      isBoardBackgroundHidden: hidden,
+    }));
+  };
+
+  const setSharedNotes = async (notes: string) => {
+    return enqueueMutation(async () => {
+      const previousState = sharedStateRef.current;
+      const previousVersion = versionRef.current;
+      setOptimisticState(normalizeSharedState({
+        ...previousState,
+        sharedNotes: notes,
+      }));
+
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/notes',
+          {
+            method: 'POST',
+            body: JSON.stringify({ notes }),
+          },
+        );
+        applySnapshot(payload.state, payload.version);
+      } catch (error) {
+        console.error(error);
+        applySnapshot(previousState, previousVersion);
+      }
+    });
+  };
+
   const resetZoom = () => setZoom(1);
 
   const suspendSession = async () => {
@@ -1087,6 +1136,8 @@ export function useBattleMapState() {
     clearInitiatives,
     cycleTurn,
     setActiveTurnToken,
+    setBoardBackgroundHidden,
+    setSharedNotes,
     resetZoom,
     undoLastAction,
     sessionStatus,

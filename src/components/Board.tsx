@@ -19,8 +19,10 @@ interface BoardProps {
   editableTokenIds?: string[];
   focusRequest: { tokenId: string; nonce: number } | null;
   isFullscreen?: boolean;
+  isBackgroundHidden?: boolean;
   canManageTokens?: boolean;
   movableTokenIds?: string[];
+  onOpenMap: () => void;
   onOpenManual: () => void;
   onOpenElementsListModal: () => void;
   onOpenEditTokenModal: (tokenId: string) => void;
@@ -239,8 +241,10 @@ export function Board({
   editableTokenIds = [],
   focusRequest,
   isFullscreen = false,
+  isBackgroundHidden = false,
   canManageTokens = true,
   movableTokenIds = [],
+  onOpenMap,
   onOpenManual,
   onOpenElementsListModal,
   onOpenEditTokenModal,
@@ -798,13 +802,16 @@ export function Board({
           <button type="button" onClick={onOpenElementsListModal}>
             🔎 Elementi in mappa
           </button>
+          <button type="button" onClick={onOpenMap}>
+            🗺️ Averno
+          </button>
           <button type="button" onClick={onOpenManual}>
             📖 Manuale
           </button>
         </div>
       </div>
 
-      <div ref={shellRef} className="board-shell">
+      <div ref={shellRef} className={`board-shell ${isBackgroundHidden ? 'board-shell--hidden-map' : ''}`}>
         <div className="board-zoom-controls">
           <button
             type="button"

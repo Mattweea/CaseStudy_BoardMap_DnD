@@ -55,6 +55,8 @@ const initialSharedState = {
   movementAxisUsageByTokenId: {},
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
+  isBoardBackgroundHidden: false,
+  sharedNotes: '',
 };
 
 let battleMapState = normalizeSharedState(initialSharedState);
@@ -298,6 +300,8 @@ function normalizeSharedState(parsed) {
             ),
           )
         : {},
+    isBoardBackgroundHidden: parsed?.isBoardBackgroundHidden === true,
+    sharedNotes: typeof parsed?.sharedNotes === 'string' ? parsed.sharedNotes : '',
   };
 }
 
@@ -679,6 +683,17 @@ function appendDiceLog(user, log, flavor = '') {
     recordMasterUndo: user?.role === 'master',
     validate: false,
   });
+}
+
+function updateSharedNotes(user, notes) {
+  battleMapState = normalizeSharedState({
+    ...battleMapState,
+    sharedNotes: notes,
+  });
+
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+  return nextSnapshot(user);
 }
 
 function clearBattleMapDiceLogs(user) {
@@ -1467,6 +1482,21 @@ app.delete('/api/battle-map/dice-logs', async (request, reply) => {
   return clearBattleMapDiceLogs(user);
 });
 
+app.post('/api/battle-map/notes', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const body = request.body ?? {};
+  if (typeof body.notes !== 'string') {
+    reply.code(400);
+    return { message: 'Payload note non valido.' };
+  }
+
+  return updateSharedNotes(user, body.notes);
+});
+
 app.post('/api/battle-map/move', async (request, reply) => {
   const user = requireUser(request, reply);
   if (!user) {
@@ -1637,6 +1667,7 @@ app.get('/api/battle-map/stream', async (request, reply) => {
     write: (payload) => reply.raw.write(payload),
   };
   streamClients.add(client);
+  client.write('retry: 2000\n\n');
   client.write(`data: ${JSON.stringify(nextSnapshot(user))}\n\n`);
 
   const keepAliveId = setInterval(() => {

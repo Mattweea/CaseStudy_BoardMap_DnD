@@ -83,6 +83,8 @@ export interface BattleMapState {
   movementAxisUsageByTokenId: Record<string, MovementAxisUsage>;
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
+  isBoardBackgroundHidden: boolean;
+  sharedNotes: string;
 }
 
 export interface BattleMapSharedState {
@@ -96,6 +98,8 @@ export interface BattleMapSharedState {
   movementAxisUsageByTokenId: Record<string, MovementAxisUsage>;
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
+  isBoardBackgroundHidden: boolean;
+  sharedNotes: string;
 }
 
 export interface BattleMapSessionSnapshot {

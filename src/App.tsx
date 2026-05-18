@@ -17,10 +17,12 @@ import type { DiceRollLog } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
 
 const FULLSCREEN_TRANSITION_MS = 260;
+const BOOT_LOADER_DURATION_MS = 7400;
+const BOOT_LOADER_STORAGE_PREFIX = 'dnd-battle-map:intro-seen';
 const MANUAL_PDF_PATH =
   'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
 
-type SidebarSectionId = 'session' | 'actions' | 'dice' | 'initiative' | 'legend';
+type SidebarSectionId = 'session' | 'actions' | 'notes' | 'dice' | 'initiative' | 'legend';
 
 const KEYBOARD_MOVEMENTS: Record<string, { dx: number; dy: number }> = {
   ArrowUp: { dx: 0, dy: -1 },
@@ -67,6 +69,11 @@ interface PendingObstaclePlacement {
   cells: Array<{ x: number; y: number }>;
 }
 
+interface SessionFeedback {
+  kind: 'success' | 'error';
+  message: string;
+}
+
 function cellKey(cell: { x: number; y: number }) {
   return `${cell.x}:${cell.y}`;
 }
@@ -90,6 +97,8 @@ function App() {
     removeToken,
     removeTokens,
     setActiveTurnToken,
+    setBoardBackgroundHidden,
+    setSharedNotes,
     setInitiative,
     setInitiatives,
     undoLastAction,
@@ -100,13 +109,16 @@ function App() {
     sessionStatus,
     suspendSession,
     resumeLastSession,
-  } = useBattleMapState();
+  } = useBattleMapState(Boolean(user));
   const [selectedTokenIds, setSelectedTokenIds] = useState<string[]>(
     state.tokens[0] ? [state.tokens[0].id] : [],
   );
   const [isNewElementModalOpen, setIsNewElementModalOpen] = useState(false);
   const [isElementsListModalOpen, setIsElementsListModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+  const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
+  const [isNotesCollapsed, setIsNotesCollapsed] = useState(false);
   const [isDiceLogModalOpen, setIsDiceLogModalOpen] = useState(false);
   const [isInitiativeModalOpen, setIsInitiativeModalOpen] = useState(false);
   const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
@@ -114,15 +126,19 @@ function App() {
   const [focusRequest, setFocusRequest] = useState<{ tokenId: string; nonce: number } | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [sidebarLeadSection, setSidebarLeadSection] = useState<SidebarSectionId | null>(null);
-  const [isBootLoading, setIsBootLoading] = useState(true);
+  const [isBootLoading, setIsBootLoading] = useState(false);
   const [pendingObstaclePlacement, setPendingObstaclePlacement] = useState<PendingObstaclePlacement | null>(null);
+  const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null);
+  const [draftNotes, setDraftNotes] = useState('');
   const [boardFullscreenPhase, setBoardFullscreenPhase] = useState<
     'closed' | 'opening' | 'open' | 'closing'
   >('closed');
   const sidebarRef = useRef<HTMLElement | null>(null);
   const reopenEditTimeoutRef = useRef<number | null>(null);
   const lastDicePreviewIdRef = useRef<string | null>(null);
+  const sessionFeedbackTimeoutRef = useRef<number | null>(null);
   const canManageBattleMap = user?.role === 'master';
+  const hasUnsavedNotes = draftNotes !== state.sharedNotes;
   const sessionCharacter = findCharacterProfileByKey(user?.characterKey);
   const ownedTokens = state.tokens.filter((token) => token.ownerUserId === user?.id);
   const sessionToken =
@@ -148,18 +164,20 @@ function App() {
   const activeTurnToken =
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
   const sidebarSections: SidebarSectionId[] = canManageBattleMap
-    ? ['session', 'actions', 'dice', 'initiative', 'legend']
-    : ['session', 'dice', 'initiative', 'legend'];
+    ? ['session', 'actions', 'notes', 'dice', 'initiative', 'legend']
+    : ['session', 'notes', 'dice', 'initiative', 'legend'];
   const sidebarShortcuts: Array<{ id: SidebarSectionId; icon: string; label: string }> = canManageBattleMap
     ? [
         { id: 'session', icon: '👤', label: 'Sessione' },
         { id: 'actions', icon: '➕', label: 'Azioni Master' },
+        { id: 'notes', icon: '📝', label: 'Note' },
         { id: 'dice', icon: '🎲', label: 'Dice Roller' },
         { id: 'initiative', icon: '⚔️', label: 'Ordine Dei Turni' },
         { id: 'legend', icon: '?', label: 'Legenda Comandi' },
       ]
     : [
         { id: 'session', icon: '👤', label: 'Sessione' },
+        { id: 'notes', icon: '📝', label: 'Note' },
         { id: 'dice', icon: '🎲', label: 'Dice Roller' },
         { id: 'initiative', icon: '⚔️', label: 'Ordine Dei Turni' },
         { id: 'legend', icon: '?', label: 'Legenda Comandi' },
@@ -196,17 +214,34 @@ function App() {
   }, [editingTokenId, state.tokens]);
 
   useEffect(() => {
+    if (!user) {
+      setIsBootLoading(false);
+      return undefined;
+    }
+
+    const storageKey = `${BOOT_LOADER_STORAGE_PREFIX}:${user.id}`;
+    if (window.localStorage.getItem(storageKey) === 'true') {
+      setIsBootLoading(false);
+      return undefined;
+    }
+
+    window.localStorage.setItem(storageKey, 'true');
+    setIsBootLoading(true);
+
     const timeoutId = window.setTimeout(() => {
       setIsBootLoading(false);
-    }, 7400);
+    }, BOOT_LOADER_DURATION_MS);
 
     return () => window.clearTimeout(timeoutId);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     return () => {
       if (reopenEditTimeoutRef.current !== null) {
         window.clearTimeout(reopenEditTimeoutRef.current);
+      }
+      if (sessionFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(sessionFeedbackTimeoutRef.current);
       }
     };
   }, []);
@@ -238,6 +273,10 @@ function App() {
 
     sidebarRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }, [isSidebarCollapsed, sidebarLeadSection]);
+
+  useEffect(() => {
+    setDraftNotes(state.sharedNotes);
+  }, [state.sharedNotes]);
 
   useEffect(() => {
     if (!user) {
@@ -371,6 +410,49 @@ function App() {
   const openSidebarSection = (sectionId: SidebarSectionId) => {
     setSidebarLeadSection(sectionId);
     setIsSidebarCollapsed(false);
+  };
+
+  const showSessionFeedback = (feedback: SessionFeedback) => {
+    setSessionFeedback(feedback);
+    if (sessionFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(sessionFeedbackTimeoutRef.current);
+    }
+    sessionFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setSessionFeedback(null);
+      sessionFeedbackTimeoutRef.current = null;
+    }, 3600);
+  };
+
+  const handleSuspendSession = async () => {
+    try {
+      await suspendSession();
+      showSessionFeedback({
+        kind: 'success',
+        message: 'Sessione salvata. Puoi riprenderla con il pulsante Riprendi.',
+      });
+    } catch (error) {
+      console.error(error);
+      showSessionFeedback({
+        kind: 'error',
+        message: 'Salvataggio non riuscito. Riprova tra qualche secondo.',
+      });
+    }
+  };
+
+  const handleResumeLastSession = async () => {
+    try {
+      await resumeLastSession();
+      showSessionFeedback({
+        kind: 'success',
+        message: 'Ultima sessione ripristinata.',
+      });
+    } catch (error) {
+      console.error(error);
+      showSessionFeedback({
+        kind: 'error',
+        message: 'Ripristino non riuscito. Controlla che esista un salvataggio.',
+      });
+    }
   };
 
   const addSelectedToInitiative = () => {
@@ -572,7 +654,7 @@ function App() {
                 <button
                   type="button"
                   className="icon-button"
-                  onClick={() => void suspendSession()}
+                  onClick={() => void handleSuspendSession()}
                   title="Sospendi Sessione"
                   aria-label="Sospendi Sessione"
                 >
@@ -583,7 +665,7 @@ function App() {
                 <button
                   type="button"
                   className="icon-button"
-                  onClick={() => void resumeLastSession()}
+                  onClick={() => void handleResumeLastSession()}
                   disabled={!sessionStatus.hasSnapshot}
                   title="Riprendi Ultima Sessione"
                   aria-label="Riprendi Ultima Sessione"
@@ -599,6 +681,14 @@ function App() {
                 Logout
               </button>
             </div>
+            {sessionFeedback ? (
+              <p
+                className={`session-panel__feedback session-panel__feedback--${sessionFeedback.kind}`}
+                role="status"
+              >
+                {sessionFeedback.message}
+              </p>
+            ) : null}
           </section>
         );
       case 'dice':
@@ -612,6 +702,57 @@ function App() {
             onAddLog={addDiceLog}
             onOpenLogs={() => setIsDiceLogModalOpen(true)}
           />
+        );
+      case 'notes':
+        return (
+          <section key="notes" className="sidebar__section notes-panel">
+            <div className="panel-heading panel-heading--compact">
+              <div>
+                <p className="eyebrow">Condivise</p>
+                <h2>Note</h2>
+              </div>
+              <button
+                type="button"
+                className="secondary-button secondary-button--tiny"
+                onClick={() => setIsNotesCollapsed((current) => !current)}
+                aria-expanded={!isNotesCollapsed}
+              >
+                {isNotesCollapsed ? 'Espandi' : 'Comprimi'}
+              </button>
+            </div>
+            {!isNotesCollapsed ? (
+              <>
+                <textarea
+                  className="notes-panel__textarea"
+                  value={draftNotes}
+                  onChange={(event) => setDraftNotes(event.target.value)}
+                  placeholder="Scrivi appunti, obiettivi o promemoria visibili a tutta la sessione."
+                  rows={7}
+                />
+                <div className="notes-panel__actions">
+                  <button
+                    type="button"
+                    className="secondary-button secondary-button--small"
+                    onClick={() => void setSharedNotes(draftNotes)}
+                    disabled={!hasUnsavedNotes}
+                  >
+                    Salva note
+                  </button>
+                  <button
+                    type="button"
+                    className="outline-button"
+                    onClick={() => setIsNotesModalOpen(true)}
+                  >
+                    Espandi
+                  </button>
+                  <span>{hasUnsavedNotes ? 'Modifiche non salvate' : 'Sincronizzate'}</span>
+                </div>
+                <p className="notes-panel__hint">
+                  Salvate nella textbox condivisa della sessione.
+                </p>
+              </>
+            ) : null}
+          </section>
         );
       case 'actions':
         return canManageBattleMap ? (
@@ -629,6 +770,13 @@ function App() {
                 onClick={() => setIsNewElementModalOpen(true)}
               >
                 ➕ Nuovo elemento
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setBoardBackgroundHidden(!state.isBoardBackgroundHidden)}
+              >
+                {state.isBoardBackgroundHidden ? '🗺️ Mostra sfondo board' : '🌑 Nascondi sfondo board'}
               </button>
 
               {pendingObstaclePlacement ? (
@@ -834,8 +982,10 @@ function App() {
           selectedTokenIds={selectedTokenIds}
           editableTokenIds={editableTokenIds}
           focusRequest={focusRequest}
+          isBackgroundHidden={state.isBoardBackgroundHidden}
           canManageTokens={canManageBattleMap}
           movableTokenIds={movableTokenIds}
+          onOpenMap={() => setIsMapModalOpen(true)}
           onToggleFullscreen={() => setBoardFullscreenPhase('opening')}
           onOpenManual={() => setIsManualModalOpen(true)}
           onOpenElementsListModal={() => setIsElementsListModalOpen(true)}
@@ -893,8 +1043,10 @@ function App() {
             editableTokenIds={editableTokenIds}
             focusRequest={focusRequest}
             isFullscreen
+            isBackgroundHidden={state.isBoardBackgroundHidden}
             canManageTokens={canManageBattleMap}
             movableTokenIds={movableTokenIds}
+            onOpenMap={() => setIsMapModalOpen(true)}
             onToggleFullscreen={() => setBoardFullscreenPhase('closing')}
             onOpenManual={() => setIsManualModalOpen(true)}
             onOpenElementsListModal={() => setIsElementsListModalOpen(true)}
@@ -995,6 +1147,33 @@ function App() {
       />
 
       <Modal
+        title="Note condivise"
+        isOpen={isNotesModalOpen}
+        onClose={() => setIsNotesModalOpen(false)}
+        className="modal-card--notes"
+      >
+        <div className="notes-modal">
+          <textarea
+            className="notes-modal__textarea"
+            value={draftNotes}
+            onChange={(event) => setDraftNotes(event.target.value)}
+            placeholder="Scrivi appunti, obiettivi o promemoria visibili a tutta la sessione."
+          />
+          <div className="notes-modal__footer">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void setSharedNotes(draftNotes)}
+              disabled={!hasUnsavedNotes}
+            >
+              Salva note
+            </button>
+            <span>{hasUnsavedNotes ? 'Modifiche non salvate' : 'Sincronizzate'}</span>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
         title="Manuale"
         isOpen={isManualModalOpen}
         onClose={() => setIsManualModalOpen(false)}
@@ -1006,6 +1185,17 @@ function App() {
             src={MANUAL_PDF_PATH}
             className="manual-preview__frame"
           />
+        </div>
+      </Modal>
+
+      <Modal
+        title="Mappa dell'Averno"
+        isOpen={isMapModalOpen}
+        onClose={() => setIsMapModalOpen(false)}
+        className="modal-card--map"
+      >
+        <div className="map-preview">
+          <img src={avernusImage} alt="Mappa dell'Averno" className="map-preview__image" />
         </div>
       </Modal>
 
