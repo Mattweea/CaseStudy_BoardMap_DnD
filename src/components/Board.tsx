@@ -197,6 +197,7 @@ type PendingTokenInteraction = {
   startY: number;
   tokenId: string;
   selection: string[];
+  selectGroupOnClick: boolean;
   grabOffset: GridPosition;
   offsets: Array<{ tokenId: string; deltaX: number; deltaY: number }>;
   additive: boolean;
@@ -572,7 +573,9 @@ export function Board({
           );
         } else {
           onSelectionChange(
-            selectedTokenIds.includes(interaction.tokenId)
+            interaction.selectGroupOnClick
+              ? interaction.selection
+              : selectedTokenIds.includes(interaction.tokenId)
               ? selectedTokenIds.filter((tokenId) => tokenId !== interaction.tokenId)
               : [interaction.tokenId],
           );
@@ -692,6 +695,7 @@ export function Board({
       startY: event.clientY,
       tokenId: token.id,
       selection,
+      selectGroupOnClick: false,
       grabOffset: {
         x: pointerCell.x - token.position.x,
         y: pointerCell.y - token.position.y,
@@ -703,6 +707,81 @@ export function Board({
           tokenId: item.id,
           deltaX: item.position.x - anchor.x,
           deltaY: item.position.y - anchor.y,
+        })),
+      additive,
+    });
+  };
+
+  const handleObstacleClusterPointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    cluster: ObstacleCluster,
+  ) => {
+    if (obstaclePlacement || !stageRef.current) {
+      return;
+    }
+
+    if (event.button === 2) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.ctrlKey || event.button === 1) {
+      setInteraction({
+        mode: 'pan',
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startCamera: camera,
+      });
+      return;
+    }
+
+    const anchorToken = tokens.find((token) => token.id === cluster.anchorTokenId);
+    if (!anchorToken) {
+      return;
+    }
+
+    const canMoveCluster = canManageTokens || cluster.tokenIds.some((tokenId) => movableTokenIdSet.has(tokenId));
+    if (!canMoveCluster) {
+      onSelectionChange(cluster.tokenIds);
+      return;
+    }
+
+    const additive = canManageTokens ? event.shiftKey : false;
+    const isClusterSelected = cluster.tokenIds.some((tokenId) => selectedTokenIds.includes(tokenId));
+    const selection =
+      canManageTokens && (additive || isClusterSelected)
+        ? Array.from(new Set([...selectedTokenIds, ...cluster.tokenIds]))
+        : cluster.tokenIds;
+    const pointerCell = viewportPointToWorldCell(
+      event.clientX,
+      event.clientY,
+      stageRef.current.getBoundingClientRect(),
+      zoom,
+      camera,
+    );
+
+    setInteraction({
+      mode: 'pending-token',
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      tokenId: anchorToken.id,
+      selection,
+      selectGroupOnClick: true,
+      grabOffset: {
+        x: pointerCell.x - anchorToken.position.x,
+        y: pointerCell.y - anchorToken.position.y,
+      },
+      offsets: selection
+        .map((tokenId) => tokens.find((item) => item.id === tokenId))
+        .filter((item): item is UnitToken => Boolean(item))
+        .map((item) => ({
+          tokenId: item.id,
+          deltaX: item.position.x - anchorToken.position.x,
+          deltaY: item.position.y - anchorToken.position.y,
         })),
       additive,
     });
@@ -916,6 +995,7 @@ export function Board({
                   tokens={tokens}
                   isSelected={isSelected}
                   isDragging={draggedPositions.has(token.id)}
+                  isGhost={canManageTokens && token.isInvisible === true}
                   displayPosition={{
                     x: worldPosition.x - camera.x,
                     y: worldPosition.y - camera.y,
@@ -930,11 +1010,23 @@ export function Board({
             })}
 
             {obstacleClusters.map((cluster) => {
-              const minX = Math.min(...cluster.cells.map((cell) => cell.x));
-              const minY = Math.min(...cluster.cells.map((cell) => cell.y));
-              const maxX = Math.max(...cluster.cells.map((cell) => cell.x));
-              const maxY = Math.max(...cluster.cells.map((cell) => cell.y));
-              const clusterCellKeySet = new Set(cluster.cells.map((cell) => cellKey(cell)));
+              const displayCells = cluster.tokenIds
+                .map((tokenId) => {
+                  const token = tokens.find((item) => item.id === tokenId);
+                  const position = draggedPositions.get(tokenId) ?? token?.position;
+                  return position ?? null;
+                })
+                .filter((cell): cell is GridPosition => Boolean(cell));
+
+              if (displayCells.length === 0) {
+                return null;
+              }
+
+              const minX = Math.min(...displayCells.map((cell) => cell.x));
+              const minY = Math.min(...displayCells.map((cell) => cell.y));
+              const maxX = Math.max(...displayCells.map((cell) => cell.x));
+              const maxY = Math.max(...displayCells.map((cell) => cell.y));
+              const clusterCellKeySet = new Set(displayCells.map((cell) => cellKey(cell)));
 
               return (
                 <button
@@ -948,14 +1040,7 @@ export function Board({
                     top: (minY - camera.y) * BOARD_CONFIG.cellSize * zoom,
                     '--obstacle-color': cluster.color,
                   } as CSSProperties}
-                  onPointerDown={(event) => {
-                    if (obstaclePlacement) {
-                      return;
-                    }
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onSelectionChange(cluster.tokenIds);
-                  }}
+                  onPointerDown={(event) => handleObstacleClusterPointerDown(event, cluster)}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -965,7 +1050,7 @@ export function Board({
                     }
                   }}
                 >
-                  {cluster.cells.map((cell) => (
+                  {displayCells.map((cell) => (
                     <span
                       key={`${cluster.id}-${cell.x}-${cell.y}`}
                       className="obstacle-cluster__cell"

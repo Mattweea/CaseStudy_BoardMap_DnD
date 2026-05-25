@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +48,7 @@ const initialSharedState = {
   tokens: [],
   diceLogs: [],
   latestDicePreview: null,
+  combatAnnouncement: null,
   initiatives: [],
   activeTurnTokenId: null,
   roundNumber: 1,
@@ -243,6 +244,18 @@ function normalizeSharedState(parsed) {
               formula:
                 parsed.latestDicePreview.log.formula ?? parsed.latestDicePreview.log.label ?? '',
             },
+          }
+        : null,
+    combatAnnouncement:
+      parsed?.combatAnnouncement &&
+      typeof parsed.combatAnnouncement === 'object' &&
+      typeof parsed.combatAnnouncement.id === 'string' &&
+      typeof parsed.combatAnnouncement.title === 'string' &&
+      typeof parsed.combatAnnouncement.message === 'string'
+        ? {
+            id: parsed.combatAnnouncement.id,
+            title: parsed.combatAnnouncement.title,
+            message: parsed.combatAnnouncement.message,
           }
         : null,
     initiatives,
@@ -521,7 +534,18 @@ function sanitizeStateForUser(state, user) {
     return state;
   }
 
-  return normalizeSharedState(state);
+  const visibleTokens = state.tokens.filter(
+    (token) => token.isInvisible !== true || token.ownerUserId === user.id,
+  );
+  const visibleTokenIds = new Set(visibleTokens.map((token) => token.id));
+  const visibleInitiatives = state.initiatives.filter((entry) => visibleTokenIds.has(entry.tokenId));
+
+  return normalizeSharedState({
+    ...state,
+    tokens: visibleTokens,
+    initiatives: visibleInitiatives,
+    activeTurnTokenId: visibleTokenIds.has(state.activeTurnTokenId) ? state.activeTurnTokenId : null,
+  });
 }
 
 function nextSnapshot(user = null) {
@@ -674,7 +698,7 @@ function appendDiceLog(user, log, flavor = '') {
     latestDicePreview:
       typeof flavor === 'string' && flavor.trim()
         ? {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             flavor,
             log,
           }
@@ -694,6 +718,20 @@ function updateSharedNotes(user, notes) {
   bumpBattleMapVersion();
   broadcastSnapshot();
   return nextSnapshot(user);
+}
+
+function startCombatAnnouncement() {
+  return commitBattleMapState({
+    ...battleMapState,
+    combatAnnouncement: {
+      id: randomUUID(),
+      title: 'Il combattimento ha inzio...',
+      message: '"C vol la iaul? C VOL LA IAAAAAUL!?!?"',
+    },
+  }, {
+    recordMasterUndo: true,
+    validate: false,
+  });
 }
 
 function clearBattleMapDiceLogs(user) {
@@ -1495,6 +1533,15 @@ app.post('/api/battle-map/notes', async (request, reply) => {
   }
 
   return updateSharedNotes(user, body.notes);
+});
+
+app.post('/api/battle-map/combat/start', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) {
+    return;
+  }
+
+  return startCombatAnnouncement();
 });
 
 app.post('/api/battle-map/move', async (request, reply) => {

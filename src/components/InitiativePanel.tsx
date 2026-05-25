@@ -8,6 +8,7 @@ interface InitiativePanelProps {
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
   canManageInitiative?: boolean;
+  onStartCombat?: () => void;
   onOpenRollModal: () => void;
   onCycleTurn: (direction: 'previous' | 'next') => void;
   onSetActiveTurnToken: (tokenId: string) => void;
@@ -22,6 +23,7 @@ export function InitiativePanel({
   initiatives,
   activeTurnTokenId,
   canManageInitiative = true,
+  onStartCombat,
   onOpenRollModal,
   onCycleTurn,
   onSetActiveTurnToken,
@@ -87,6 +89,14 @@ export function InitiativePanel({
         </div>
         {canManageInitiative ? (
           <div className="initiative-panel__actions">
+            <button
+              type="button"
+              className="secondary-button secondary-button--small"
+              onClick={onStartCombat}
+              disabled={initiatives.length === 0}
+            >
+              ▶ Inizia
+            </button>
             <button
               type="button"
               className="secondary-button secondary-button--small"

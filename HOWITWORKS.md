@@ -6,7 +6,7 @@ Guida operativa della battle map condivisa.
 
 L'app e composta da:
 
-- sidebar sinistra con sessione, dice roller e tracker iniziativa
+- sidebar sinistra a comparsa con sessione, dice roller e tracker iniziativa
 - area centrale con la board interattiva
 - modali per elementi, iniziativa, log dadi e manuale
 
@@ -40,11 +40,14 @@ Il master puo:
 - aggiungere nuovi elementi
 - modificare o rimuovere elementi esistenti
 - muovere token
+- muovere qualsiasi elemento selezionato, inclusi oggetti e ostacoli in gruppo
+- preparare elementi nascosti e renderli visibili quando serve
 - tirare l'iniziativa per tutti
 - impostare iniziative manuali
 - riordinare i pareggi
 - scegliere il token attivo del turno
 - avanzare o tornare indietro con `Next` e `Prev`
+- avviare il combattimento mostrando un annuncio sincronizzato su tutti gli schermi
 
 ### Adventurer
 
@@ -53,6 +56,7 @@ L'avventuriero puo:
 - entrare con il proprio personaggio
 - vedere il proprio personaggio spawnare o riallinearsi in mappa
 - consultare board, manuale, log dadi e ordine turni
+- vedere solo gli elementi che il master ha reso visibili, oltre ai propri token controllati
 - tirare dadi col proprio nome di sessione
 - selezionare token e localizzarli
 
@@ -119,7 +123,8 @@ Se il master cambia qualcosa, gli altri client vedono il risultato senza refresh
 Solo il master puo spostare elementi.
 
 - il drag usa snap a griglia
-- piu token selezionati mantengono gli offset reciproci
+- piu token o elementi selezionati mantengono gli offset reciproci
+- anche oggetti e ostacoli disegnati come gruppo si spostano se sono selezionati
 - durante il drag compare l'highlight della destinazione
 
 ### Elementi supportati
@@ -149,9 +154,12 @@ Da qui il master puo creare:
 - player custom
 - nemici
 - oggetti
+- ostacoli disegnabili a celle
 - mezzi
 
 Per i personaggi del party non serve usare questa modale: i loro token vengono gestiti dal login e dal roster canonico.
+
+Ogni elemento creato dal master nasce invisibile ai player. Il master lo vede in mappa come token ghost e puo renderlo visibile dalla modale di modifica o dalla lista elementi.
 
 ### Lista elementi
 
@@ -167,6 +175,7 @@ Solo il master puo anche:
 
 - aprire la modifica
 - rimuovere un elemento
+- rendere visibile o nascondere un elemento con `Mostra`/`Nascondi`
 
 ### Modifica elemento
 
@@ -182,6 +191,7 @@ Si possono aggiornare, a seconda del tipo:
 - mezzo associato
 - occupanti del mezzo
 - condizioni
+- visibilita verso i player
 
 ## Dice roller
 
@@ -229,6 +239,7 @@ Nel pannello iniziativa il master puo:
 
 - cliccare una riga per rendere attivo quel token
 - trascinare le righe per riordinare i pareggi
+- usare `Inizia` per mostrare l'annuncio di inizio combattimento su tutti gli schermi
 - usare `Reset` per svuotare l'ordine
 
 ### Turno attivo
@@ -242,7 +253,16 @@ Una volta definito l'ordine:
 
 Il token attivo resta sincronizzato su tutti i client.
 
+### Avvio combattimento
+
+Il pulsante `Inizia` nel pannello ordine turni e disponibile al master quando esiste un ordine iniziativa. Al click viene salvato nello stato condiviso un annuncio di combattimento, broadcastato via SSE a tutti i client connessi.
+
 ## Sidebar sessione
+
+La sidebar parte collassata e si apre al passaggio del mouse dopo un breve ritardo. Il pulsante in alto cambia modalita:
+
+- `hover`: la sidebar si apre solo finche il mouse resta sopra
+- `pinned`: la sidebar resta aperta
 
 La card sessione mostra:
 
@@ -250,6 +270,25 @@ La card sessione mostra:
 - ruolo
 - per gli avventurieri, movimento e visione
 - eventuali note personaggio principali
+
+## Note condivise
+
+Le note sono sincronizzate nello stato condiviso. Quando il master salva la sessione, eventuali modifiche non ancora confermate nel campo note vengono salvate prima dello snapshot, cosi lo snapshot contiene sempre l'ultimo testo visibile nella UI.
+
+## Salvataggio sessione
+
+Il master puo sospendere la sessione salvando uno snapshot completo su `server/data/last-session.json`.
+
+Lo snapshot include:
+
+- token e posizioni
+- visibilita degli elementi
+- log dadi e ultimo risultato mostrato
+- iniziativa, turno attivo e round
+- note condivise
+- stato della mappa e impostazioni condivise
+
+Al riavvio del backend, se lo snapshot esiste, viene caricato come ultima sessione disponibile. Se non esiste ancora nessuno snapshot, la board parte vuota.
 
 ## Live session con ngrok
 
@@ -322,7 +361,7 @@ Dopo modifiche lato server, riavvia `npm run dev:server`.
 
 ## Limiti attuali
 
-- lo stato condiviso vive in memoria: un riavvio del backend resetta la partita
+- lo stato live vive in memoria finche non viene salvato uno snapshot dal master
 - il roster non e ancora configurabile da pannello admin o file esterno unico
 - i personaggi del party sono gestiti come profili canonici, non come utenti arbitrari creati a runtime
 - chiunque abbia link e credenziali valide puo entrare nella sessione
@@ -332,4 +371,4 @@ Dopo modifiche lato server, riavvia `npm run dev:server`.
 - login non riuscito: controlla che backend e frontend siano avviati
 - il personaggio non appare: verifica di aver fatto login col profilo corretto e riavvia il backend se hai appena cambiato il roster
 - gli altri client non vedono gli aggiornamenti: controlla SSE, backend attivo e tunnel ngrok puntato alla porta `5173`
-- la partita si resetta dopo restart: e previsto, perche non esiste persistenza server-side
+- la partita si resetta dopo restart: controlla che il master abbia salvato la sessione almeno una volta

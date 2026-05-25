@@ -9,16 +9,20 @@ import { InitiativeRollModal } from './components/InitiativeRollModal';
 import { InitiativePanel } from './components/InitiativePanel';
 import { Modal } from './components/Modal';
 import { findCharacterProfileByKey } from './constants/characters';
+import { useAnimatedPresence } from './hooks/useAnimatedPresence';
 import { useAuthSession } from './hooks/useAuthSession';
 import { useBattleMapState } from './hooks/useBattleMapState';
 import { getTokenFootprint } from './utils/board';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
-import type { DiceRollLog } from './types';
+import type { CombatAnnouncement, DiceRollLog } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
 
 const FULLSCREEN_TRANSITION_MS = 260;
+const SIDEBAR_CONTENT_EXIT_MS = 180;
+const SIDEBAR_HOVER_OPEN_DELAY_MS = 1000;
 const BOOT_LOADER_DURATION_MS = 7400;
 const BOOT_LOADER_STORAGE_PREFIX = 'dnd-battle-map:intro-seen';
+const COMBAT_ANNOUNCEMENT_STORAGE_KEY = 'dnd-battle-map:last-combat-announcement';
 const MANUAL_PDF_PATH =
   'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
 
@@ -74,6 +78,8 @@ interface SessionFeedback {
   message: string;
 }
 
+const COMBAT_ANNOUNCEMENT_DURATION_MS = 5600;
+
 function cellKey(cell: { x: number; y: number }) {
   return `${cell.x}:${cell.y}`;
 }
@@ -99,6 +105,7 @@ function App() {
     setActiveTurnToken,
     setBoardBackgroundHidden,
     setSharedNotes,
+    startCombat,
     setInitiative,
     setInitiatives,
     undoLastAction,
@@ -124,19 +131,25 @@ function App() {
   const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
   const [latestDiceResult, setLatestDiceResult] = useState<DiceResultScene | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ tokenId: string; nonce: number } | null>(null);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarPinned, setIsSidebarPinned] = useState(false);
+  const [isSidebarHoverOpen, setIsSidebarHoverOpen] = useState(false);
   const [sidebarLeadSection, setSidebarLeadSection] = useState<SidebarSectionId | null>(null);
   const [isBootLoading, setIsBootLoading] = useState(false);
   const [pendingObstaclePlacement, setPendingObstaclePlacement] = useState<PendingObstaclePlacement | null>(null);
   const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null);
+  const [combatAnnouncement, setCombatAnnouncement] = useState<CombatAnnouncement | null>(null);
+  const [isCombatAnnouncementOpen, setIsCombatAnnouncementOpen] = useState(false);
   const [draftNotes, setDraftNotes] = useState('');
   const [boardFullscreenPhase, setBoardFullscreenPhase] = useState<
     'closed' | 'opening' | 'open' | 'closing'
   >('closed');
   const sidebarRef = useRef<HTMLElement | null>(null);
+  const sidebarHoverOpenTimeoutRef = useRef<number | null>(null);
   const reopenEditTimeoutRef = useRef<number | null>(null);
   const lastDicePreviewIdRef = useRef<string | null>(null);
+  const lastCombatAnnouncementIdRef = useRef<string | null>(null);
   const sessionFeedbackTimeoutRef = useRef<number | null>(null);
+  const combatAnnouncementTimeoutRef = useRef<number | null>(null);
   const canManageBattleMap = user?.role === 'master';
   const hasUnsavedNotes = draftNotes !== state.sharedNotes;
   const sessionCharacter = findCharacterProfileByKey(user?.characterKey);
@@ -163,6 +176,9 @@ function App() {
   const isPlayersTurn = Boolean(sessionToken && state.activeTurnTokenId === sessionToken.id);
   const activeTurnToken =
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
+  const isSidebarCollapsed = !isSidebarPinned && !isSidebarHoverOpen;
+  const expandedSidebarPresence = useAnimatedPresence(!isSidebarCollapsed, SIDEBAR_CONTENT_EXIT_MS);
+  const collapsedSidebarPresence = useAnimatedPresence(isSidebarCollapsed, SIDEBAR_CONTENT_EXIT_MS);
   const sidebarSections: SidebarSectionId[] = canManageBattleMap
     ? ['session', 'actions', 'notes', 'dice', 'initiative', 'legend']
     : ['session', 'notes', 'dice', 'initiative', 'legend'];
@@ -240,8 +256,14 @@ function App() {
       if (reopenEditTimeoutRef.current !== null) {
         window.clearTimeout(reopenEditTimeoutRef.current);
       }
+      if (sidebarHoverOpenTimeoutRef.current !== null) {
+        window.clearTimeout(sidebarHoverOpenTimeoutRef.current);
+      }
       if (sessionFeedbackTimeoutRef.current !== null) {
         window.clearTimeout(sessionFeedbackTimeoutRef.current);
+      }
+      if (combatAnnouncementTimeoutRef.current !== null) {
+        window.clearTimeout(combatAnnouncementTimeoutRef.current);
       }
     };
   }, []);
@@ -305,6 +327,34 @@ function App() {
     lastDicePreviewIdRef.current = state.latestDicePreview.id;
     setLatestDiceResult(state.latestDicePreview);
   }, [state.latestDicePreview]);
+
+  useEffect(() => {
+    if (!state.combatAnnouncement) {
+      return;
+    }
+
+    const storedAnnouncementId = window.sessionStorage.getItem(COMBAT_ANNOUNCEMENT_STORAGE_KEY);
+    if (
+      lastCombatAnnouncementIdRef.current === state.combatAnnouncement.id ||
+      storedAnnouncementId === state.combatAnnouncement.id
+    ) {
+      return;
+    }
+
+    lastCombatAnnouncementIdRef.current = state.combatAnnouncement.id;
+    window.sessionStorage.setItem(COMBAT_ANNOUNCEMENT_STORAGE_KEY, state.combatAnnouncement.id);
+    setCombatAnnouncement(state.combatAnnouncement);
+    setIsCombatAnnouncementOpen(true);
+
+    if (combatAnnouncementTimeoutRef.current !== null) {
+      window.clearTimeout(combatAnnouncementTimeoutRef.current);
+    }
+
+    combatAnnouncementTimeoutRef.current = window.setTimeout(() => {
+      setIsCombatAnnouncementOpen(false);
+      combatAnnouncementTimeoutRef.current = null;
+    }, COMBAT_ANNOUNCEMENT_DURATION_MS);
+  }, [state.combatAnnouncement]);
 
   function moveSessionTokenBy(deltaX: number, deltaY: number) {
     if (!sessionToken) {
@@ -398,18 +448,24 @@ function App() {
     : sidebarSections;
 
   const handleSidebarToggle = () => {
-    if (isSidebarCollapsed) {
-      setSidebarLeadSection(null);
-      setIsSidebarCollapsed(false);
+    if (isSidebarPinned) {
+      setIsSidebarPinned(false);
+      setIsSidebarHoverOpen(false);
+      if (sidebarHoverOpenTimeoutRef.current !== null) {
+        window.clearTimeout(sidebarHoverOpenTimeoutRef.current);
+        sidebarHoverOpenTimeoutRef.current = null;
+      }
       return;
     }
 
-    setIsSidebarCollapsed(true);
+    setSidebarLeadSection(null);
+    setIsSidebarPinned(true);
+    setIsSidebarHoverOpen(false);
   };
 
   const openSidebarSection = (sectionId: SidebarSectionId) => {
     setSidebarLeadSection(sectionId);
-    setIsSidebarCollapsed(false);
+    setIsSidebarHoverOpen(true);
   };
 
   const showSessionFeedback = (feedback: SessionFeedback) => {
@@ -425,6 +481,9 @@ function App() {
 
   const handleSuspendSession = async () => {
     try {
+      if (hasUnsavedNotes) {
+        await setSharedNotes(draftNotes);
+      }
       await suspendSession();
       showSessionFeedback({
         kind: 'success',
@@ -504,6 +563,7 @@ function App() {
         id: crypto.randomUUID(),
         name: `${sourceToken.name} copia`,
         position,
+        isInvisible: true,
         vehicleOccupantIds: [],
         containedInVehicleId: null,
       },
@@ -539,7 +599,7 @@ function App() {
         groupId: obstacleGroupId,
         hitPoints: null,
         maxHitPoints: null,
-        isInvisible: false,
+        isInvisible: true,
         isFamiliar: false,
         blocksMovement: true,
         excludeFromInitiative: false,
@@ -847,6 +907,11 @@ function App() {
                 setIsInitiativeModalOpen(true);
               }
             }}
+            onStartCombat={() => {
+              if (canManageBattleMap) {
+                void startCombat();
+              }
+            }}
             onCycleTurn={(direction) => {
               if (canManageBattleMap) {
                 cycleTurn(direction);
@@ -942,21 +1007,49 @@ function App() {
 
   return (
     <div className={`app-shell ${isSidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''}`}>
-      <aside ref={sidebarRef} className={`sidebar ${isSidebarCollapsed ? 'sidebar--collapsed' : ''}`}>
+      <aside
+        ref={sidebarRef}
+        className={`sidebar ${isSidebarCollapsed ? 'sidebar--collapsed' : ''}`}
+        onMouseEnter={() => {
+          if (!isSidebarPinned) {
+            if (sidebarHoverOpenTimeoutRef.current !== null) {
+              window.clearTimeout(sidebarHoverOpenTimeoutRef.current);
+            }
+            sidebarHoverOpenTimeoutRef.current = window.setTimeout(() => {
+              setIsSidebarHoverOpen(true);
+              sidebarHoverOpenTimeoutRef.current = null;
+            }, SIDEBAR_HOVER_OPEN_DELAY_MS);
+          }
+        }}
+        onMouseLeave={() => {
+          if (!isSidebarPinned) {
+            if (sidebarHoverOpenTimeoutRef.current !== null) {
+              window.clearTimeout(sidebarHoverOpenTimeoutRef.current);
+              sidebarHoverOpenTimeoutRef.current = null;
+            }
+            setIsSidebarHoverOpen(false);
+          }
+        }}
+      >
         <div className="sidebar__toggle-wrap">
           <button
             type="button"
-            className="sidebar__toggle"
+            className={`sidebar__toggle ${isSidebarPinned ? 'sidebar__toggle--active' : ''}`}
+            aria-pressed={isSidebarPinned}
             aria-expanded={!isSidebarCollapsed}
-            aria-label={isSidebarCollapsed ? 'Apri sidebar' : 'Chiudi sidebar'}
+            aria-label={isSidebarPinned ? 'Usa sidebar in modalita hover' : 'Tieni la sidebar aperta'}
+            title={isSidebarPinned ? 'Sidebar bloccata aperta' : 'Sidebar in apertura al passaggio'}
             onClick={handleSidebarToggle}
           >
-            <span aria-hidden="true">{isSidebarCollapsed ? '»' : '«'}</span>
+            <span aria-hidden="true">{isSidebarPinned ? '📌' : '◧'}</span>
           </button>
         </div>
 
-        {isSidebarCollapsed ? (
-          <div className="sidebar__shortcuts">
+        {collapsedSidebarPresence.shouldRender ? (
+          <div
+            className="sidebar__shortcuts"
+            data-state={collapsedSidebarPresence.isVisible ? 'open' : 'closed'}
+          >
             {sidebarShortcuts.map((shortcut) => (
               <button
                 key={shortcut.id}
@@ -970,9 +1063,16 @@ function App() {
               </button>
             ))}
           </div>
-        ) : (
-          orderedSidebarSections.map((sectionId) => renderSidebarSection(sectionId))
-        )}
+        ) : null}
+
+        {expandedSidebarPresence.shouldRender ? (
+          <div
+            className="sidebar__content"
+            data-state={expandedSidebarPresence.isVisible ? 'open' : 'closed'}
+          >
+            {orderedSidebarSections.map((sectionId) => renderSidebarSection(sectionId))}
+          </div>
+        ) : null}
       </aside>
 
       <main className="app-main">
@@ -1143,8 +1243,25 @@ function App() {
         }}
         onLocateToken={locateToken}
         onEditToken={openEditTokenModal}
+        onToggleVisibility={(tokenId) => {
+          if (!canManageBattleMap) {
+            return;
+          }
+          const token = state.tokens.find((entry) => entry.id === tokenId);
+          if (!token) {
+            return;
+          }
+          updateToken(tokenId, { isInvisible: !token.isInvisible });
+        }}
         onDuplicateToken={(tokenId) => duplicateToken(tokenId)}
       />
+
+      <div className="combat-announcement-overlay" data-state={isCombatAnnouncementOpen ? 'open' : 'closed'}>
+        <div className="combat-announcement-card" data-state={isCombatAnnouncementOpen ? 'open' : 'closed'}>
+          <p>{combatAnnouncement?.title ?? 'Il combattimento ha inzio...'}</p>
+          <strong>{combatAnnouncement?.message ?? '"C vol la iaul? C VOL LA IAAAAAUL!?!?"'}</strong>
+        </div>
+      </div>
 
       <Modal
         title="Note condivise"

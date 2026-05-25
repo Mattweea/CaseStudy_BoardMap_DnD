@@ -114,6 +114,7 @@ const initialSharedState: BattleMapSharedState = {
   tokens: [],
   diceLogs: [],
   latestDicePreview: null,
+  combatAnnouncement: null,
   initiatives: [],
   activeTurnTokenId: null,
   roundNumber: 1,
@@ -232,6 +233,18 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
               formula:
                 parsed.latestDicePreview.log.formula ?? parsed.latestDicePreview.log.label ?? '',
             },
+          }
+        : null,
+    combatAnnouncement:
+      parsed?.combatAnnouncement &&
+      typeof parsed.combatAnnouncement === 'object' &&
+      typeof parsed.combatAnnouncement.id === 'string' &&
+      typeof parsed.combatAnnouncement.title === 'string' &&
+      typeof parsed.combatAnnouncement.message === 'string'
+        ? {
+            id: parsed.combatAnnouncement.id,
+            title: parsed.combatAnnouncement.title,
+            message: parsed.combatAnnouncement.message,
           }
         : null,
     initiatives,
@@ -1079,6 +1092,19 @@ export function useBattleMapState(isAuthenticated: boolean) {
     });
   };
 
+  const startCombat = async () => {
+    return enqueueMutation(async () => {
+      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+        '/battle-map/combat/start',
+        {
+          method: 'POST',
+        },
+      );
+
+      applySnapshot(payload.state, payload.version);
+    });
+  };
+
   const resetZoom = () => setZoom(1);
 
   const suspendSession = async () => {
@@ -1138,6 +1164,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     setActiveTurnToken,
     setBoardBackgroundHidden,
     setSharedNotes,
+    startCombat,
     resetZoom,
     undoLastAction,
     sessionStatus,

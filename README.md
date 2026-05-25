@@ -13,6 +13,7 @@ L'app unisce in un'unica interfaccia:
 - login a ruoli con sessione autenticata via cookie
 - dice roller condiviso con log storico
 - tracker iniziativa con turno attivo controllato dal master
+- visibilita controllata dal master per preparare elementi nascosti ai player
 
 ## Stack
 
@@ -36,7 +37,11 @@ L'app unisce in un'unica interfaccia:
 - iniziativa centralizzata: solo il master puo tirarla per tutti, modificarla e resettarla
 - turno attivo condiviso con selezione manuale, `Next`, `Prev` e wrap automatico a fine round
 - sospensione e ripresa della sessione tramite snapshot JSON persistito lato server
+- salvataggio delle note condivise insieme allo snapshot della sessione
 - permessi mappa: solo il master puo aggiungere, modificare, rimuovere o spostare elementi
+- elementi creati dal master invisibili di default ai player, con toggle `Mostra`/`Nascondi`
+- avvio combattimento dal pannello iniziativa con annuncio sincronizzato su tutti i client
+- sidebar in modalita hover, bloccabile aperta dal pulsante dedicato
 - visione live per gli avventurieri, che possono consultare board, manuale, log e ordine turni
 
 ## Roster attuale
@@ -115,6 +120,7 @@ media/
 - `src/hooks/useBattleMapState.ts` carica lo snapshot condiviso, applica ottimismi e riceve aggiornamenti SSE.
 - `src/components/Board.tsx` gestisce selezione, drag, zoom, pan e rendering board.
 - `src/components/InitiativePanel.tsx` mostra ordine turni, token attivo e controlli `Next`/`Prev`.
+- `src/components/Token.tsx` rende i token nascosti come ghost visibili solo al master.
 - `src/components/InitiativeRollModal.tsx` applica iniziativa manuale o roll globale del master.
 - `src/components/DicePanel.tsx` genera i tiri associandoli al profilo autenticato.
 - `server/characters.mjs` definisce il roster lato server.
@@ -129,8 +135,10 @@ media/
 - i client autenticati restano allineati su:
   - token in mappa
   - log dadi
+  - annuncio di inizio combattimento
   - iniziative
   - turno attivo
+  - note condivise
 - lo zoom della board resta locale per singolo utente
 
 ## Permessi
@@ -140,15 +148,19 @@ media/
 - puo aggiungere nuovi elementi
 - puo modificare o rimuovere elementi esistenti
 - puo muovere token e gruppi di token
+- puo muovere qualsiasi elemento selezionato, inclusi oggetti e ostacoli disegnati in gruppo
+- puo preparare elementi nascosti ai player e renderli visibili quando serve
 - puo tirare l'iniziativa per tutti
 - puo impostare manualmente l'ordine dei turni
 - puo scegliere il token attivo e usare `Next` o `Prev`
+- puo avviare il combattimento con un annuncio condiviso
 
 ### Adventurer
 
 - puo fare login con il proprio personaggio
 - il proprio token player viene spawnato o riallineato in mappa
 - puo consultare board, manuale, log dadi e tracker iniziativa
+- vede solo gli elementi resi visibili dal master, oltre ai propri token controllati
 - puo tirare i dadi con il proprio nome di sessione
 - non puo aggiungere, modificare o spostare elementi
 - non puo gestire iniziativa o turno attivo

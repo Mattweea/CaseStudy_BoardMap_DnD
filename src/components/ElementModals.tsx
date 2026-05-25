@@ -69,6 +69,7 @@ interface ElementsListModalProps {
   onRemoveToken: (tokenId: string) => void;
   onLocateToken: (tokenId: string) => void;
   onEditToken: (tokenId: string) => void;
+  onToggleVisibility?: (tokenId: string) => void;
   onDuplicateToken?: (tokenId: string) => void;
 }
 
@@ -597,6 +598,7 @@ export function NewElementModal({
       ...token,
       widthCells: tokenType === 'object' ? Math.max(1, Math.floor(widthCells) || 1) : null,
       heightCells: tokenType === 'object' ? Math.max(1, Math.floor(heightCells) || 1) : null,
+      isInvisible: true,
       blocksMovement: tokenType === 'object' ? (isObstacle ? true : blocksMovement) : false,
     }));
 
@@ -624,7 +626,10 @@ export function NewElementModal({
               'enemy',
               null,
             );
-            createdEnemies.push(enemyToken);
+            createdEnemies.push({
+              ...enemyToken,
+              isInvisible: true,
+            });
           }
         }
       }
@@ -1044,7 +1049,7 @@ export function EditElementModal({
       {
         ...familiarToken,
         isFamiliar: true,
-        isInvisible: false,
+        isInvisible: true,
         movementCells: 6,
       },
     ]);
@@ -1113,6 +1118,7 @@ export function EditElementModal({
         ).map((enemyToken) => ({
           ...enemyToken,
           containedInVehicleId: token.id,
+          isInvisible: true,
         }));
 
         occupantIds.push(...createdEnemies.map((enemyToken) => enemyToken.id));
@@ -1622,6 +1628,7 @@ export function ElementsListModal({
   onRemoveToken,
   onLocateToken,
   onEditToken,
+  onToggleVisibility,
   onDuplicateToken,
 }: ElementsListModalProps) {
   const [priorityType, setPriorityType] = useState<TokenType>('player');
@@ -1689,6 +1696,7 @@ export function ElementsListModal({
                       </button>
                     </span>
                     <span className="token-size">{sizeLabel(token.size)}</span>
+                    {token.isInvisible ? <span className="token-size">Nascosto</span> : null}
                     {token.conditions.length > 0 ? (
                       <span className="condition-badge-list">
                         {token.conditions.map((condition) => (
@@ -1725,6 +1733,13 @@ export function ElementsListModal({
                       <>
                         <button type="button" className="secondary-button secondary-button--small" onClick={() => onEditToken(token.id)}>
                           Modifica
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button secondary-button--small"
+                          onClick={() => onToggleVisibility?.(token.id)}
+                        >
+                          {token.isInvisible ? 'Mostra' : 'Nascondi'}
                         </button>
                         {token.type !== 'player' ? (
                           <button

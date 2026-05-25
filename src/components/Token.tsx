@@ -10,6 +10,7 @@ interface TokenProps {
   tokens: UnitToken[];
   isSelected: boolean;
   isDragging: boolean;
+  isGhost?: boolean;
   displayPosition?: UnitToken['position'];
   footprint: { width: number; height: number };
   zoom: number;
@@ -23,6 +24,7 @@ export function Token({
   tokens,
   isSelected,
   isDragging,
+  isGhost = false,
   displayPosition,
   footprint,
   zoom,
@@ -67,6 +69,7 @@ export function Token({
         `token--${token.type}`,
         isSelected ? 'token--selected' : '',
         isDragging ? 'token--dragging' : '',
+        isGhost ? 'token--ghost' : '',
         isCompact ? 'token--compact' : '',
       ]
         .filter(Boolean)
@@ -90,6 +93,7 @@ export function Token({
         </span>
       ) : null}
       {isCompact ? <span className="token__compact">{compactLabel}</span> : null}
+      {isGhost ? <span className="token__visibility">Nascosto</span> : null}
       <span className="token__name">{token.name}</span>
       <span className="token__type">{tokenTypeLabel(token.type)}</span>
     </button>

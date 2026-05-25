@@ -71,11 +71,18 @@ export interface DicePreviewState {
   log: DiceRollLog;
 }
 
+export interface CombatAnnouncement {
+  id: string;
+  title: string;
+  message: string;
+}
+
 export interface BattleMapState {
   tokens: UnitToken[];
   zoom: number;
   diceLogs: DiceRollLog[];
   latestDicePreview: DicePreviewState | null;
+  combatAnnouncement: CombatAnnouncement | null;
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
   roundNumber: number;
@@ -91,6 +98,7 @@ export interface BattleMapSharedState {
   tokens: UnitToken[];
   diceLogs: DiceRollLog[];
   latestDicePreview: DicePreviewState | null;
+  combatAnnouncement: CombatAnnouncement | null;
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
   roundNumber: number;
