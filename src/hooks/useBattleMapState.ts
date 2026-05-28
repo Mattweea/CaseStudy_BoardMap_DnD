@@ -8,6 +8,7 @@ import type {
   DiceRollLog,
   GridPosition,
   InitiativeEntry,
+  LightSource,
   UnitToken,
 } from '../types';
 import { clampZoom, getTokenFootprint } from '../utils/board';
@@ -124,6 +125,7 @@ const initialSharedState: BattleMapSharedState = {
   extraMovementByTokenId: {},
   isBoardBackgroundHidden: false,
   sharedNotes: '',
+  lightSources: [],
 };
 
 function readStoredZoom() {
@@ -208,6 +210,28 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
     : initialSharedState.tokens;
   const initiatives = Array.isArray(parsed?.initiatives)
     ? parsed.initiatives.filter((entry) => tokens.some((token) => token.id === entry.tokenId))
+    : [];
+  const lightSources = Array.isArray(parsed?.lightSources)
+    ? parsed.lightSources.flatMap<LightSource>((light) => {
+        if (
+          typeof light.id !== 'string' ||
+          !light.position ||
+          typeof light.position.x !== 'number' ||
+          typeof light.position.y !== 'number' ||
+          typeof light.radiusCells !== 'number'
+        ) {
+          return [];
+        }
+
+        return [{
+          id: light.id,
+          position: {
+            x: Math.max(0, Math.floor(light.position.x)),
+            y: Math.max(0, Math.floor(light.position.y)),
+          },
+          radiusCells: Math.max(0, Math.floor(light.radiusCells)),
+        }];
+      })
     : [];
 
   return {
@@ -304,6 +328,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
         : {},
     isBoardBackgroundHidden: parsed?.isBoardBackgroundHidden === true,
     sharedNotes: typeof parsed?.sharedNotes === 'string' ? parsed.sharedNotes : '',
+    lightSources,
   };
 }
 
@@ -1067,6 +1092,30 @@ export function useBattleMapState(isAuthenticated: boolean) {
     }));
   };
 
+  const addLightSource = (position: GridPosition, radiusCells: number) => {
+    void commitSharedState((current) => ({
+      ...current,
+      lightSources: [
+        ...current.lightSources,
+        {
+          id: crypto.randomUUID(),
+          position: {
+            x: Math.max(0, Math.floor(position.x)),
+            y: Math.max(0, Math.floor(position.y)),
+          },
+          radiusCells: Math.max(0, Math.floor(radiusCells)),
+        },
+      ],
+    }));
+  };
+
+  const removeLightSource = (lightId: string) => {
+    void commitSharedState((current) => ({
+      ...current,
+      lightSources: current.lightSources.filter((light) => light.id !== lightId),
+    }));
+  };
+
   const setSharedNotes = async (notes: string) => {
     return enqueueMutation(async () => {
       const previousState = sharedStateRef.current;
@@ -1163,6 +1212,8 @@ export function useBattleMapState(isAuthenticated: boolean) {
     cycleTurn,
     setActiveTurnToken,
     setBoardBackgroundHidden,
+    addLightSource,
+    removeLightSource,
     setSharedNotes,
     startCombat,
     resetZoom,

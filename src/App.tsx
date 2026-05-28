@@ -14,7 +14,8 @@ import { useAuthSession } from './hooks/useAuthSession';
 import { useBattleMapState } from './hooks/useBattleMapState';
 import { getTokenFootprint } from './utils/board';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
-import type { CombatAnnouncement, DiceRollLog } from './types';
+import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
+import type { CombatAnnouncement, DiceRollLog, UnitToken } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
 
 const FULLSCREEN_TRANSITION_MS = 260;
@@ -70,6 +71,7 @@ interface DiceResultScene {
 interface PendingObstaclePlacement {
   name: string;
   color: string;
+  isInvisible: boolean;
   cells: Array<{ x: number; y: number }>;
 }
 
@@ -82,6 +84,55 @@ const COMBAT_ANNOUNCEMENT_DURATION_MS = 5600;
 
 function cellKey(cell: { x: number; y: number }) {
   return `${cell.x}:${cell.y}`;
+}
+
+function isObstacleToken(token: UnitToken) {
+  return token.type === 'object' && token.blocksMovement === true;
+}
+
+function areObstacleTokensConnected(left: UnitToken, right: UnitToken) {
+  const leftFootprint = getTokenFootprint(left);
+  const rightFootprint = getTokenFootprint(right);
+  const leftMaxX = left.position.x + leftFootprint.width - 1;
+  const leftMaxY = left.position.y + leftFootprint.height - 1;
+  const rightMaxX = right.position.x + rightFootprint.width - 1;
+  const rightMaxY = right.position.y + rightFootprint.height - 1;
+
+  return !(
+    leftMaxX + 1 < right.position.x ||
+    rightMaxX + 1 < left.position.x ||
+    leftMaxY + 1 < right.position.y ||
+    rightMaxY + 1 < left.position.y
+  );
+}
+
+function connectedObstacleTokens(tokens: UnitToken[], tokenId: string): UnitToken[] {
+  const startToken = tokens.find((token) => token.id === tokenId);
+  if (!startToken || !isObstacleToken(startToken)) {
+    return startToken ? [startToken] : [];
+  }
+
+  const obstacles = tokens.filter(isObstacleToken);
+  const connected = new Set<string>([startToken.id]);
+  const queue = [startToken];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+
+    obstacles.forEach((candidate) => {
+      if (connected.has(candidate.id) || !areObstacleTokensConnected(current, candidate)) {
+        return;
+      }
+
+      connected.add(candidate.id);
+      queue.push(candidate);
+    });
+  }
+
+  return obstacles.filter((token) => connected.has(token.id));
 }
 
 function App() {
@@ -99,9 +150,11 @@ function App() {
     moveTokens,
     moveOwnedToken,
     addOwnedExtraMovement,
+    addLightSource,
     reorderInitiatives,
     removeToken,
     removeTokens,
+    removeLightSource,
     setActiveTurnToken,
     setBoardBackgroundHidden,
     setSharedNotes,
@@ -136,6 +189,8 @@ function App() {
   const [sidebarLeadSection, setSidebarLeadSection] = useState<SidebarSectionId | null>(null);
   const [isBootLoading, setIsBootLoading] = useState(false);
   const [pendingObstaclePlacement, setPendingObstaclePlacement] = useState<PendingObstaclePlacement | null>(null);
+  const [isLightPlacementActive, setIsLightPlacementActive] = useState(false);
+  const [lightRadiusCells, setLightRadiusCells] = useState(12);
   const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null);
   const [combatAnnouncement, setCombatAnnouncement] = useState<CombatAnnouncement | null>(null);
   const [isCombatAnnouncementOpen, setIsCombatAnnouncementOpen] = useState(false);
@@ -176,6 +231,16 @@ function App() {
   const isPlayersTurn = Boolean(sessionToken && state.activeTurnTokenId === sessionToken.id);
   const activeTurnToken =
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
+  const darkvisionCells = darkvisionToCells(user?.darkvision);
+  const visionBlockers = state.tokens.filter((token) => token.blocksMovement === true);
+  const playerVision = !canManageBattleMap && sessionToken
+    ? {
+        enabled: true,
+        radiusCells: darkvisionCells,
+        sourceToken: sessionToken,
+        blockers: visionBlockers,
+      }
+    : null;
   const isSidebarCollapsed = !isSidebarPinned && !isSidebarHoverOpen;
   const expandedSidebarPresence = useAnimatedPresence(!isSidebarCollapsed, SIDEBAR_CONTENT_EXIT_MS);
   const collapsedSidebarPresence = useAnimatedPresence(isSidebarCollapsed, SIDEBAR_CONTENT_EXIT_MS);
@@ -200,7 +265,28 @@ function App() {
       ];
   const visibleBoardTokens = canManageBattleMap
     ? state.tokens
-    : state.tokens.filter((token) => !token.isInvisible || token.ownerUserId === user?.id);
+    : state.tokens.filter((token) => {
+        const obstacleCluster = isObstacleToken(token)
+          ? connectedObstacleTokens(state.tokens, token.id)
+          : [token];
+        const canSeeTokenByVisibility = obstacleCluster.some((clusterToken) =>
+          !clusterToken.isInvisible || clusterToken.ownerUserId === user?.id,
+        );
+        if (!canSeeTokenByVisibility) {
+          return false;
+        }
+
+        const isInsidePersonalVision = sessionToken
+          ? obstacleCluster.some((clusterToken) =>
+              isTokenInsideVision(sessionToken, clusterToken, darkvisionCells, visionBlockers),
+            )
+          : false;
+        const isInsideMasterLight = state.lightSources.some((light) =>
+          obstacleCluster.some((clusterToken) => isTokenInsideLight(light, clusterToken, visionBlockers)),
+        );
+
+        return isInsidePersonalVision || isInsideMasterLight;
+      });
   const editableTokenIds = canManageBattleMap
     ? state.tokens.map((token) => token.id)
     : sessionToken
@@ -390,12 +476,39 @@ function App() {
         return;
       }
 
-      if (canManageBattleMap || !sessionToken) {
+      const movement = KEYBOARD_MOVEMENTS[event.key];
+      if (!movement) {
         return;
       }
 
-      const movement = KEYBOARD_MOVEMENTS[event.key];
-      if (!movement) {
+      if (canManageBattleMap) {
+        if (selectedTokenIds.length === 0) {
+          return;
+        }
+
+        const selectedMoves = selectedTokenIds.flatMap((tokenId) => {
+          const token = state.tokens.find((entry) => entry.id === tokenId);
+          return token
+            ? [
+                {
+                  tokenId,
+                  x: Math.max(0, token.position.x + movement.dx),
+                  y: Math.max(0, token.position.y + movement.dy),
+                },
+              ]
+            : [];
+        });
+
+        if (selectedMoves.length === 0) {
+          return;
+        }
+
+        event.preventDefault();
+        moveTokens(selectedMoves);
+        return;
+      }
+
+      if (!sessionToken) {
         return;
       }
 
@@ -408,9 +521,11 @@ function App() {
   }, [
     canManageBattleMap,
     moveSessionTokenBy,
+    moveTokens,
     removeTokens,
     selectedTokenIds,
     sessionToken,
+    state.tokens,
     undoLastAction,
   ]);
 
@@ -599,7 +714,7 @@ function App() {
         groupId: obstacleGroupId,
         hitPoints: null,
         maxHitPoints: null,
-        isInvisible: true,
+        isInvisible: pendingObstaclePlacement.isInvisible,
         isFamiliar: false,
         blocksMovement: true,
         excludeFromInitiative: false,
@@ -865,6 +980,42 @@ function App() {
                 </div>
               ) : null}
 
+              <div className="action-card__block">
+                <p className="action-card__label">Illuminazione mappa</p>
+                <p className="action-card__meta">
+                  Luci attive: <strong>{state.lightSources.length}</strong>
+                </p>
+                <label className="inline-field">
+                  Raggio
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={lightRadiusCells}
+                    onChange={(event) => setLightRadiusCells(Math.max(0, Math.floor(Number(event.target.value) || 0)))}
+                  />
+                </label>
+                <div className="action-card__buttons">
+                  <button
+                    type="button"
+                    className={isLightPlacementActive ? 'primary-button' : 'secondary-button'}
+                    onClick={() => setIsLightPlacementActive((current) => !current)}
+                    disabled={Boolean(pendingObstaclePlacement)}
+                  >
+                    {isLightPlacementActive ? 'Posa luce attiva' : 'Posa luce'}
+                  </button>
+                  {isLightPlacementActive ? (
+                    <button
+                      type="button"
+                      className="outline-button"
+                      onClick={() => setIsLightPlacementActive(false)}
+                    >
+                      Fine posa
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
               {selectedTokenIds.length > 0 ? (
                 <div className="action-card__block">
                   <p className="action-card__label">Selezione corrente</p>
@@ -1083,8 +1234,20 @@ function App() {
           editableTokenIds={editableTokenIds}
           focusRequest={focusRequest}
           isBackgroundHidden={state.isBoardBackgroundHidden}
+          vision={playerVision}
+          lightSources={state.lightSources}
+          visionBlockers={visionBlockers}
           canManageTokens={canManageBattleMap}
           movableTokenIds={movableTokenIds}
+          lightPlacement={
+            canManageBattleMap && isLightPlacementActive
+              ? {
+                  radiusCells: lightRadiusCells,
+                  onPlace: (cell) => addLightSource(cell, lightRadiusCells),
+                }
+              : null
+          }
+          onRemoveLightSource={removeLightSource}
           onOpenMap={() => setIsMapModalOpen(true)}
           onToggleFullscreen={() => setBoardFullscreenPhase('opening')}
           onOpenManual={() => setIsManualModalOpen(true)}
@@ -1144,8 +1307,20 @@ function App() {
             focusRequest={focusRequest}
             isFullscreen
             isBackgroundHidden={state.isBoardBackgroundHidden}
+            vision={playerVision}
+            lightSources={state.lightSources}
+            visionBlockers={visionBlockers}
             canManageTokens={canManageBattleMap}
             movableTokenIds={movableTokenIds}
+            lightPlacement={
+              canManageBattleMap && isLightPlacementActive
+                ? {
+                    radiusCells: lightRadiusCells,
+                    onPlace: (cell) => addLightSource(cell, lightRadiusCells),
+                  }
+                : null
+            }
+            onRemoveLightSource={removeLightSource}
             onOpenMap={() => setIsMapModalOpen(true)}
             onToggleFullscreen={() => setBoardFullscreenPhase('closing')}
             onOpenManual={() => setIsManualModalOpen(true)}
@@ -1201,10 +1376,11 @@ function App() {
           tokenCount={state.tokens.length}
           onClose={() => setIsNewElementModalOpen(false)}
           onAddTokens={addTokens}
-          onStartObstaclePlacement={({ name, color }) => {
+          onStartObstaclePlacement={({ name, color, isInvisible }) => {
             setPendingObstaclePlacement({
               name,
               color,
+              isInvisible,
               cells: [],
             });
           }}
@@ -1220,7 +1396,19 @@ function App() {
         canRemoveToken={canManageBattleMap}
         onClose={() => setEditingTokenId(null)}
         onAddTokens={addTokens}
-        onSaveToken={updateToken}
+        onSaveToken={(tokenId, updates) => {
+          updateToken(tokenId, updates);
+
+          if (typeof updates.isInvisible !== 'boolean') {
+            return;
+          }
+
+          connectedObstacleTokens(state.tokens, tokenId)
+            .filter((connectedToken) => connectedToken.id !== tokenId)
+            .forEach((connectedToken) => {
+              updateToken(connectedToken.id, { isInvisible: updates.isInvisible });
+            });
+        }}
         onSaveOwnedToken={(tokenId, updates) => void updateOwnedToken(tokenId, updates)}
         onRemoveToken={(tokenId) => {
           if (canManageBattleMap) {
@@ -1251,7 +1439,10 @@ function App() {
           if (!token) {
             return;
           }
-          updateToken(tokenId, { isInvisible: !token.isInvisible });
+          const nextIsInvisible = !token.isInvisible;
+          connectedObstacleTokens(state.tokens, tokenId).forEach((connectedToken) => {
+            updateToken(connectedToken.id, { isInvisible: nextIsInvisible });
+          });
         }}
         onDuplicateToken={(tokenId) => duplicateToken(tokenId)}
       />

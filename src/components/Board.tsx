@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { BOARD_CONFIG } from '../constants/board';
-import type { GridPosition, UnitToken } from '../types';
+import type { GridPosition, LightSource, UnitToken } from '../types';
 import {
   boardPixelSize,
   clampZoom,
@@ -10,6 +10,7 @@ import {
   gridRowToLabel,
   viewportPointToWorldCell,
 } from '../utils/board';
+import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
 import { Token } from './Token';
 
 interface BoardProps {
@@ -20,8 +21,21 @@ interface BoardProps {
   focusRequest: { tokenId: string; nonce: number } | null;
   isFullscreen?: boolean;
   isBackgroundHidden?: boolean;
+  vision?: {
+    enabled: boolean;
+    radiusCells: number;
+    sourceToken: UnitToken;
+    blockers: UnitToken[];
+  } | null;
+  lightSources?: LightSource[];
+  visionBlockers?: UnitToken[];
   canManageTokens?: boolean;
   movableTokenIds?: string[];
+  lightPlacement?: {
+    radiusCells: number;
+    onPlace: (cell: GridPosition) => void;
+  } | null;
+  onRemoveLightSource?: (lightId: string) => void;
   onOpenMap: () => void;
   onOpenManual: () => void;
   onOpenElementsListModal: () => void;
@@ -42,6 +56,15 @@ interface BoardProps {
 const INITIAL_CAMERA = { x: 0, y: 0 };
 const BOARD_GUTTER = 30;
 const DRAG_THRESHOLD = 6;
+
+function tokenCenter(token: UnitToken): { x: number; y: number } {
+  const footprint = getTokenFootprint(token);
+
+  return {
+    x: token.position.x + footprint.width / 2,
+    y: token.position.y + footprint.height / 2,
+  };
+}
 
 function clampCamera(position: GridPosition): GridPosition {
   return {
@@ -243,8 +266,13 @@ export function Board({
   focusRequest,
   isFullscreen = false,
   isBackgroundHidden = false,
+  vision = null,
+  lightSources = [],
+  visionBlockers = [],
   canManageTokens = true,
   movableTokenIds = [],
+  lightPlacement = null,
+  onRemoveLightSource,
   onOpenMap,
   onOpenManual,
   onOpenElementsListModal,
@@ -258,6 +286,7 @@ export function Board({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [interaction, setInteraction] = useState<InteractionState | null>(null);
+  const [lightPreviewCell, setLightPreviewCell] = useState<GridPosition | null>(null);
   const [camera, setCamera] = useState<GridPosition>(INITIAL_CAMERA);
   const [viewportCells, setViewportCells] = useState<{ columns: number; rows: number }>({
     columns: BOARD_CONFIG.minVisibleColumns,
@@ -270,6 +299,65 @@ export function Board({
     () => new Set(obstacleClusters.flatMap((cluster) => cluster.tokenIds)),
     [obstacleClusters],
   );
+  const effectiveVision = vision?.enabled ? vision : null;
+  const visionPolygonPoints = useMemo(() => {
+    if (!effectiveVision) {
+      return [];
+    }
+
+    return buildVisionPolygon(
+      effectiveVision.sourceToken,
+      effectiveVision.radiusCells,
+      effectiveVision.blockers,
+    ).map((point) => ({
+      x: (point.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+      y: (point.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+    }));
+  }, [camera.x, camera.y, effectiveVision, zoom]);
+  const lightPolygonPoints = useMemo(
+    () =>
+      lightSources.map((light) => ({
+        id: light.id,
+        points: buildVisionPolygonFromPoint(
+          { x: light.position.x + 0.5, y: light.position.y + 0.5 },
+          light.radiusCells,
+          visionBlockers,
+        ).map((point) => ({
+          x: (point.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+          y: (point.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+        })),
+      })),
+    [camera.x, camera.y, lightSources, visionBlockers, zoom],
+  );
+  const lightPreviewPolygonPoints = useMemo(() => {
+    if (!lightPlacement || !lightPreviewCell) {
+      return [];
+    }
+
+    return buildVisionPolygonFromPoint(
+      { x: lightPreviewCell.x + 0.5, y: lightPreviewCell.y + 0.5 },
+      lightPlacement.radiusCells,
+      visionBlockers,
+    ).map((point) => ({
+      x: (point.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+      y: (point.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+    }));
+  }, [camera.x, camera.y, lightPlacement, lightPreviewCell, visionBlockers, zoom]);
+  const visionPolygonPath = visionPolygonPoints.map((point) => `${point.x},${point.y}`).join(' ');
+  const lightPolygonPaths = lightPolygonPoints.map((light) => ({
+    id: light.id,
+    path: light.points.map((point) => `${point.x},${point.y}`).join(' '),
+  }));
+  const lightPreviewPolygonPath = lightPreviewPolygonPoints.map((point) => `${point.x},${point.y}`).join(' ');
+  const visionCenter = effectiveVision
+    ? tokenCenter(effectiveVision.sourceToken)
+    : null;
+  const visionScreenCenter = visionCenter
+    ? {
+        x: (visionCenter.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+        y: (visionCenter.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+      }
+    : null;
 
   useEffect(() => {
     const node = shellRef.current;
@@ -626,6 +714,25 @@ export function Board({
     event: ReactPointerEvent<HTMLButtonElement>,
     token: UnitToken,
   ) => {
+    if (lightPlacement && stageRef.current) {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      lightPlacement.onPlace(
+        viewportPointToWorldCell(
+          event.clientX,
+          event.clientY,
+          stageRef.current.getBoundingClientRect(),
+          zoom,
+          camera,
+        ),
+      );
+      return;
+    }
+
     if (obstaclePlacement) {
       return;
     }
@@ -716,6 +823,25 @@ export function Board({
     event: ReactPointerEvent<HTMLButtonElement>,
     cluster: ObstacleCluster,
   ) => {
+    if (lightPlacement && stageRef.current) {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      lightPlacement.onPlace(
+        viewportPointToWorldCell(
+          event.clientX,
+          event.clientY,
+          stageRef.current.getBoundingClientRect(),
+          zoom,
+          camera,
+        ),
+      );
+      return;
+    }
+
     if (obstaclePlacement || !stageRef.current) {
       return;
     }
@@ -788,6 +914,22 @@ export function Board({
   };
 
   const handleBoardPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (lightPlacement && stageRef.current) {
+      if (event.button !== 0) {
+        return;
+      }
+
+      const cell = viewportPointToWorldCell(
+        event.clientX,
+        event.clientY,
+        stageRef.current.getBoundingClientRect(),
+        zoom,
+        camera,
+      );
+      lightPlacement.onPlace(cell);
+      return;
+    }
+
     if (event.target !== event.currentTarget) {
       return;
     }
@@ -838,6 +980,22 @@ export function Board({
       currentY: event.clientY,
       additive: event.shiftKey,
     });
+  };
+
+  const handleBoardPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!lightPlacement || !stageRef.current) {
+      return;
+    }
+
+    setLightPreviewCell(
+      viewportPointToWorldCell(
+        event.clientX,
+        event.clientY,
+        stageRef.current.getBoundingClientRect(),
+        zoom,
+        camera,
+      ),
+    );
   };
 
   const topLabels = Array.from({ length: viewportCells.columns }, (_, index) => camera.x + index);
@@ -949,6 +1107,8 @@ export function Board({
               backgroundSize: `${BOARD_CONFIG.cellSize * zoom}px ${BOARD_CONFIG.cellSize * zoom}px`,
             }}
             onPointerDown={handleBoardPointerDown}
+            onPointerMove={handleBoardPointerMove}
+            onPointerLeave={() => setLightPreviewCell(null)}
           >
             {interaction?.mode === 'drag' ? (
               <div
@@ -982,6 +1142,85 @@ export function Board({
                 }}
               />
             ))}
+
+            {effectiveVision ? (
+              <svg
+                className="board-darkness-layer"
+                width={width}
+                height={height}
+                viewBox={`0 0 ${width} ${height}`}
+                aria-hidden="true"
+              >
+                <defs>
+                  <mask id={`vision-mask-${isFullscreen ? 'fullscreen' : 'main'}`}>
+                    <rect width={width} height={height} fill="white" />
+                    {visionPolygonPath ? <polygon points={visionPolygonPath} fill="black" /> : null}
+                    {visionPolygonPath ? (
+                      <polygon
+                        points={visionPolygonPath}
+                        fill="none"
+                        stroke="black"
+                        strokeWidth={BOARD_CONFIG.cellSize * zoom * 1.25}
+                        strokeLinejoin="round"
+                      />
+                    ) : null}
+                    {lightPolygonPaths.map((light) => (
+                      <polygon key={`mask-light-${light.id}`} points={light.path} fill="black" />
+                    ))}
+                    {lightPolygonPaths.map((light) => (
+                      <polygon
+                        key={`mask-light-soft-${light.id}`}
+                        points={light.path}
+                        fill="none"
+                        stroke="black"
+                        strokeWidth={BOARD_CONFIG.cellSize * zoom * 1.25}
+                        strokeLinejoin="round"
+                      />
+                    ))}
+                  </mask>
+                  <radialGradient id={`vision-warmth-${isFullscreen ? 'fullscreen' : 'main'}`}>
+                    <stop offset="0%" stopColor="rgba(255, 181, 102, 0.18)" />
+                    <stop offset="60%" stopColor="rgba(255, 181, 102, 0.06)" />
+                    <stop offset="100%" stopColor="rgba(255, 181, 102, 0)" />
+                  </radialGradient>
+                </defs>
+                <rect
+                  width={width}
+                  height={height}
+                  className="board-darkness-layer__shade"
+                  mask={`url(#vision-mask-${isFullscreen ? 'fullscreen' : 'main'})`}
+                />
+                {visionPolygonPath ? <polygon points={visionPolygonPath} className="board-darkness-layer__edge" /> : null}
+                {visionScreenCenter && effectiveVision ? (
+                  <circle
+                    cx={visionScreenCenter.x}
+                    cy={visionScreenCenter.y}
+                    r={Math.max(BOARD_CONFIG.cellSize * zoom, effectiveVision.radiusCells * BOARD_CONFIG.cellSize * zoom)}
+                    fill={`url(#vision-warmth-${isFullscreen ? 'fullscreen' : 'main'})`}
+                  />
+                ) : null}
+                {lightPolygonPaths.map((light) => (
+                  <polygon key={`light-edge-${light.id}`} points={light.path} className="board-light-layer__edge" />
+                ))}
+              </svg>
+            ) : null}
+
+            {canManageTokens && (lightPolygonPaths.length > 0 || lightPreviewPolygonPath) ? (
+              <svg
+                className="board-light-preview-layer"
+                width={width}
+                height={height}
+                viewBox={`0 0 ${width} ${height}`}
+                aria-hidden="true"
+              >
+                {lightPolygonPaths.map((light) => (
+                  <polygon key={`placed-light-${light.id}`} points={light.path} className="board-light-preview-layer__placed" />
+                ))}
+                {lightPreviewPolygonPath ? (
+                  <polygon points={lightPreviewPolygonPath} className="board-light-preview-layer__candidate" />
+                ) : null}
+              </svg>
+            ) : null}
 
             {orderedTokens.map((token) => {
               const worldPosition = draggedPositions.get(token.id) ?? token.position;
@@ -1078,6 +1317,36 @@ export function Board({
                 </button>
               );
             })}
+
+            {canManageTokens ? (
+              lightSources.map((light) => (
+                <button
+                  key={light.id}
+                  type="button"
+                  className="board-light-source"
+                  style={{
+                    transform: `translate(${(light.position.x - camera.x) * BOARD_CONFIG.cellSize * zoom}px, ${
+                      (light.position.y - camera.y) * BOARD_CONFIG.cellSize * zoom
+                    }px)`,
+                    width: BOARD_CONFIG.cellSize * zoom,
+                    height: BOARD_CONFIG.cellSize * zoom,
+                  }}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onRemoveLightSource?.(light.id);
+                  }}
+                  title={`Rimuovi luce raggio ${light.radiusCells} caselle`}
+                  aria-label={`Rimuovi luce raggio ${light.radiusCells} caselle`}
+                >
+                  ✦
+                </button>
+              ))
+            ) : null}
 
             {interaction?.mode === 'select-box' ? (
               <div

@@ -35,6 +35,12 @@ export interface MovementAxisUsage {
   vertical: number;
 }
 
+export interface LightSource {
+  id: string;
+  position: GridPosition;
+  radiusCells: number;
+}
+
 export interface UnitToken {
   id: string;
   name: string;
@@ -92,6 +98,7 @@ export interface BattleMapState {
   extraMovementByTokenId: Record<string, number>;
   isBoardBackgroundHidden: boolean;
   sharedNotes: string;
+  lightSources: LightSource[];
 }
 
 export interface BattleMapSharedState {
@@ -108,6 +115,7 @@ export interface BattleMapSharedState {
   extraMovementByTokenId: Record<string, number>;
   isBoardBackgroundHidden: boolean;
   sharedNotes: string;
+  lightSources: LightSource[];
 }
 
 export interface BattleMapSessionSnapshot {

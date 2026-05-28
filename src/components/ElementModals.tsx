@@ -39,6 +39,7 @@ interface NewElementModalProps {
   onStartObstaclePlacement?: (config: {
     name: string;
     color: string;
+    isInvisible: boolean;
     selectedCells: number;
   }) => void;
 }
@@ -511,6 +512,7 @@ export function NewElementModal({
   const [widthCells, setWidthCells] = useState(1);
   const [heightCells, setHeightCells] = useState(1);
   const [blocksMovement, setBlocksMovement] = useState(false);
+  const [isInvisible, setIsInvisible] = useState(true);
   const [freeSelection, setFreeSelection] = useState(false);
   const [vehicleKind, setVehicleKind] = useState<VehicleKind>('infernal-bike');
   const [vehicleAffiliation, setVehicleAffiliation] = useState<TokenAffiliation>('player');
@@ -568,6 +570,7 @@ export function NewElementModal({
       onStartObstaclePlacement?.({
         name: baseName,
         color,
+        isInvisible,
         selectedCells: 0,
       });
       onClose();
@@ -598,7 +601,7 @@ export function NewElementModal({
       ...token,
       widthCells: tokenType === 'object' ? Math.max(1, Math.floor(widthCells) || 1) : null,
       heightCells: tokenType === 'object' ? Math.max(1, Math.floor(heightCells) || 1) : null,
-      isInvisible: true,
+      isInvisible,
       blocksMovement: tokenType === 'object' ? (isObstacle ? true : blocksMovement) : false,
     }));
 
@@ -628,7 +631,7 @@ export function NewElementModal({
             );
             createdEnemies.push({
               ...enemyToken,
-              isInvisible: true,
+              isInvisible,
             });
           }
         }
@@ -668,6 +671,7 @@ export function NewElementModal({
     setWidthCells(1);
     setHeightCells(1);
     setBlocksMovement(false);
+    setIsInvisible(true);
     setFreeSelection(false);
     setVehicleKind('infernal-bike');
     setVehicleAffiliation('player');
@@ -889,6 +893,18 @@ export function NewElementModal({
           disabled={kindToTokenType(kind) === 'vehicle'}
           onChange={setColor}
         />
+
+        <fieldset className="token-form__fieldset">
+          <legend>Visibilita</legend>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={!isInvisible}
+              onChange={(event) => setIsInvisible(!event.target.checked)}
+            />
+            <span>Visibile ai player</span>
+          </label>
+        </fieldset>
 
         {kindToTokenType(kind) !== 'object' && kindToTokenType(kind) !== 'vehicle' ? (
           <label>

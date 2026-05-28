@@ -58,6 +58,7 @@ const initialSharedState = {
   extraMovementByTokenId: {},
   isBoardBackgroundHidden: false,
   sharedNotes: '',
+  lightSources: [],
 };
 
 let battleMapState = normalizeSharedState(initialSharedState);
@@ -220,6 +221,28 @@ function normalizeSharedState(parsed) {
   const initiatives = Array.isArray(parsed?.initiatives)
     ? parsed.initiatives.filter((entry) => tokens.some((token) => token.id === entry.tokenId))
     : [];
+  const lightSources = Array.isArray(parsed?.lightSources)
+    ? parsed.lightSources.flatMap((light) => {
+        if (
+          typeof light.id !== 'string' ||
+          !light.position ||
+          typeof light.position.x !== 'number' ||
+          typeof light.position.y !== 'number' ||
+          typeof light.radiusCells !== 'number'
+        ) {
+          return [];
+        }
+
+        return [{
+          id: light.id,
+          position: {
+            x: Math.max(0, Math.floor(light.position.x)),
+            y: Math.max(0, Math.floor(light.position.y)),
+          },
+          radiusCells: Math.max(0, Math.floor(light.radiusCells)),
+        }];
+      })
+    : [];
 
   return {
     tokens: applyVehicleAwareUpdates(tokens),
@@ -315,6 +338,7 @@ function normalizeSharedState(parsed) {
         : {},
     isBoardBackgroundHidden: parsed?.isBoardBackgroundHidden === true,
     sharedNotes: typeof parsed?.sharedNotes === 'string' ? parsed.sharedNotes : '',
+    lightSources,
   };
 }
 
