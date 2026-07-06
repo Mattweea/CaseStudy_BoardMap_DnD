@@ -27,7 +27,7 @@ const COMBAT_ANNOUNCEMENT_STORAGE_KEY = 'dnd-battle-map:last-combat-announcement
 const MANUAL_PDF_PATH =
   'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
 
-type SidebarSectionId = 'session' | 'actions' | 'notes' | 'dice' | 'initiative' | 'legend';
+type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'notes' | 'dice' | 'initiative' | 'legend';
 
 const KEYBOARD_MOVEMENTS: Record<string, { dx: number; dy: number }> = {
   ArrowUp: { dx: 0, dy: -1 },
@@ -157,6 +157,7 @@ function App() {
     removeLightSource,
     setActiveTurnToken,
     setBoardBackgroundHidden,
+    setBoardFullyLit,
     setSharedNotes,
     startCombat,
     setInitiative,
@@ -233,7 +234,7 @@ function App() {
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
   const darkvisionCells = darkvisionToCells(user?.darkvision);
   const visionBlockers = state.tokens.filter((token) => token.blocksMovement === true);
-  const playerVision = !canManageBattleMap && sessionToken
+  const playerVision = !canManageBattleMap && sessionToken && !state.isBoardFullyLit
     ? {
         enabled: true,
         radiusCells: darkvisionCells,
@@ -245,12 +246,13 @@ function App() {
   const expandedSidebarPresence = useAnimatedPresence(!isSidebarCollapsed, SIDEBAR_CONTENT_EXIT_MS);
   const collapsedSidebarPresence = useAnimatedPresence(isSidebarCollapsed, SIDEBAR_CONTENT_EXIT_MS);
   const sidebarSections: SidebarSectionId[] = canManageBattleMap
-    ? ['session', 'actions', 'notes', 'dice', 'initiative', 'legend']
+    ? ['session', 'actions', 'lighting', 'notes', 'dice', 'initiative', 'legend']
     : ['session', 'notes', 'dice', 'initiative', 'legend'];
   const sidebarShortcuts: Array<{ id: SidebarSectionId; icon: string; label: string }> = canManageBattleMap
     ? [
         { id: 'session', icon: '👤', label: 'Sessione' },
         { id: 'actions', icon: '➕', label: 'Azioni Master' },
+        { id: 'lighting', icon: '☀️', label: 'Illuminazione' },
         { id: 'notes', icon: '📝', label: 'Note' },
         { id: 'dice', icon: '🎲', label: 'Dice Roller' },
         { id: 'initiative', icon: '⚔️', label: 'Ordine Dei Turni' },
@@ -274,6 +276,10 @@ function App() {
         );
         if (!canSeeTokenByVisibility) {
           return false;
+        }
+
+        if (state.isBoardFullyLit) {
+          return true;
         }
 
         const isInsidePersonalVision = sessionToken
@@ -385,6 +391,12 @@ function App() {
   useEffect(() => {
     setDraftNotes(state.sharedNotes);
   }, [state.sharedNotes]);
+
+  useEffect(() => {
+    if (state.isBoardFullyLit) {
+      setIsLightPlacementActive(false);
+    }
+  }, [state.isBoardFullyLit]);
 
   useEffect(() => {
     if (!user) {
@@ -980,42 +992,6 @@ function App() {
                 </div>
               ) : null}
 
-              <div className="action-card__block">
-                <p className="action-card__label">Illuminazione mappa</p>
-                <p className="action-card__meta">
-                  Luci attive: <strong>{state.lightSources.length}</strong>
-                </p>
-                <label className="inline-field">
-                  Raggio
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={lightRadiusCells}
-                    onChange={(event) => setLightRadiusCells(Math.max(0, Math.floor(Number(event.target.value) || 0)))}
-                  />
-                </label>
-                <div className="action-card__buttons">
-                  <button
-                    type="button"
-                    className={isLightPlacementActive ? 'primary-button' : 'secondary-button'}
-                    onClick={() => setIsLightPlacementActive((current) => !current)}
-                    disabled={Boolean(pendingObstaclePlacement)}
-                  >
-                    {isLightPlacementActive ? 'Posa luce attiva' : 'Posa luce'}
-                  </button>
-                  {isLightPlacementActive ? (
-                    <button
-                      type="button"
-                      className="outline-button"
-                      onClick={() => setIsLightPlacementActive(false)}
-                    >
-                      Fine posa
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-
               {selectedTokenIds.length > 0 ? (
                 <div className="action-card__block">
                   <p className="action-card__label">Selezione corrente</p>
@@ -1042,6 +1018,71 @@ function App() {
                   </div>
                 </div>
               ) : null}
+            </div>
+          </section>
+        ) : null;
+      case 'lighting':
+        return canManageBattleMap ? (
+          <section key="lighting" className="sidebar__section">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Visione</p>
+                <h2>Luce</h2>
+              </div>
+            </div>
+            <div className="action-card">
+              <div className="action-card__block">
+                <p className="action-card__label">Buio della mappa</p>
+                <p className="action-card__meta">
+                  {state.isBoardFullyLit
+                    ? 'La mappa e completamente illuminata per i player.'
+                    : 'I player vedono solo scurovisione e luci attive.'}
+                </p>
+                <button
+                  type="button"
+                  className={state.isBoardFullyLit ? 'primary-button' : 'secondary-button'}
+                  onClick={() => setBoardFullyLit(!state.isBoardFullyLit)}
+                  aria-pressed={state.isBoardFullyLit}
+                >
+                  {state.isBoardFullyLit ? 'Riattiva buio' : 'Illumina tutto'}
+                </button>
+              </div>
+
+              <div className="action-card__block">
+                <p className="action-card__label">Luci puntuali</p>
+                <p className="action-card__meta">
+                  Luci attive: <strong>{state.lightSources.length}</strong>
+                </p>
+                <label className="inline-field">
+                  Raggio
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={lightRadiusCells}
+                    onChange={(event) => setLightRadiusCells(Math.max(0, Math.floor(Number(event.target.value) || 0)))}
+                  />
+                </label>
+                <div className="action-card__buttons">
+                  <button
+                    type="button"
+                    className={isLightPlacementActive ? 'primary-button' : 'secondary-button'}
+                    onClick={() => setIsLightPlacementActive((current) => !current)}
+                    disabled={Boolean(pendingObstaclePlacement) || state.isBoardFullyLit}
+                  >
+                    {isLightPlacementActive ? 'Posa luce attiva' : 'Posa luce'}
+                  </button>
+                  {isLightPlacementActive ? (
+                    <button
+                      type="button"
+                      className="outline-button"
+                      onClick={() => setIsLightPlacementActive(false)}
+                    >
+                      Fine posa
+                    </button>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </section>
         ) : null;
@@ -1240,7 +1281,7 @@ function App() {
           canManageTokens={canManageBattleMap}
           movableTokenIds={movableTokenIds}
           lightPlacement={
-            canManageBattleMap && isLightPlacementActive
+            canManageBattleMap && isLightPlacementActive && !state.isBoardFullyLit
               ? {
                   radiusCells: lightRadiusCells,
                   onPlace: (cell) => addLightSource(cell, lightRadiusCells),
@@ -1313,7 +1354,7 @@ function App() {
             canManageTokens={canManageBattleMap}
             movableTokenIds={movableTokenIds}
             lightPlacement={
-              canManageBattleMap && isLightPlacementActive
+              canManageBattleMap && isLightPlacementActive && !state.isBoardFullyLit
                 ? {
                     radiusCells: lightRadiusCells,
                     onPlace: (cell) => addLightSource(cell, lightRadiusCells),

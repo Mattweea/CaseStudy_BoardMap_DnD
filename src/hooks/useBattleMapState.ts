@@ -124,6 +124,7 @@ const initialSharedState: BattleMapSharedState = {
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
   isBoardBackgroundHidden: false,
+  isBoardFullyLit: false,
   sharedNotes: '',
   lightSources: [],
 };
@@ -327,6 +328,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           )
         : {},
     isBoardBackgroundHidden: parsed?.isBoardBackgroundHidden === true,
+    isBoardFullyLit: parsed?.isBoardFullyLit === true,
     sharedNotes: typeof parsed?.sharedNotes === 'string' ? parsed.sharedNotes : '',
     lightSources,
   };
@@ -1092,6 +1094,13 @@ export function useBattleMapState(isAuthenticated: boolean) {
     }));
   };
 
+  const setBoardFullyLit = (fullyLit: boolean) => {
+    void commitSharedState((current) => ({
+      ...current,
+      isBoardFullyLit: fullyLit,
+    }));
+  };
+
   const addLightSource = (position: GridPosition, radiusCells: number) => {
     void commitSharedState((current) => ({
       ...current,
@@ -1212,6 +1221,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     cycleTurn,
     setActiveTurnToken,
     setBoardBackgroundHidden,
+    setBoardFullyLit,
     addLightSource,
     removeLightSource,
     setSharedNotes,

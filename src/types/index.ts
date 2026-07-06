@@ -97,6 +97,7 @@ export interface BattleMapState {
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
   isBoardBackgroundHidden: boolean;
+  isBoardFullyLit: boolean;
   sharedNotes: string;
   lightSources: LightSource[];
 }
@@ -114,6 +115,7 @@ export interface BattleMapSharedState {
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
   isBoardBackgroundHidden: boolean;
+  isBoardFullyLit: boolean;
   sharedNotes: string;
   lightSources: LightSource[];
 }

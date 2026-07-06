@@ -433,6 +433,24 @@ export function Board({
       ]),
     );
   }, [interaction]);
+  const visibleTokenMaskRects = useMemo(() => {
+    if (!effectiveVision) {
+      return [];
+    }
+
+    return tokens.filter((token) => token.type === 'player').map((token) => {
+      const position = draggedPositions.get(token.id) ?? token.position;
+      const footprint = getTokenFootprint(token);
+
+      return {
+        id: token.id,
+        x: (position.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+        y: (position.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+        width: footprint.width * BOARD_CONFIG.cellSize * zoom,
+        height: footprint.height * BOARD_CONFIG.cellSize * zoom,
+      };
+    });
+  }, [camera.x, camera.y, draggedPositions, effectiveVision, tokens, zoom]);
 
   const hasInvalidDragOverlap = useMemo(() => {
     if (interaction?.mode !== 'drag') {
@@ -1175,6 +1193,16 @@ export function Board({
                         stroke="black"
                         strokeWidth={BOARD_CONFIG.cellSize * zoom * 1.25}
                         strokeLinejoin="round"
+                      />
+                    ))}
+                    {visibleTokenMaskRects.map((rect) => (
+                      <rect
+                        key={`mask-token-${rect.id}`}
+                        x={rect.x}
+                        y={rect.y}
+                        width={rect.width}
+                        height={rect.height}
+                        fill="black"
                       />
                     ))}
                   </mask>

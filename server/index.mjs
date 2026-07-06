@@ -57,6 +57,7 @@ const initialSharedState = {
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
   isBoardBackgroundHidden: false,
+  isBoardFullyLit: false,
   sharedNotes: '',
   lightSources: [],
 };
@@ -337,6 +338,7 @@ function normalizeSharedState(parsed) {
           )
         : {},
     isBoardBackgroundHidden: parsed?.isBoardBackgroundHidden === true,
+    isBoardFullyLit: parsed?.isBoardFullyLit === true,
     sharedNotes: typeof parsed?.sharedNotes === 'string' ? parsed.sharedNotes : '',
     lightSources,
   };
@@ -1235,13 +1237,13 @@ function sanitizeUser(user) {
   };
 }
 
-function createCharacterToken(profile, userId) {
+function createCharacterToken(profile, userId, position = profile.spawnPosition) {
   return {
     id: `player-token-${profile.key}`,
     name: profile.displayName,
     type: 'player',
     size: 'medium',
-    position: { ...profile.spawnPosition },
+    position: { ...position },
     color: DEFAULT_TOKEN_COLORS.player,
     initiativeModifier: profile.initiativeModifier,
     initiativeMode: profile.initiativeMode,
@@ -1276,9 +1278,16 @@ function ensureCharacterTokenForUser(user) {
   );
 
   if (existingIndex === -1) {
+    const spawnToken = createCharacterToken(profile, user.id);
+    const spawnPosition = firstAvailablePositionToRight(
+      battleMapState.tokens.filter((token) => token.ownerUserId !== user.id && token.characterKey !== profile.key),
+      getTokenFootprint(spawnToken),
+      profile.spawnPosition,
+    );
+
     battleMapState = normalizeSharedState({
       ...battleMapState,
-      tokens: [...battleMapState.tokens, createCharacterToken(profile, user.id)],
+      tokens: [...battleMapState.tokens, { ...spawnToken, position: spawnPosition }],
     });
     bumpBattleMapVersion();
     broadcastSnapshot();
