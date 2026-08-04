@@ -1433,6 +1433,22 @@ button {
   stroke-dasharray: 14 10;
 }
 
+.board-aura-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.board-aura-layer__circle {
+  fill: color-mix(in srgb, var(--aura-color) 18%, transparent);
+  stroke: color-mix(in srgb, var(--aura-color) 76%, #fff4da 24%);
+  stroke-width: 3;
+  stroke-dasharray: 10 8;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--aura-color) 38%, transparent));
+}
+
 .board-light-source {
   position: absolute;
   z-index: 4;

@@ -68,6 +68,10 @@ export interface UnitToken {
   isFamiliar?: boolean;
   blocksMovement?: boolean;
   excludeFromInitiative?: boolean;
+  aura?: {
+    enabled: boolean;
+    radiusCells: number;
+  } | null;
   conditions: TokenCondition[];
 }
 

@@ -56,7 +56,7 @@ interface EditElementModalProps {
   onSaveToken: (tokenId: string, updates: Partial<UnitToken>) => void;
   onSaveOwnedToken?: (
     tokenId: string,
-    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative'>>,
+    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative' | 'aura'>>,
   ) => void;
   onRemoveToken: (tokenId: string) => void;
   onDuplicateToken?: (tokenId: string) => void;
@@ -963,6 +963,8 @@ export function EditElementModal({
   const [excludeFromInitiative, setExcludeFromInitiative] = useState(false);
   const [blocksMovement, setBlocksMovement] = useState(false);
   const [familiarName, setFamiliarName] = useState('');
+  const [auraEnabled, setAuraEnabled] = useState(false);
+  const [auraRadiusCells, setAuraRadiusCells] = useState(3);
 
   useEffect(() => {
     if (!token) {
@@ -998,6 +1000,8 @@ export function EditElementModal({
     setExcludeFromInitiative(token.excludeFromInitiative === true);
     setBlocksMovement(token.blocksMovement === true);
     setFamiliarName('');
+    setAuraEnabled(token.aura?.enabled === true);
+    setAuraRadiusCells(token.aura?.radiusCells ?? 3);
   }, [token]);
 
   const compatibleVehicles = useMemo(() => {
@@ -1091,6 +1095,14 @@ export function EditElementModal({
         maxHitPoints: parsedMaxHitPoints,
         conditions: conditions.filter((condition) => canUseCondition(type, condition)),
         isInvisible: token.isFamiliar ? isInvisible : token.isInvisible,
+        aura: type === 'player' || type === 'enemy'
+          ? auraEnabled
+            ? {
+                enabled: true,
+                radiusCells: Math.max(0, Math.floor(auraRadiusCells) || 0),
+              }
+            : null
+          : token.aura ?? null,
       });
       onClose();
       return;
@@ -1192,6 +1204,14 @@ export function EditElementModal({
       isInvisible,
       blocksMovement: type === 'object' ? blocksMovement : false,
       excludeFromInitiative,
+      aura: type === 'player' || type === 'enemy'
+        ? auraEnabled
+          ? {
+              enabled: true,
+              radiusCells: Math.max(0, Math.floor(auraRadiusCells) || 0),
+            }
+          : null
+        : null,
       conditions: nextConditions,
     });
     onClose();
@@ -1546,6 +1566,32 @@ export function EditElementModal({
             />
             <span>Invisibile per gli altri player</span>
           </label>
+        ) : null}
+
+        {type === 'player' || type === 'enemy' ? (
+          <fieldset className="token-form__fieldset token-form__fieldset--aura">
+            <legend>Aura</legend>
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={auraEnabled}
+                onChange={(event) => setAuraEnabled(event.target.checked)}
+              />
+              <span>Mostra aura a tutti</span>
+            </label>
+            <label>
+              Raggio caselle
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={auraRadiusCells}
+                disabled={!auraEnabled}
+                onChange={(event) => setAuraRadiusCells(Number(event.target.value) || 0)}
+              />
+            </label>
+            <p className="form-hint">L'aura resta centrata sul token mentre viene mosso.</p>
+          </fieldset>
         ) : null}
 
         {(token.type === 'player' && token.isFamiliar !== true && token.ownerUserId) ? (

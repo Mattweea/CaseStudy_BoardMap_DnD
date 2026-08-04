@@ -80,7 +80,7 @@ export function DicePanel({
         mode,
       };
 
-      onAddLog(log, nextFlavor);
+      onAddLog(log, actorKey === 'master' ? undefined : nextFlavor);
       rollingTimeoutRef.current = null;
     }, ROLLING_DURATION_MS);
   };

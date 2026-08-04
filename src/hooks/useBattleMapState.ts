@@ -205,6 +205,16 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           isFamiliar: token.isFamiliar === true,
           blocksMovement: token.blocksMovement === true,
           excludeFromInitiative: token.excludeFromInitiative === true,
+          aura:
+            token.aura &&
+            typeof token.aura === 'object' &&
+            token.aura.enabled === true &&
+            typeof token.aura.radiusCells === 'number'
+              ? {
+                  enabled: true,
+                  radiusCells: Math.max(0, Math.floor(token.aura.radiusCells)),
+                }
+              : null,
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
         };
       })
@@ -1026,7 +1036,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
 
   const updateOwnedToken = async (
     tokenId: string,
-    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative'>>,
+    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative' | 'aura'>>,
   ) => {
     return enqueueMutation(async () => {
       const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(

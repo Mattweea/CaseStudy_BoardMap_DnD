@@ -433,6 +433,31 @@ export function Board({
       ]),
     );
   }, [interaction]);
+  const auraCircles = useMemo(
+    () =>
+      tokens.flatMap((token) => {
+        if (
+          (token.type !== 'player' && token.type !== 'enemy') ||
+          token.containedInVehicleId ||
+          token.aura?.enabled !== true
+        ) {
+          return [];
+        }
+
+        const position = draggedPositions.get(token.id) ?? token.position;
+        const footprint = getTokenFootprint(token);
+        const radiusCells = Math.max(0, Math.floor(token.aura.radiusCells));
+
+        return [{
+          id: token.id,
+          color: token.color,
+          cx: (position.x + footprint.width / 2 - camera.x) * BOARD_CONFIG.cellSize * zoom,
+          cy: (position.y + footprint.height / 2 - camera.y) * BOARD_CONFIG.cellSize * zoom,
+          r: radiusCells * BOARD_CONFIG.cellSize * zoom,
+        }];
+      }),
+    [camera.x, camera.y, draggedPositions, tokens, zoom],
+  );
   const visibleTokenMaskRects = useMemo(() => {
     if (!effectiveVision) {
       return [];
@@ -1247,6 +1272,27 @@ export function Board({
                 {lightPreviewPolygonPath ? (
                   <polygon points={lightPreviewPolygonPath} className="board-light-preview-layer__candidate" />
                 ) : null}
+              </svg>
+            ) : null}
+
+            {auraCircles.length > 0 ? (
+              <svg
+                className="board-aura-layer"
+                width={width}
+                height={height}
+                viewBox={`0 0 ${width} ${height}`}
+                aria-hidden="true"
+              >
+                {auraCircles.map((aura) => (
+                  <circle
+                    key={`aura-${aura.id}`}
+                    className="board-aura-layer__circle"
+                    cx={aura.cx}
+                    cy={aura.cy}
+                    r={aura.r}
+                    style={{ '--aura-color': aura.color } as CSSProperties}
+                  />
+                ))}
               </svg>
             ) : null}
 

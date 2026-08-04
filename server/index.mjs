@@ -215,6 +215,16 @@ function normalizeSharedState(parsed) {
           isFamiliar: token.isFamiliar === true,
           blocksMovement: token.blocksMovement === true,
           excludeFromInitiative: token.excludeFromInitiative === true,
+          aura:
+            token.aura &&
+            typeof token.aura === 'object' &&
+            token.aura.enabled === true &&
+            typeof token.aura.radiusCells === 'number'
+              ? {
+                  enabled: true,
+                  radiusCells: Math.max(0, Math.floor(token.aura.radiusCells)),
+                }
+              : null,
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
         };
       })
@@ -718,14 +728,16 @@ async function restoreLastSessionSnapshot() {
 }
 
 function appendDiceLog(user, log, flavor = '') {
+  const previewFlavor = user?.role === 'master' ? '' : flavor;
+
   return commitBattleMapState({
     ...battleMapState,
     diceLogs: [log, ...battleMapState.diceLogs].slice(0, 30),
     latestDicePreview:
-      typeof flavor === 'string' && flavor.trim()
+      typeof previewFlavor === 'string' && previewFlavor.trim()
         ? {
             id: randomUUID(),
-            flavor,
+            flavor: previewFlavor,
             log,
           }
         : battleMapState.latestDicePreview,
@@ -982,6 +994,19 @@ function updateOwnedToken(user, tokenId, updates) {
     nextUpdates.isInvisible = updates.isInvisible;
   }
 
+  if (
+    (token.type === 'player' || token.type === 'enemy') &&
+    (updates?.aura === null || (updates?.aura && typeof updates.aura === 'object'))
+  ) {
+    nextUpdates.aura =
+      updates.aura && updates.aura.enabled === true && typeof updates.aura.radiusCells === 'number'
+        ? {
+            enabled: true,
+            radiusCells: Math.max(0, Math.floor(updates.aura.radiusCells)),
+          }
+        : null;
+  }
+
   if (Object.keys(nextUpdates).length === 0) {
     return { status: 400, message: 'Nessun aggiornamento valido.' };
   }
@@ -1008,6 +1033,7 @@ function updateOwnedToken(user, tokenId, updates) {
         maxHitPoints: token.maxHitPoints ?? null,
         conditions: token.conditions ?? [],
         isInvisible: token.isInvisible === true,
+        aura: token.aura ?? null,
       },
     });
   }
