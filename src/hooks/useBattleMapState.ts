@@ -273,6 +273,10 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
         ? {
             id: parsed.latestDicePreview.id,
             flavor: parsed.latestDicePreview.flavor,
+            rollerUserId:
+              typeof parsed.latestDicePreview.rollerUserId === 'string'
+                ? parsed.latestDicePreview.rollerUserId
+                : undefined,
             log: {
               ...parsed.latestDicePreview.log,
               formula:
@@ -586,7 +590,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     });
   };
 
-  const addDiceLog = async (log: DiceRollLog, flavor?: string) => {
+  const addDiceLog = async (log: DiceRollLog, flavor?: string, rollerUserId?: string) => {
     return enqueueMutation(async () => {
       const optimisticState = {
         ...sharedStateRef.current,
@@ -596,6 +600,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
             ? {
                 id: crypto.randomUUID(),
                 flavor,
+                rollerUserId,
                 log,
               }
             : sharedStateRef.current.latestDicePreview,

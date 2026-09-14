@@ -81,6 +81,7 @@ export interface UnitToken {
 export interface DicePreviewState {
   id: string;
   flavor: string;
+  rollerUserId?: string;
   log: DiceRollLog;
 }
 

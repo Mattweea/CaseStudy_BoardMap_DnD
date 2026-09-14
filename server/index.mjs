@@ -283,6 +283,10 @@ function normalizeSharedState(parsed) {
         ? {
             id: parsed.latestDicePreview.id,
             flavor: parsed.latestDicePreview.flavor,
+            rollerUserId:
+              typeof parsed.latestDicePreview.rollerUserId === 'string'
+                ? parsed.latestDicePreview.rollerUserId
+                : undefined,
             log: {
               ...parsed.latestDicePreview.log,
               formula:
@@ -585,10 +589,13 @@ function sanitizeStateForUser(state, user) {
   );
   const visibleTokenIds = new Set(visibleTokens.map((token) => token.id));
   const visibleInitiatives = state.initiatives.filter((entry) => visibleTokenIds.has(entry.tokenId));
+  const visibleDicePreview =
+    state.latestDicePreview?.rollerUserId === user.id ? state.latestDicePreview : null;
 
   return normalizeSharedState({
     ...state,
     tokens: visibleTokens,
+    latestDicePreview: visibleDicePreview,
     initiatives: visibleInitiatives,
     activeTurnTokenId: visibleTokenIds.has(state.activeTurnTokenId) ? state.activeTurnTokenId : null,
   });
@@ -738,16 +745,15 @@ async function restoreLastSessionSnapshot() {
 }
 
 function appendDiceLog(user, log, flavor = '') {
-  const previewFlavor = user?.role === 'master' ? '' : flavor;
-
   return commitBattleMapState({
     ...battleMapState,
     diceLogs: [log, ...battleMapState.diceLogs].slice(0, 30),
     latestDicePreview:
-      typeof previewFlavor === 'string' && previewFlavor.trim()
+      typeof flavor === 'string' && flavor.trim()
         ? {
             id: randomUUID(),
-            flavor: previewFlavor,
+            flavor,
+            rollerUserId: user.id,
             log,
           }
         : battleMapState.latestDicePreview,
