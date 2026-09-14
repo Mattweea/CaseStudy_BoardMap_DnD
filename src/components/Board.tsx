@@ -448,7 +448,7 @@ export function Board({
         const footprint = getTokenFootprint(token);
         return token.auras.flatMap((aura) => aura.isVisible ? [{
           id: `${token.id}-${aura.id}`,
-          color: token.color,
+          color: aura.color,
           cx: (position.x + footprint.width / 2 - camera.x) * BOARD_CONFIG.cellSize * zoom,
           cy: (position.y + footprint.height / 2 - camera.y) * BOARD_CONFIG.cellSize * zoom,
           r: Math.max(0, Math.floor(aura.radiusCells)) * BOARD_CONFIG.cellSize * zoom,

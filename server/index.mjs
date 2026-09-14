@@ -167,6 +167,7 @@ function applyVehicleAwareUpdates(tokens) {
 function normalizeSharedState(parsed) {
   const tokens = Array.isArray(parsed?.tokens)
     ? parsed.tokens.map((token) => {
+        const { aura: legacyAura, ...tokenWithoutLegacyAura } = token;
         const type = token.type ?? 'object';
         const affiliation =
           token.affiliation ??
@@ -177,7 +178,7 @@ function normalizeSharedState(parsed) {
             : DEFAULT_TOKEN_COLORS[type];
 
         return {
-          ...token,
+          ...tokenWithoutLegacyAura,
           type,
           size: token.size ?? (token.vehicleKind ? VEHICLE_PRESETS[token.vehicleKind].size : 'medium'),
           widthCells:
@@ -222,17 +223,19 @@ function normalizeSharedState(parsed) {
                       id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
                       radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
                       isVisible: aura.isVisible !== false,
+                      color: typeof aura.color === 'string' ? aura.color : token.color,
                     }]
                   : [],
               )
-            : token.aura &&
-                typeof token.aura === 'object' &&
-                token.aura.enabled === true &&
-                typeof token.aura.radiusCells === 'number'
+            : legacyAura &&
+                typeof legacyAura === 'object' &&
+                legacyAura.enabled === true &&
+                typeof legacyAura.radiusCells === 'number'
               ? [{
                   id: `${token.id}-aura-legacy`,
-                  radiusCells: Math.max(0, Math.floor(token.aura.radiusCells)),
+                  radiusCells: Math.max(0, Math.floor(legacyAura.radiusCells)),
                   isVisible: true,
+                  color: token.color,
                 }]
               : [],
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
@@ -1020,6 +1023,7 @@ function updateOwnedToken(user, tokenId, updates) {
             id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
             radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
             isVisible: aura.isVisible !== false,
+            color: typeof aura.color === 'string' ? aura.color : token.color,
           }]
         : [],
     );

@@ -709,7 +709,7 @@ button {
 
 .aura-settings__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px 36px;
+  grid-template-columns: minmax(0, 1fr) repeat(3, 36px);
   align-items: end;
   gap: 0.45rem;
   padding: 0.55rem;
@@ -734,6 +734,18 @@ button {
   color: #fff1e6;
 }
 
+.token-form .aura-settings__icon--color {
+  background: rgba(52, 25, 29, 0.82);
+}
+
+.aura-settings__color-swatch {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 241, 230, 0.82);
+  border-radius: 50%;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.3);
+}
+
 .token-form .aura-settings__icon--delete {
   background: rgba(52, 25, 29, 0.82);
   color: #eaa391;
@@ -747,6 +759,16 @@ button {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.aura-settings__palette {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(26px, 1fr));
+  align-items: center;
+  gap: 0.42rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 164, 123, 0.12);
 }
 
 .vehicle-seat-grid {

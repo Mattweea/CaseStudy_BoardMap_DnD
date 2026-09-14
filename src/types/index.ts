@@ -45,6 +45,7 @@ export interface TokenAura {
   id: string;
   radiusCells: number;
   isVisible: boolean;
+  color: string;
 }
 
 export interface UnitToken {
