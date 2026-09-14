@@ -165,6 +165,9 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
             ? defaultVehicleColor(affiliation === 'enemy' ? 'enemy' : 'player')
             : DEFAULT_TOKEN_COLORS[type];
         const initiativeMode = token.initiativeMode === 'advantage' ? 'advantage' : 'normal';
+        const legacyAura = (token as UnitToken & {
+          aura?: { enabled?: boolean; radiusCells?: number } | null;
+        }).aura;
 
         return {
           ...token,
@@ -205,16 +208,23 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           isFamiliar: token.isFamiliar === true,
           blocksMovement: token.blocksMovement === true,
           excludeFromInitiative: token.excludeFromInitiative === true,
-          aura:
-            token.aura &&
-            typeof token.aura === 'object' &&
-            token.aura.enabled === true &&
-            typeof token.aura.radiusCells === 'number'
-              ? {
-                  enabled: true,
-                  radiusCells: Math.max(0, Math.floor(token.aura.radiusCells)),
-                }
-              : null,
+          auras: Array.isArray(token.auras)
+            ? token.auras.flatMap((aura, index) =>
+                aura && typeof aura.radiusCells === 'number'
+                  ? [{
+                      id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
+                      radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
+                      isVisible: aura.isVisible !== false,
+                    }]
+                  : [],
+              )
+            : legacyAura?.enabled === true && typeof legacyAura.radiusCells === 'number'
+              ? [{
+                  id: `${token.id}-aura-legacy`,
+                  radiusCells: Math.max(0, Math.floor(legacyAura.radiusCells)),
+                  isVisible: true,
+                }]
+              : [],
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
         };
       })
@@ -1036,7 +1046,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
 
   const updateOwnedToken = async (
     tokenId: string,
-    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative' | 'aura'>>,
+    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative' | 'auras'>>,
   ) => {
     return enqueueMutation(async () => {
       const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(

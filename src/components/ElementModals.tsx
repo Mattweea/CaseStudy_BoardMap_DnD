@@ -4,6 +4,7 @@ import type {
   DndSize,
   TokenAffiliation,
   TokenCondition,
+  TokenAura,
   TokenType,
   UnitToken,
   VehicleKind,
@@ -56,7 +57,7 @@ interface EditElementModalProps {
   onSaveToken: (tokenId: string, updates: Partial<UnitToken>) => void;
   onSaveOwnedToken?: (
     tokenId: string,
-    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative' | 'aura'>>,
+    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative' | 'auras'>>,
   ) => void;
   onRemoveToken: (tokenId: string) => void;
   onDuplicateToken?: (tokenId: string) => void;
@@ -112,6 +113,14 @@ function nextColor(type: TokenType, affiliation: TokenAffiliation, keepCurrent: 
 
 function buildProgressiveName(baseName: string, index: number, total: number): string {
   return total === 1 ? baseName : `${baseName} ${index + 1}`;
+}
+
+function createAura(): TokenAura {
+  return {
+    id: crypto.randomUUID(),
+    radiusCells: 3,
+    isVisible: true,
+  };
 }
 
 function createEmptySeats(count: number): string[] {
@@ -963,8 +972,7 @@ export function EditElementModal({
   const [excludeFromInitiative, setExcludeFromInitiative] = useState(false);
   const [blocksMovement, setBlocksMovement] = useState(false);
   const [familiarName, setFamiliarName] = useState('');
-  const [auraEnabled, setAuraEnabled] = useState(false);
-  const [auraRadiusCells, setAuraRadiusCells] = useState(3);
+  const [auras, setAuras] = useState<TokenAura[]>([]);
 
   useEffect(() => {
     if (!token) {
@@ -1000,8 +1008,7 @@ export function EditElementModal({
     setExcludeFromInitiative(token.excludeFromInitiative === true);
     setBlocksMovement(token.blocksMovement === true);
     setFamiliarName('');
-    setAuraEnabled(token.aura?.enabled === true);
-    setAuraRadiusCells(token.aura?.radiusCells ?? 3);
+    setAuras(token.auras ?? []);
   }, [token]);
 
   const compatibleVehicles = useMemo(() => {
@@ -1095,14 +1102,12 @@ export function EditElementModal({
         maxHitPoints: parsedMaxHitPoints,
         conditions: conditions.filter((condition) => canUseCondition(type, condition)),
         isInvisible: token.isFamiliar ? isInvisible : token.isInvisible,
-        aura: type === 'player' || type === 'enemy'
-          ? auraEnabled
-            ? {
-                enabled: true,
-                radiusCells: Math.max(0, Math.floor(auraRadiusCells) || 0),
-              }
-            : null
-          : token.aura ?? null,
+        auras: type === 'player' || type === 'enemy'
+          ? auras.map((aura) => ({
+              ...aura,
+              radiusCells: Math.max(0, Math.floor(aura.radiusCells) || 0),
+            }))
+          : token.auras ?? [],
       });
       onClose();
       return;
@@ -1204,14 +1209,12 @@ export function EditElementModal({
       isInvisible,
       blocksMovement: type === 'object' ? blocksMovement : false,
       excludeFromInitiative,
-      aura: type === 'player' || type === 'enemy'
-        ? auraEnabled
-          ? {
-              enabled: true,
-              radiusCells: Math.max(0, Math.floor(auraRadiusCells) || 0),
-            }
-          : null
-        : null,
+      auras: type === 'player' || type === 'enemy'
+        ? auras.map((aura) => ({
+            ...aura,
+            radiusCells: Math.max(0, Math.floor(aura.radiusCells) || 0),
+          }))
+        : [],
       conditions: nextConditions,
     });
     onClose();
@@ -1571,25 +1574,66 @@ export function EditElementModal({
         {type === 'player' || type === 'enemy' ? (
           <fieldset className="token-form__fieldset token-form__fieldset--aura">
             <legend>Aura</legend>
-            <label className="toggle-row">
-              <input
-                type="checkbox"
-                checked={auraEnabled}
-                onChange={(event) => setAuraEnabled(event.target.checked)}
-              />
-              <span>Mostra aura a tutti</span>
-            </label>
-            <label>
-              Raggio caselle
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={auraRadiusCells}
-                disabled={!auraEnabled}
-                onChange={(event) => setAuraRadiusCells(Number(event.target.value) || 0)}
-              />
-            </label>
+            <div className="aura-settings__header">
+              <span>{auras.length === 0 ? 'Nessuna aura configurata' : `${auras.length} ${auras.length === 1 ? 'aura' : 'aure'}`}</span>
+              <button
+                type="button"
+                className="aura-settings__add"
+                onClick={() => setAuras((current) => [...current, createAura()])}
+                aria-label="Aggiungi un'aura"
+                title="Aggiungi un'aura"
+              >
+                +1
+              </button>
+            </div>
+            <div className="aura-settings__list">
+              {auras.map((aura, index) => (
+                <div className="aura-settings__row" key={aura.id}>
+                  <label>
+                    Aura {index + 1} · raggio caselle
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={aura.radiusCells}
+                      onChange={(event) => {
+                        const radiusCells = Number(event.target.value) || 0;
+                        setAuras((current) => current.map((item) =>
+                          item.id === aura.id ? { ...item, radiusCells } : item
+                        ));
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className={`aura-settings__icon${aura.isVisible ? ' aura-settings__icon--active' : ''}`}
+                    onClick={() => setAuras((current) => current.map((item) =>
+                      item.id === aura.id ? { ...item, isVisible: !item.isVisible } : item
+                    ))}
+                    aria-label={aura.isVisible ? `Nascondi aura ${index + 1}` : `Mostra aura ${index + 1} a tutti`}
+                    title={aura.isVisible ? 'Visibile a tutti' : 'Nascosta'}
+                    aria-pressed={aura.isVisible}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z" />
+                      <circle cx="12" cy="12" r="3" />
+                      {!aura.isVisible ? <path d="m4 4 16 16" /> : null}
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    className="aura-settings__icon aura-settings__icon--delete"
+                    onClick={() => setAuras((current) => current.filter((item) => item.id !== aura.id))}
+                    aria-label={`Elimina aura ${index + 1}`}
+                    title="Elimina aura"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
             <p className="form-hint">L'aura resta centrata sul token mentre viene mosso.</p>
           </fieldset>
         ) : null}

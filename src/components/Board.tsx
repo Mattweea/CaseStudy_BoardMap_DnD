@@ -439,22 +439,20 @@ export function Board({
         if (
           (token.type !== 'player' && token.type !== 'enemy') ||
           token.containedInVehicleId ||
-          token.aura?.enabled !== true
+          !token.auras?.some((aura) => aura.isVisible)
         ) {
           return [];
         }
 
         const position = draggedPositions.get(token.id) ?? token.position;
         const footprint = getTokenFootprint(token);
-        const radiusCells = Math.max(0, Math.floor(token.aura.radiusCells));
-
-        return [{
-          id: token.id,
+        return token.auras.flatMap((aura) => aura.isVisible ? [{
+          id: `${token.id}-${aura.id}`,
           color: token.color,
           cx: (position.x + footprint.width / 2 - camera.x) * BOARD_CONFIG.cellSize * zoom,
           cy: (position.y + footprint.height / 2 - camera.y) * BOARD_CONFIG.cellSize * zoom,
-          r: radiusCells * BOARD_CONFIG.cellSize * zoom,
-        }];
+          r: Math.max(0, Math.floor(aura.radiusCells)) * BOARD_CONFIG.cellSize * zoom,
+        }] : []);
       }),
     [camera.x, camera.y, draggedPositions, tokens, zoom],
   );

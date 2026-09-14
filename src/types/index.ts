@@ -41,6 +41,12 @@ export interface LightSource {
   radiusCells: number;
 }
 
+export interface TokenAura {
+  id: string;
+  radiusCells: number;
+  isVisible: boolean;
+}
+
 export interface UnitToken {
   id: string;
   name: string;
@@ -68,10 +74,7 @@ export interface UnitToken {
   isFamiliar?: boolean;
   blocksMovement?: boolean;
   excludeFromInitiative?: boolean;
-  aura?: {
-    enabled: boolean;
-    radiusCells: number;
-  } | null;
+  auras?: TokenAura[];
   conditions: TokenCondition[];
 }
 

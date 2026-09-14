@@ -215,16 +215,26 @@ function normalizeSharedState(parsed) {
           isFamiliar: token.isFamiliar === true,
           blocksMovement: token.blocksMovement === true,
           excludeFromInitiative: token.excludeFromInitiative === true,
-          aura:
-            token.aura &&
-            typeof token.aura === 'object' &&
-            token.aura.enabled === true &&
-            typeof token.aura.radiusCells === 'number'
-              ? {
-                  enabled: true,
+          auras: Array.isArray(token.auras)
+            ? token.auras.flatMap((aura, index) =>
+                aura && typeof aura.radiusCells === 'number'
+                  ? [{
+                      id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
+                      radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
+                      isVisible: aura.isVisible !== false,
+                    }]
+                  : [],
+              )
+            : token.aura &&
+                typeof token.aura === 'object' &&
+                token.aura.enabled === true &&
+                typeof token.aura.radiusCells === 'number'
+              ? [{
+                  id: `${token.id}-aura-legacy`,
                   radiusCells: Math.max(0, Math.floor(token.aura.radiusCells)),
-                }
-              : null,
+                  isVisible: true,
+                }]
+              : [],
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
         };
       })
@@ -996,15 +1006,17 @@ function updateOwnedToken(user, tokenId, updates) {
 
   if (
     (token.type === 'player' || token.type === 'enemy') &&
-    (updates?.aura === null || (updates?.aura && typeof updates.aura === 'object'))
+    Array.isArray(updates?.auras)
   ) {
-    nextUpdates.aura =
-      updates.aura && updates.aura.enabled === true && typeof updates.aura.radiusCells === 'number'
-        ? {
-            enabled: true,
-            radiusCells: Math.max(0, Math.floor(updates.aura.radiusCells)),
-          }
-        : null;
+    nextUpdates.auras = updates.auras.flatMap((aura, index) =>
+      aura && typeof aura.radiusCells === 'number'
+        ? [{
+            id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
+            radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
+            isVisible: aura.isVisible !== false,
+          }]
+        : [],
+    );
   }
 
   if (Object.keys(nextUpdates).length === 0) {
@@ -1033,7 +1045,7 @@ function updateOwnedToken(user, tokenId, updates) {
         maxHitPoints: token.maxHitPoints ?? null,
         conditions: token.conditions ?? [],
         isInvisible: token.isInvisible === true,
-        aura: token.aura ?? null,
+        auras: token.auras ?? [],
       },
     });
   }
