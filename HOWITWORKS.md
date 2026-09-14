@@ -18,17 +18,17 @@ Il login non usa piu utenti liberi o generici. Si sceglie un profilo da una list
 
 Regola password:
 
-- `username + 123`
+- `password` (password iniziale comune del roster)
 
 Roster attuale:
 
-- `master` / `master123`
-- `ilthar` / `ilthar123`
-- `thalendir` / `thalendir123`
-- `ragnar` / `ragnar123`
-- `hunter` / `hunter123`
-- `sylas` / `sylas123`
-- `vesuth` / `vesuth123`
+- `master` / `password`
+- `ilthar` / `password`
+- `thalendir` / `password`
+- `ragnar` / `password`
+- `hunter` / `password`
+- `sylas` / `password`
+- `vesuth` / `password`
 
 ## Ruoli
 
@@ -346,7 +346,7 @@ Se vuoi cambiare:
 
 - nomi
 - username
-- password implicita
+- password iniziale comune gestita con hash bcrypt
 - immagini
 - posizioni spawn
 - bonus iniziativa

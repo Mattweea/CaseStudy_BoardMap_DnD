@@ -29,7 +29,7 @@ L'app unisce in un'unica interfaccia:
 ## Funzionalita principali
 
 - login tramite selezione di un profilo fisso: `master`, `Ilthar Neramyst`, `Thalendir`, `Ragnar`, `Hunter`, `Sylas Elveris`, `Vesuth Ronavior`
-- password predefinita per ogni profilo: `username + 123`
+- password iniziale comune per ogni profilo: `password` (conservata nel database solo come hash bcrypt)
 - spawn automatico del personaggio in mappa al login, con immagine associata presa da `media/images`
 - token giocatore legato all'utente autenticato in sessione
 - dice roller associato al profilo online, non al token selezionato
@@ -48,13 +48,13 @@ L'app unisce in un'unica interfaccia:
 
 | Profilo | Username | Password | Ruolo | Iniziativa | Note |
 | --- | --- | --- | --- | --- | --- |
-| Master | `master` | `master123` | `master` | `+0` | controllo completo |
-| Ilthar Neramyst | `ilthar` | `ilthar123` | `adventurer` | `+3` | scurovisione superiore 36 m |
-| Thalendir | `thalendir` | `thalendir123` | `adventurer` | `+2` | scurovisione |
-| Ragnar | `ragnar` | `ragnar123` | `adventurer` | `+2` | vantaggio fisso all'iniziativa |
-| Hunter | `hunter` | `hunter123` | `adventurer` | `+3` | movimento su muri e soffitti |
-| Sylas Elveris | `sylas` | `sylas123` | `adventurer` | `+3` | darkvision 60 ft |
-| Vesuth Ronavior | `vesuth` | `vesuth123` | `adventurer` | `+2` | nessuna scurovisione |
+| Master | `master` | `password` | `master` | `+0` | controllo completo |
+| Ilthar Neramyst | `ilthar` | `password` | `adventurer` | `+3` | scurovisione superiore 36 m |
+| Thalendir | `thalendir` | `password` | `adventurer` | `+2` | scurovisione |
+| Ragnar | `ragnar` | `password` | `adventurer` | `+2` | vantaggio fisso all'iniziativa |
+| Hunter | `hunter` | `password` | `adventurer` | `+3` | movimento su muri e soffitti |
+| Sylas Elveris | `sylas` | `password` | `adventurer` | `+3` | darkvision 60 ft |
+| Vesuth Ronavior | `vesuth` | `password` | `adventurer` | `+2` | nessuna scurovisione |
 
 ## Avvio locale
 
@@ -89,6 +89,7 @@ Il database richiede Node.js 22 (la versione del progetto) e viene gestito con `
 ```bash
 npm install
 npm run db:migrate
+npm run dev:server
 ```
 
 Per impostazione predefinita il file e `database/database.sqlite`; i file SQLite ausiliari `database.sqlite-wal` e `database.sqlite-shm` sono ignorati da Git. Per usare un percorso diverso, imposta `VTT_DB_PATH` (assoluto oppure relativo alla root del progetto):
@@ -104,11 +105,12 @@ npm run db:make -- create_npc_table
 npm run db:migrate
 npm run db:status
 npm run db:rollback
+npm run db:fresh
 ```
 
-Le migrazioni in `database/migrations/` sono immutabili dopo l'applicazione: per cambiare lo schema crea sempre un nuovo file. `db:rollback` annulla solo l'ultimo batch e va usato per lo sviluppo; prima di operazioni distruttive su dati reali crea un backup SQLite coerente (chiudi le connessioni o usa il backup SQLite) e preferisci una migrazione correttiva.
+`db:fresh` è riservato allo sviluppo: chiudi il server, rinomina il database SQLite corrente (e gli eventuali file WAL/SHM) con un suffisso di backup datato e ricrea il database applicando tutte le migrazioni. Le migrazioni sono immutabili per i database già applicati; dopo questa revisione della baseline, usa `db:fresh` per ricreare i database di sviluppo precedenti. `db:rollback` annulla solo l'ultimo batch.
 
-Le API e le sessioni live continuano a usare lo stato in memoria in questa fase: il server non apre il database finche una feature successiva non ne avra bisogno.
+All'avvio del server il roster viene inizializzato automaticamente nel database senza duplicati. Le sessioni restano in memoria: refresh, logout e scadenza funzionano durante l'esecuzione, ma un riavvio richiede un nuovo login.
 
 ## Struttura del progetto
 
@@ -197,12 +199,12 @@ media/
 
 Il roster personaggi non e generico: e condiviso fra frontend e backend.
 
-Se vuoi cambiare personaggi, immagini, spawn, password o metadati, devi aggiornare entrambi questi file:
+Se vuoi cambiare personaggi, immagini, spawn o metadati, devi aggiornare entrambi questi file:
 
 - `src/constants/characters.ts`
 - `server/characters.mjs`
 
-Le password demo sono derivate convenzionalmente da `username + 123`. Se cambi `username`, cambia anche la password attesa.
+Le credenziali sono gestite da SQLite: la password iniziale comune del roster e `password`; gli hash bcrypt vengono creati automaticamente al primo avvio.
 
 ## Live session con ngrok
 
@@ -220,3 +222,7 @@ Per la procedura completa con `./start-live-session.sh`, tunnel HTTPS e troubles
 ## Documentazione funzionale
 
 Per la guida operativa completa dell'app, consulta [HOWITWORKS.md](./HOWITWORKS.md).
+
+## OpenSpec
+
+Il repository include la struttura `openspec/`, le skill Codex in `.agents/skills/openspec-*` e le skill e i comandi Claude Code in `.claude/`. Per usare il workflow su una nuova macchina, installa la CLI con `npm install -g @fission-ai/openspec@latest` (richiede Node.js 20.19.0 o superiore). Avvia una proposta con `$openspec-propose "descrizione della modifica"` in Codex oppure `/opsx:propose "descrizione della modifica"` in Claude Code. Dopo averla esaminata, usa rispettivamente `$openspec-apply-change` oppure `/opsx:apply` per implementarla. Da terminale, `openspec list` mostra le modifiche aperte e `openspec doctor` controlla la configurazione del progetto. Dopo un aggiornamento della CLI, esegui `openspec update` nella root del repository per rigenerare le integrazioni.

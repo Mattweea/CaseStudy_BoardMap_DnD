@@ -4,6 +4,7 @@ server/data/
 database/database.sqlite
 database/database.sqlite-wal
 database/database.sqlite-shm
+database/database.sqlite.backup-*
 
 *.log
 npm-debug.log*
@@ -29,13 +30,23 @@ vite.config.d.ts
 .vscode/
 
 # AI and agent tooling
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/openspec-*/
+!.agents/skills/.openspec-target
 .codex/
 .aider*
 .cursor/
 .windsurf/
 .roo/
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/openspec-*/
+!.claude/commands/
+.claude/commands/*
+!.claude/commands/opsx/
 .github/copilot-instructions.md
 CLAUDE.md
 GEMINI.md

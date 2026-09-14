@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,9 @@ import {
   findCharacterProfileById,
   findCharacterProfileByUsername,
 } from './characters.mjs';
+import { openDatabase } from '../database/connection.mjs';
+import { bootstrapRoster, AuthService } from './auth-service.mjs';
+import { UserRepository } from './user-repository.mjs';
 
 const app = Fastify({
   logger: true,
@@ -17,7 +20,6 @@ const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
 const SESSION_COOKIE = 'battle_map_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
-const PASSWORD_SALT = process.env.AUTH_PASSWORD_SALT ?? 'board-map-demo-salt';
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_DATA_DIR = path.join(SERVER_DIR, 'data');
 const SESSION_SNAPSHOT_PATH = path.join(SESSION_DATA_DIR, 'last-session.json');
@@ -34,15 +36,6 @@ const VEHICLE_PRESETS = {
   tormentor: { size: 'huge', capacity: 4 },
   'demon-grinder': { size: 'gargantuan', capacity: 8 },
 };
-
-const demoUsers = CHARACTER_PROFILES.map((profile) => ({
-  id: profile.id,
-  username: profile.username,
-  password: `${profile.username}123`,
-  displayName: profile.displayName,
-  role: profile.role,
-  characterKey: profile.key,
-}));
 
 const initialSharedState = {
   tokens: [],
@@ -1177,42 +1170,10 @@ function undoLastAction(user) {
   return { status: 200, snapshot: nextSnapshot() };
 }
 
-function hashPassword(password) {
-  return scryptSync(password, PASSWORD_SALT, 64);
-}
-
-function normalizeUsers(rawUsers) {
-  return rawUsers.map((user) => ({
-    id: user.id,
-    username: String(user.username).trim().toLowerCase(),
-    displayName: user.displayName,
-    role: user.role === 'master' ? 'master' : 'adventurer',
-    characterKey: typeof user.characterKey === 'string' ? user.characterKey : null,
-    passwordHash: hashPassword(String(user.password)),
-  }));
-}
-
-function loadUsers() {
-  if (!process.env.AUTH_USERS_JSON) {
-    return normalizeUsers(demoUsers);
-  }
-
-  try {
-    const parsed = JSON.parse(process.env.AUTH_USERS_JSON);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      throw new Error('AUTH_USERS_JSON must be a non-empty array');
-    }
-
-    return normalizeUsers(parsed);
-  } catch (error) {
-    app.log.error(error, 'Invalid AUTH_USERS_JSON. Falling back to demo users.');
-    return normalizeUsers(demoUsers);
-  }
-}
-
-const users = loadUsers();
-const userMap = new Map(users.map((user) => [user.id, user]));
 const sessionStore = new Map();
+let database;
+let userRepository;
+let authService;
 
 function parseCookies(headerValue) {
   if (!headerValue) {
@@ -1380,7 +1341,7 @@ function getSessionUser(request) {
     return null;
   }
 
-  const user = userMap.get(session.userId);
+  const user = userRepository?.findById(session.userId);
   return user ? sanitizeUser(user) : null;
 }
 
@@ -1471,7 +1432,7 @@ app.addHook('onRequest', async (request, reply) => {
 
 app.get('/api/health', async () => ({
   ok: true,
-  users: users.length,
+  users: userRepository?.userCount() ?? 0,
   version: battleMapVersion,
 }));
 
@@ -1490,23 +1451,14 @@ app.post('/api/auth/login', async (request, reply) => {
   }
 
   const profile = findCharacterProfileByUsername(username);
-  const user = users.find((candidate) => candidate.username === username);
+  const user = await authService.authenticate(username, password);
   if (!user) {
     reply.code(401);
     return { message: 'Credenziali non valide.' };
   }
 
-  const providedHash = hashPassword(password);
-  if (!timingSafeEqual(providedHash, user.passwordHash)) {
-    reply.code(401);
-    return { message: 'Credenziali non valide.' };
-  }
-
   const sessionId = randomBytes(24).toString('hex');
-  sessionStore.set(sessionId, {
-    userId: user.id,
-    expiresAt: Date.now() + SESSION_TTL_MS,
-  });
+  authService.createSession(sessionId, user.id);
   setSessionCookie(reply, sessionId);
   if (profile?.spawnToken) {
     ensureCharacterTokenForUser(user);
@@ -1799,6 +1751,16 @@ app.get('/api/battle-map/stream', async (request, reply) => {
 });
 
 async function start() {
+  database = openDatabase();
+  try {
+    await bootstrapRoster(database, CHARACTER_PROFILES);
+  } catch (error) {
+    database.close();
+    throw new Error(`Database non pronto: ${error.message} Esegui npm run db:migrate.`);
+  }
+  userRepository = new UserRepository(database);
+  authService = new AuthService(userRepository, sessionStore, SESSION_TTL_MS, CHARACTER_PROFILES.map((profile) => profile.id));
+  app.addHook('onClose', async () => database.close());
   await loadPersistedSessionMetadata();
   await app.listen({ port: PORT, host: HOST });
 }

@@ -8,11 +8,22 @@ interface AuthScreenProps {
 }
 
 export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
-  const [username, setUsername] = useState('master');
-  const [password, setPassword] = useState('master123');
-  const [isAccessPanelOpen, setIsAccessPanelOpen] = useState(false);
+  const [username, setUsername] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
   const selectedProfile =
-    CHARACTER_PROFILES.find((profile) => profile.username === username) ?? CHARACTER_PROFILES[0];
+    CHARACTER_PROFILES.find((profile) => profile.username === username) ?? null;
+  const displayedError = validationError ?? error;
+
+  const submitLogin = () => {
+    if (!password.trim()) {
+      setValidationError('Inserisci la password per accedere al profilo selezionato.');
+      return;
+    }
+
+    setValidationError(null);
+    if (username) onLogin(username, password);
+  };
 
   return (
     <div className="auth-shell">
@@ -24,7 +35,7 @@ export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
 
         <div className="auth-profile-grid">
           {CHARACTER_PROFILES.map((profile) => {
-            const isSelected = profile.username === selectedProfile.username;
+            const isSelected = profile.username === selectedProfile?.username;
 
             return (
               <button
@@ -33,45 +44,35 @@ export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
                 className={`auth-profile-card ${isSelected ? 'auth-profile-card--selected' : ''}`}
                 onClick={() => {
                   setUsername(profile.username);
-                  setPassword(`${profile.username}123`);
+                  setPassword('');
+                  setValidationError(null);
                 }}
+                aria-pressed={isSelected}
               >
                 <img src={profile.imageUrl} alt="" aria-hidden="true" className="auth-profile-card__image" />
                 <span className="auth-profile-card__meta">
-                  <strong>{profile.displayName}</strong>
-                  <span>{profile.role === 'master' ? 'Master' : 'Avventuriero'}</span>
+                  <strong>@{profile.username}</strong>
+                  <span>{profile.displayName} · {profile.role === 'master' ? 'Master' : 'Avventuriero'}</span>
                 </span>
               </button>
             );
           })}
         </div>
 
-        <section className={`auth-access ${isAccessPanelOpen ? 'auth-access--open' : ''}`}>
-          <button
-            type="button"
-            className="auth-access__toggle"
-            aria-expanded={isAccessPanelOpen}
-            onClick={() => setIsAccessPanelOpen((current) => !current)}
-          >
-            <span>Accedi Con Credenziali</span>
-            <span className="auth-access__chevron" aria-hidden="true">
-              {isAccessPanelOpen ? '−' : '+'}
-            </span>
-          </button>
-
-          {isAccessPanelOpen ? (
+        {selectedProfile ? (
+          <section className="auth-access auth-access--open">
             <div className="auth-access__body">
               <div className="auth-access__inner">
                 <form
                   className="auth-form"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    onLogin(username, password);
+                    submitLogin();
                   }}
                 >
                   <label className="auth-field">
-                    <span>Profilo Selezionato</span>
-                    <input value={selectedProfile.displayName} readOnly autoComplete="username" />
+                    <span>Username selezionato</span>
+                    <input value={`@${selectedProfile.username}`} readOnly autoComplete="username" />
                   </label>
 
                   <label className="auth-field">
@@ -79,10 +80,20 @@ export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
                     <input
                       type="password"
                       value={password}
-                      onChange={(event) => setPassword(event.target.value)}
+                      autoFocus
+                      onChange={(event) => {
+                        setPassword(event.target.value);
+                        if (validationError) setValidationError(null);
+                      }}
                       autoComplete="current-password"
+                      aria-invalid={Boolean(displayedError)}
+                      aria-describedby={displayedError ? 'auth-login-error' : undefined}
                     />
                   </label>
+
+                  <button type="submit" className="primary-button auth-submit" disabled={isLoading}>
+                    {isLoading ? 'Connessione In Corso...' : "Partecipa All'Avventura"}
+                  </button>
 
                   {selectedProfile.role === 'adventurer' ? (
                     <div className="auth-profile-details">
@@ -94,19 +105,15 @@ export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
                 </form>
               </div>
             </div>
-          ) : null}
-        </section>
+          </section>
+        ) : null}
 
-        {error ? <p className="auth-error">{error}</p> : null}
+        {displayedError ? (
+          <p id="auth-login-error" className="auth-error" role="alert" aria-live="assertive">
+            {displayedError}
+          </p>
+        ) : null}
 
-        <button
-          type="button"
-          className="primary-button auth-submit"
-          disabled={isLoading}
-          onClick={() => onLogin(username, password)}
-        >
-          {isLoading ? 'Connessione In Corso...' : "Partecipa All'Avventura"}
-        </button>
       </section>
     </div>
   );

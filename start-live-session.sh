@@ -118,7 +118,7 @@ Link pubblico:
 Credenziali demo:
 $(get_demo_credentials)
 
-Se hai esportato AUTH_USERS_JSON prima di lanciare lo script, il backend usera quegli utenti.
+Il backend ignora `AUTH_USERS_JSON`: usa esclusivamente il roster SQLite inizializzato con `npm run db:migrate`.
 
 Premi Ctrl+C per chiudere backend, frontend e tunnel ngrok.
 EOF

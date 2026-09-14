@@ -6,6 +6,14 @@ interface AuthResponse {
   user: AuthUser | null;
 }
 
+function readableAuthError(error: unknown, fallback: string) {
+  if (error instanceof TypeError || (error instanceof Error && error.message === 'Failed to fetch')) {
+    return 'Impossibile contattare il server di gioco. Avvialo con npm run dev:server e riprova.';
+  }
+
+  return error instanceof Error ? error.message : fallback;
+}
+
 async function requestAuth(path: string, init?: RequestInit) {
   const hasBody = init?.body !== undefined;
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -39,10 +47,7 @@ export function useAuthSession() {
       setUser(payload.user);
       setError(null);
     } catch (requestError) {
-      const message =
-        requestError instanceof Error
-          ? requestError.message
-          : 'Il server di autenticazione non e raggiungibile.';
+      const message = readableAuthError(requestError, 'Il server di autenticazione non e raggiungibile.');
       setUser(null);
       setError(message);
     } finally {
@@ -55,6 +60,7 @@ export function useAuthSession() {
   }, []);
 
   const login = async (username: string, password: string) => {
+    if (isSubmitting) return;
     setIsSubmitting(true);
     setError(null);
 
@@ -65,8 +71,7 @@ export function useAuthSession() {
       });
       setUser(payload.user);
     } catch (requestError) {
-      const message =
-        requestError instanceof Error ? requestError.message : 'Login non riuscito.';
+      const message = readableAuthError(requestError, 'Login non riuscito.');
       setUser(null);
       setError(message);
     } finally {
@@ -86,8 +91,7 @@ export function useAuthSession() {
         body: '{}',
       });
     } catch (requestError) {
-      const message =
-        requestError instanceof Error ? requestError.message : 'Logout non riuscito.';
+      const message = readableAuthError(requestError, 'Logout non riuscito.');
       setUser(previousUser);
       setError(message);
     } finally {
