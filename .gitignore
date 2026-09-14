@@ -1,6 +1,9 @@
 node_modules/
 dist/
 server/data/
+database/database.sqlite
+database/database.sqlite-wal
+database/database.sqlite-shm
 
 *.log
 npm-debug.log*

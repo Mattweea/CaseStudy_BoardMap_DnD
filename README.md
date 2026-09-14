@@ -82,6 +82,34 @@ Preview locale della build:
 npm run preview
 ```
 
+## Database SQLite e migrazioni
+
+Il database richiede Node.js 22 (la versione del progetto) e viene gestito con `better-sqlite3`. Installa le dipendenze e crea lo schema locale con:
+
+```bash
+npm install
+npm run db:migrate
+```
+
+Per impostazione predefinita il file e `database/database.sqlite`; i file SQLite ausiliari `database.sqlite-wal` e `database.sqlite-shm` sono ignorati da Git. Per usare un percorso diverso, imposta `VTT_DB_PATH` (assoluto oppure relativo alla root del progetto):
+
+```bash
+VTT_DB_PATH=./local-data/dev.sqlite npm run db:migrate
+```
+
+Se scegli un percorso alternativo dentro il repository, aggiungilo al tuo `.gitignore` locale prima di eseguirlo. I comandi disponibili sono:
+
+```bash
+npm run db:make -- create_npc_table
+npm run db:migrate
+npm run db:status
+npm run db:rollback
+```
+
+Le migrazioni in `database/migrations/` sono immutabili dopo l'applicazione: per cambiare lo schema crea sempre un nuovo file. `db:rollback` annulla solo l'ultimo batch e va usato per lo sviluppo; prima di operazioni distruttive su dati reali crea un backup SQLite coerente (chiudi le connessioni o usa il backup SQLite) e preferisci una migrazione correttiva.
+
+Le API e le sessioni live continuano a usare lo stato in memoria in questa fase: il server non apre il database finche una feature successiva non ne avra bisogno.
+
 ## Struttura del progetto
 
 ```text
