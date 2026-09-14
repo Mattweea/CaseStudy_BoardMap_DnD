@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   DndSize,
   TokenAffiliation,
@@ -979,6 +980,8 @@ export function EditElementModal({
   const [familiarName, setFamiliarName] = useState('');
   const [auras, setAuras] = useState<TokenAura[]>([]);
   const [openAuraColorId, setOpenAuraColorId] = useState<string | null>(null);
+  const [isSaveFooterVisible, setIsSaveFooterVisible] = useState(false);
+  const saveFooterRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -1017,6 +1020,25 @@ export function EditElementModal({
     setAuras(token.auras ?? []);
     setOpenAuraColorId(null);
   }, [token]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    setIsSaveFooterVisible(false);
+    const saveFooter = saveFooterRef.current;
+    if (!saveFooter) {
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsSaveFooterVisible(entry.isIntersecting);
+    }, { threshold: 0.15 });
+
+    observer.observe(saveFooter);
+    return () => observer.disconnect();
+  }, [isOpen, token?.id]);
 
   const compatibleVehicles = useMemo(() => {
     if (!token || (type !== 'player' && type !== 'enemy')) {
@@ -1229,7 +1251,7 @@ export function EditElementModal({
 
   return (
     <Modal title={`Modifica ${token.name}`} isOpen={isOpen} onClose={onClose}>
-      <form className="token-form" onSubmit={handleSubmit}>
+      <form id="edit-element-form" className="token-form" onSubmit={handleSubmit}>
         <label>
           Tipo
           <select
@@ -1733,8 +1755,7 @@ export function EditElementModal({
 
         <TokenConditionFields type={type} conditions={conditions} onToggle={handleConditionToggle} />
 
-        <div className="token-form__actions">
-          <button type="submit">Salva modifiche</button>
+        <div ref={saveFooterRef} className="token-form__actions token-form__actions--footer">
           {canManageStructure && type !== 'player' && onDuplicateToken ? (
             <button
               type="button"
@@ -1759,8 +1780,29 @@ export function EditElementModal({
               Rimuovi elemento
             </button>
           ) : null}
+          <button type="submit">Salva modifiche</button>
         </div>
       </form>
+      {isOpen && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              className="floating-save-action"
+              data-state={isSaveFooterVisible ? 'hidden' : 'visible'}
+              aria-hidden={isSaveFooterVisible}
+            >
+              <button
+                type="submit"
+                form="edit-element-form"
+                className="floating-save-action__button"
+                tabIndex={isSaveFooterVisible ? -1 : 0}
+                aria-label="Salva modifiche, azione rapida"
+              >
+                Salva modifiche
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
     </Modal>
   );
 }
