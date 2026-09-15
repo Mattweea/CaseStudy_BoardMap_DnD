@@ -2,8 +2,8 @@
 
 - [x] 1.1 Definire tipi di richiesta/risposta e parser server per `NdS` con modificatore opzionale, dadi supportati e limiti espliciti; verificare con casi validi (`1d20-3`, più dadi, modificatore negativo) e invalidi che il parser non produca tiri fuori contratto.
 - [x] 1.2 Implementare sul server l'endpoint autenticato di tiro con generazione dei dadi, calcolo e autore/timestamp derivati dal server; verificare che payload con totale o autore falsificati non alterino il log e che un errore non crei alcuna voce.
-- [ ] 1.3 Rendere il log proprietà del server, attribuire autore e visibilità a ogni tiro e impedire che PUT dello stato, undo, restore o l'endpoint legacy inseriscano o cancellino tiri arbitrari; verificare con richieste mirate che un Player non possa alterare i tiri altrui.
-- [ ] 1.4 Filtrare log e anteprime per destinatario in ogni snapshot e risposta HTTP/SSE, inclusi errori e conflitti; verificare con sessioni Master, autore e secondo Player che un tiro segreto non compaia mai nei payload del secondo Player, mentre un tiro pubblico compaia a tutti.
+- [x] 1.3 Rendere il log proprietà del server, attribuire autore e visibilità a ogni tiro e impedire che PUT dello stato o l'endpoint legacy inseriscano o cancellino tiri arbitrari; verificare con richieste mirate che un client non possa alterare i tiri altrui. Undo e restore restano fuori dalla GUI e da questa verifica P0.3.
+- [x] 1.4 Filtrare log e anteprime per destinatario in ogni snapshot e risposta HTTP/SSE, inclusi errori e conflitti; verificare con sessioni Master, autore e secondo Player che un tiro segreto non compaia mai nei payload del secondo Player, mentre un tiro pubblico compaia a tutti.
 
 ## 2. Superficie di sessione
 
@@ -23,4 +23,4 @@
 
 ## 4. Verifica integrata
 
-- [ ] 4.1 Eseguire `npm run build` e la verifica multi-client desktop/mobile con Master e due Player: tab, zoom e interazioni mouse della mappa, controlli dadi fissi in basso con configurazione modale sulla mappa, tiri click/comando pubblici e segreti, avvisi di turno e assenza di chat/schede non previste; registrare gli esiti e correggere eventuali regressioni.
+- [x] 4.1 Eseguire `npm run build` e la verifica multi-client desktop/mobile con Master e due Player: tab, zoom e interazioni mouse della mappa, controlli dadi fissi in basso con configurazione modale sulla mappa, tiri click/comando pubblici e segreti, avvisi di turno e assenza di chat/schede non previste; registrare gli esiti e correggere eventuali regressioni.

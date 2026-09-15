@@ -10,7 +10,7 @@ Il progetto include token e ostacoli, ruoli master/player, sincronizzazione SSE,
 
 ## P0 — indispensabile per una sessione
 
-P0.1 prepara il database, P0.2 rende stabili identità e ruoli, P0.3 rende persistenti le schede. Le feature successive seguono l'utilità immediata per i giocatori; non costituiscono una sequenza rigida di implementazione. Il traguardo P0 è poter giocare un incontro completo su una mappa condivisa.
+P0.1 prepara il database, P0.2 rende stabili identità e ruoli, P0.3 organizza la GUI di sessione e P0.4 rende persistenti le schede. Le feature successive seguono l'utilità immediata per i giocatori; non costituiscono una sequenza rigida di implementazione. Il traguardo P0 è poter giocare un incontro completo su una mappa condivisa.
 
 In ogni feature, **Players** indica gli utenti con ruolo tecnico `adventurer`, mentre **Master** indica il ruolo `master`. **Sistema** raccoglie i requisiti condivisi, inclusi permessi, sincronizzazione e persistenza. Per ora non è previsto un ruolo Admin.
 
@@ -44,7 +44,7 @@ database/
   database.sqlite            # dato locale, non versionato
 ```
 
-**Stato attuale:** completato. Sono disponibili database locale, migrazioni versionate, controlli d'integrità, rollback dell'ultimo batch e schema iniziale. P0.2 collegherà login e utenti al database, P0.3 userà il database per le schede; la persistenza delle sessioni di login e dello stato live della partita resta in P0.9.
+**Stato attuale:** completato. Sono disponibili database locale, migrazioni versionate, controlli d'integrità, rollback dell'ultimo batch e schema iniziale. P0.2 ha collegato login e utenti al database; P0.4 userà il database per le schede. La persistenza delle sessioni di login e dello stato live della partita resta in P0.10.
 
 **Accettazione:** su un checkout pulito `npm run db:migrate` crea il database e le tabelle; rilanciarlo non modifica nulla. Una nuova migrazione si applica una sola volta, `db:status` ne mostra lo stato e `db:rollback` annulla l'ultimo batch in un database di sviluppo.
 
@@ -54,26 +54,57 @@ database/
 
 **Players**
 
-- [ ] Selezionare il proprio profilo del roster, inserire la password e accedere con uno stato di errore chiaro in caso di credenziali non valide.
-- [ ] Ritrovare il proprio profilo e i relativi permessi dopo un refresh del browser finché la sessione è valida; poter uscire con logout.
+- [x] Selezionare il proprio profilo del roster, inserire la password e accedere con uno stato di errore chiaro in caso di credenziali non valide.
+- [x] Ritrovare il proprio profilo e i relativi permessi dopo un refresh del browser finché la sessione è valida; poter uscire con logout.
 
 **Master**
 
-- [ ] Accedere con il profilo Master e conservare i controlli della mappa riservati a questo ruolo.
+- [x] Accedere con il profilo Master e conservare i controlli della mappa riservati a questo ruolo.
 
 **Sistema**
 
-- [ ] Creare con una nuova migrazione la tabella `roles`, con codici univoci `master` e `adventurer`, e collegare `users` a `roles` tramite chiave esterna. Non modificare le migrazioni P0.1 già applicate né mantenere due fonti di verità per il ruolo.
-- [ ] Inizializzare in SQLite gli utenti del roster con ID stabili, ruolo e hash bcrypt della password comune; mantenere i profili statici soltanto per i dati di presentazione e di gioco ancora necessari.
-- [ ] Leggere gli utenti dal database durante il login, verificare la password con bcrypt e derivare ruolo e permessi dall'utente autenticato sul server, senza fidarsi del ruolo inviato dal client.
-- [ ] Aggiornare il frontend del login per il roster esistente: selezione del profilo, inserimento della password senza precompilare le vecchie credenziali `${username}123`, stati di caricamento/errore, sessione e logout comprensibili.
-- [ ] Conservare in P0.2 le sessioni attive in memoria; la loro persistenza o il rinnovo automatico dopo il riavvio appartiene a P0.9.
+- [x] Creare `roles` prima di `users`, con codici univoci `master` e `adventurer`, e collegare `users` a `roles` tramite chiave esterna senza due fonti di verità per il ruolo.
+- [x] Inizializzare in SQLite gli utenti del roster con ID stabili, ruolo e hash bcrypt della password comune; mantenere i profili statici soltanto per i dati di presentazione e di gioco ancora necessari.
+- [x] Leggere gli utenti dal database durante il login, verificare la password con bcrypt e derivare ruolo e permessi dall'utente autenticato sul server, senza fidarsi del ruolo inviato dal client.
+- [x] Aggiornare il frontend del login per il roster esistente: scelta tramite `@username`, password mostrata solo dopo la selezione, stati di caricamento/errore, sessione e logout comprensibili.
+- [x] Conservare in P0.2 le sessioni attive in memoria; la loro persistenza o il rinnovo automatico dopo il riavvio appartiene a P0.10.
 
-**Stato attuale:** completato: `roles` e `users.role_code` sono migrati in SQLite, il roster viene inizializzato idempotentemente con hash bcrypt e le API risolvono l'identità della sessione dal database. Le sessioni restano in memoria e il frontend richiede esplicitamente la password comune.
+**Stato attuale:** completato: la baseline crea in ordine `schema_migrations`, `roles`, `users`, campagne, sessioni e schede. `db:fresh` rigenera il database di sviluppo e il roster è inserito con hash bcrypt durante la migrazione utenti; le API risolvono l'identità della sessione dal database. Le sessioni restano in memoria e il frontend richiede esplicitamente la password comune dopo la scelta di `@username`.
 
 **Accettazione:** dopo `db:migrate` e l'inizializzazione del roster, Master e Player accedono dal frontend con `password`; le vecchie credenziali non funzionano. Refresh e logout funzionano; il server continua a distinguere i permessi Master/Player anche se il client invia un ruolo diverso. Non compaiono account o interfacce Admin.
 
-### P0.3 — Scheda personale a tab, caricabile e liberamente modificabile
+### P0.3 — GUI di sessione: mappa, pannello, dadi e turni
+
+**Riferimenti UI:** reference 1 per la composizione mappa/pannello e reference 2 per i controlli di selezione dei dadi, adattati a una sezione integrata in basso nel pannello destro con modale compatta di configurazione sulla mappa. Sono riferimenti di struttura e interazione, non una richiesta di copiare ogni funzione mostrata nelle immagini.
+
+**Players**
+
+- [x] Vedere la mappa a sinistra e un pannello richiudibile a destra, per circa un quarto della larghezza desktop.
+- [x] Usare sulla mappa i pulsanti visibili **Zoom in (+)** e **Zoom out (−)** e conservare le interazioni già presenti col mouse: spostamento della visuale con Ctrl+trascinamento o tasto centrale e trascinamento dei token che il proprio ruolo può muovere.
+- [x] Navigare fra quattro tab nella parte alta del pannello: **Chat + Dadi**, **Turni di iniziativa**, **Personaggi**, **Legenda dei comandi**. La tab Chat + Dadi mostra per ora il log dei tiri; la chat testuale tra partecipanti è rinviata a P2.6.
+- [x] Lanciare dadi dai controlli a click integrati in basso nel pannello destro, con click sinistro per aggiungere e click destro per rimuovere; il pulsante **Tira** apre una modale compatta sulla mappa per modificatore positivo o negativo, modalità e visibilità. Il comando `/r 1d20+5` è inviato con Invio e un comando non valido mostra un errore senza produrre un tiro.
+- [x] Scegliere tiro **pubblico**, visibile a tutti, o **segreto**, visibile solo all'autore e al Master; il log si aggiorna in tempo reale e distingue chiaramente i due tipi.
+- [x] Vedere l'ordine di iniziativa dal valore più alto al più basso. Quando il turno attivo precede il proprio, vedere una volta la modale **«Sei il prossimo!»**; quando inizia il proprio turno, vedere una volta **«Tocca a te!»**.
+- [x] Consultare nella tab Personaggi il roster disponibile, con nome, immagine e collegamento al token in mappa; l'apertura della scheda da questa lista arriverà con P0.4.
+
+**Master**
+
+- [x] Usare lo stesso pannello per consultare il log dei dadi, l'ordine dei turni e la lista dei personaggi, mantenendo zoom e selettore scena; i controlli Master non richiesti restano nel codice ma sono nascosti dalla GUI.
+- [x] Vedere i tiri segreti dei player oltre ai propri, senza renderli visibili agli altri player.
+
+**Sistema**
+
+- [x] Riorganizzare la sidebar sinistra esistente in un pannello destro con tab accessibili da tastiera; mantenere zoom, selettore scena e permessi attuali sui token, nascondendo dalla GUI i controlli di sessione, azioni e luce non richiesti senza eliminarne il codice.
+- [x] Su schermi stretti usare il pannello come overlay richiudibile, mantenendo la mappa utilizzabile e le tab navigabili.
+- [x] Validare e calcolare sul server i tiri da click e da comando con la stessa logica, associandoli all'utente autenticato; distribuire i tiri segreti solo ai destinatari autorizzati anche nelle risposte HTTP e negli aggiornamenti SSE.
+- [x] Riutilizzare lo stato di iniziativa già presente per ordinamento visivo, evidenziazione del turno e modali legate alle transizioni. In P0.3 non aggiungere il tiro dalla scheda né nuove regole di inserimento o calcolo dell'iniziativa; queste arrivano dopo la scheda, in P0.7.
+- [x] Riutilizzare e adattare la legenda dei comandi già presente, aggiungendo la sintassi dei tiri da comando.
+
+**Stato attuale:** completato. La mappa affianca il pannello destro a quattro tab, i dadi sono calcolati autorevolmente dal server e il log è sincronizzato con SSE. I tiri pubblici e segreti sono filtrati per destinatario; log, iniziativa e avvisi turno sono disponibili senza chat testuale.
+
+**Accettazione:** verificata con build e sessioni Master/Player. Su desktop la mappa occupa circa il 75% e il pannello destro circa il 25%; le quattro tab, zoom, spostamento della visuale e trascinamento dei token consentiti funzionano con pannello aperto o richiuso. I dadi sono configurati in una modale sulla mappa e disponibili da tutte le tab; due client vedono lo stesso tiro pubblico da click o `/r 1d20+5`, mentre un tiro segreto è visibile solo all'autore e al Master. Il log si aggiorna via SSE e mantiene visibile l’ultimo tiro. Con un ordine impostato, il Player riceve le due modali al cambio di turno. La chat testuale resta fuori da P0.3.
+
+### P0.4 — Scheda personale a tab, caricabile e liberamente modificabile
 
 **Riferimento UI:** [5E_CharacterSheet_Fillable.pdf](./5E_CharacterSheet_Fillable.pdf), composto da tre pagine. La scheda nell'app usa tre tab corrispondenti alle pagine del PDF, mantenendo campi modificabili e spazio per aggiunte personalizzate; il PDF è un riferimento alla struttura, non un vincolo a riprodurne l'impaginazione pixel per pixel.
 
@@ -101,34 +132,34 @@ database/
 - [ ] Collegare la scheda al token, sincronizzando i valori scelti come HP, CA e velocità senza sovrascrivere modifiche manuali inattese.
 - [ ] Conservare almeno caratteristiche, competenze, CA, HP, velocità, attacchi, salvataggi, risorse, inventario e incantesimi nei dati della scheda.
 
-**Stato attuale:** esistono un roster fisso, alcuni dati sui token e la tabella `character_sheets`, ma non una scheda personale persistente ed editabile né le sue tab, versioni e allegati. P0.2 fornirà l'identità e i ruoli necessari a P0.3.
+**Stato attuale:** esistono un roster fisso, alcuni dati sui token e la tabella `character_sheets`, ma non una scheda personale persistente ed editabile né le sue tab, versioni e allegati. P0.2 ha fornito l'identità e i ruoli necessari alla scheda; P0.3 prepara la tab Personaggi da cui aprirla.
 
 **Accettazione:** un Player accede, crea o allega una scheda, compila le tre tab e ritrova i dati dopo un riavvio. Il Master può consultarla e correggerla; un altro Player senza permesso esplicito non può modificarla tramite API. Una versione precedente è recuperabile e i valori concordati compaiono sul token senza perdere modifiche manuali inattese.
 
-**Decisione aperta prima della proposta P0.3:** una sola scheda attiva per ogni Player del roster, oppure più schede per lo stesso Player. Lo schema P0.1 consente entrambe le opzioni; non imporre un vincolo di unicità finché la scelta non è confermata.
+**Decisione aperta prima della proposta P0.4:** una sola scheda attiva per ogni Player del roster, oppure più schede per lo stesso Player. Lo schema P0.1 consente entrambe le opzioni; non imporre un vincolo di unicità finché la scelta non è confermata.
 
-### P0.4 — Tiri dalla scheda e comunicazione condivisa
+### P0.5 — Tiri dalla scheda
 
 **Players**
 
-- [ ] Tirare prove, salvataggi, attacchi, danni e iniziativa dalla scheda, mantenendo disponibile il tiro libero.
-- [ ] Offrire una chat testuale di base, nello stesso contesto dei tiri, per dichiarare azioni e leggere gli esiti.
+- [ ] Tirare prove, salvataggi, attacchi e danni dalla scheda, mantenendo disponibile il tiro libero di P0.3. Il collegamento del tiro di iniziativa al tracker arriverà con P0.7.
+- [ ] Leggere nel log della tab Chat + Dadi i tiri generati dalla propria scheda, con formula, risultato e visibilità.
 
 **Master**
 
-- [ ] Leggere gli stessi tiri e messaggi dei player, inviare messaggi e lanciare dadi nel contesto della sessione.
+- [ ] Leggere i tiri pubblici e segreti dei player e lanciare dadi nel contesto della sessione.
 
 **Sistema**
 
-- [ ] Inviare al server la richiesta di tiro; il server genera risultato, formula, autore e timestamp e li pubblica nel log condiviso.
+- [ ] Usare il calcolo server e le regole di visibilità dei tiri introdotti in P0.3, anche per le azioni della scheda.
 - [ ] Collegare ogni tiro al personaggio e, quando pertinente, all'azione usata sulla scheda.
 - [ ] Mostrare chiaramente vantaggio, svantaggio, modificatori e dadi tenuti.
 
-**Stato attuale:** il dice roller e il log condiviso esistono, ma il risultato è generato nel browser e il server accetta un log già compilato. Non c'è una chat testuale.
+**Stato attuale:** il dice roller e il log condiviso esistono, ma non sono collegati alle azioni di una scheda personale.
 
-**Accettazione:** due player vedono nella chat lo stesso attacco tirato dalla scheda, con autore e dettagli corretti; il risultato è generato dal server e resta disponibile dopo un riavvio.
+**Accettazione:** due player vedono nel log lo stesso attacco pubblico tirato dalla scheda, con autore, formula e dettagli corretti; un tiro segreto della scheda è visibile solo all'autore e al Master. Il recupero del log dopo un riavvio è previsto in P0.10.
 
-### P0.5 — Token del giocatore, movimento e misura
+### P0.6 — Token del giocatore, movimento e misura
 
 **Players**
 
@@ -150,30 +181,32 @@ database/
 
 **Accettazione:** un player misura un percorso spezzato, vede il costo prima del movimento, muove il proprio token e tutti osservano la stessa posizione. Un movimento fuori budget o attraverso un ostacolo viene rifiutato.
 
-### P0.6 — Turni, HP e condizioni durante il combattimento
+### P0.7 — Turni, HP e condizioni durante il combattimento
 
 **Players**
 
-- [ ] Tirare l'iniziativa dalla scheda e vedere il risultato nella propria voce del tracker.
+- [ ] Tirare l'iniziativa dalla scheda e vedere il risultato nella propria voce del tracker, scegliendo nella modale fra tiro normale, vantaggio e svantaggio.
 - [ ] Mostrare al player quando tocca a lui e quanto movimento o risorse gli restano nel turno.
 - [ ] Vedere danni, cure, HP temporanei e condizioni aggiornarsi su scheda e token durante il combattimento.
 
 **Master**
 
 - [ ] Avviare e avanzare il combattimento, correggere iniziativa e turno, applicare danni, cure e condizioni ai bersagli.
+- [ ] Inserire un elemento nell'iniziativa in qualunque posizione, assegnando il valore manualmente oppure lanciando un dado dalla modale con scelta fra tiro normale, vantaggio e svantaggio.
 
 **Sistema**
 
 - [ ] Mantenere condivisi iniziativa, turno attivo e numero del round.
 - [ ] Collegare l'iniziativa tirata dalla scheda alla voce corretta del tracker.
+- [ ] Ordinare per valore decrescente i tiri di iniziativa, conservando l'ordine imposto esplicitamente dal Master quando sposta o inserisce una voce in una posizione specifica.
 - [ ] Applicare danni, cure e HP temporanei al bersaglio in pochi passaggi, aggiornando scheda e token insieme.
 - [ ] Usare marcatori di condizione specifici, con durata o scadenza quando pertinente.
 
-**Stato attuale:** iniziativa, round, HP e alcune condizioni sono già presenti, ma non sono collegati a una scheda personale e alle sue azioni.
+**Stato attuale:** iniziativa, round, HP e alcune condizioni sono già presenti, ma non sono collegati a una scheda personale e alle sue azioni. La modale esistente non copre lo svantaggio né l'inserimento arbitrario nell'ordine.
 
-**Accettazione:** il master avvia l'incontro, un player tira iniziativa dalla scheda, compie il proprio turno e vede HP, condizioni e risorse aggiornarsi in modo coerente su scheda, token e tracker.
+**Accettazione:** il Master avvia l'incontro, un Player sceglie normale, vantaggio o svantaggio e tira iniziativa dalla scheda; il tracker colloca il risultato nell'ordine decrescente. Il Master inserisce una voce a scelta manualmente o con un tiro, anche in una posizione diversa da quella suggerita dal valore. Turno, HP, condizioni e risorse restano coerenti su scheda, token e tracker.
 
-### P0.7 — Mappe e scene giocabili
+### P0.8 — Mappe e scene giocabili
 
 **Players**
 
@@ -199,7 +232,7 @@ database/
 
 **Accettazione:** il master crea una scena vuota, disegna un sentiero con la matita, inserisce un albero e una roccia, li modifica e vede gli aggiornamenti sui client dei player. Importa poi una seconda mappa con scala diversa, passa fra le due scene e ritrova disegni, elementi e token come li ha lasciati anche dopo un riavvio.
 
-### P0.8 — Preparazione dell'incontro e segreti
+### P0.9 — Preparazione dell'incontro e segreti
 
 **Master**
 
@@ -219,11 +252,11 @@ database/
 
 **Accettazione:** il master prepara un'imboscata, i player non ricevono i dati dei nemici nascosti e la rivelazione manuale li mostra a tutti nello stesso momento.
 
-### P0.9 — Persistenza e recupero della partita
+### P0.10 — Persistenza e recupero della partita
 
 **Players**
 
-- [ ] Ritrovare posizione, risorse e chat dopo una riconnessione o un riavvio del server, insieme alla scheda già salvata in P0.3.
+- [ ] Ritrovare posizione, risorse e log dei tiri dopo una riconnessione o un riavvio del server, insieme alla scheda già salvata in P0.4.
 
 **Master**
 
@@ -231,7 +264,7 @@ database/
 
 **Sistema**
 
-- [ ] Spostare lo stato live di scene, token, combattimento, chat e log dalle sole variabili in memoria al database SQLite creato in P0.1.
+- [ ] Spostare lo stato live di scene, token, combattimento e log dei tiri dalle sole variabili in memoria al database SQLite creato in P0.1.
 - [ ] Salvare automaticamente le modifiche importanti senza richiedere “sospendi”.
 - [ ] Ripristinare lo stato più recente all'avvio del server.
 - [ ] Salvare in transazioni le modifiche correlate e segnalare gli errori di scrittura.
@@ -289,21 +322,21 @@ database/
 
 **Accettazione:** un player non riceve i dati di un nemico oltre un muro; aprire una porta aggiorna visuale e movimento senza un intervento manuale del master.
 
-### P1.3 — Comunicazioni e tiri riservati
+### P1.3 — Destinatari personalizzati per i tiri
 
 **Players**
 
-- [ ] Inviare un tiro o un messaggio visibile solo al master.
+- [ ] Condividere un tiro con uno o più destinatari scelti, oltre alle opzioni pubblico e segreto di P0.3.
 
 **Master**
 
-- [ ] Effettuare tiri riservati e inviare messaggi privati a uno o più player.
+- [ ] Effettuare tiri riservati per uno o più player selezionati.
 
 **Sistema**
 
-- [ ] Limitare consegna e persistenza di tiri e messaggi ai destinatari previsti, mantenendo separata la cronologia pubblica.
+- [ ] Limitare consegna, lettura e persistenza dei tiri ai destinatari previsti, mantenendo separata la cronologia pubblica.
 
-**Accettazione:** un tiro riservato compare solo ai destinatari previsti e resta privato anche dopo riconnessione o ripristino della sessione.
+**Accettazione:** un tiro indirizzato a un player specifico compare solo all'autore, al Master e al destinatario previsto e resta privato anche dopo riconnessione o ripristino della sessione.
 
 ## P2 — utilità di sessione
 
@@ -311,6 +344,7 @@ database/
 
 - [ ] **P2.1** — Consultare handout condivisi dal master secondo i permessi assegnati.
 - [ ] **P2.5** — Vedere lo stato della propria connessione e un segnale chiaro di riconnessione.
+- [ ] **P2.6** — Inviare e leggere messaggi nella chat testuale in tempo reale della tab Chat + Dadi, sopra i controlli dei dadi già collocati in basso nel pannello; poter inviare un messaggio privato al Master o a un destinatario selezionato.
 
 **Master**
 
@@ -319,22 +353,24 @@ database/
 - [ ] **P2.3** — Gestire livelli avanzati per sfondo, token, annotazioni riservate e ostacoli.
 - [ ] **P2.4** — Duplicare, archiviare e cercare le scene.
 - [ ] **P2.5** — Vedere presenza e stato di connessione dei player.
+- [ ] **P2.6** — Scrivere nella chat pubblica o inviare messaggi privati a uno o più player.
 
 **Sistema**
 
 - [ ] **P2.3** — Applicare visibilità e permessi ai livelli avanzati, mantenendo separati i dati riservati del master.
+- [ ] **P2.6** — Distribuire i messaggi in tempo reale solo ai destinatari autorizzati, verificarne i permessi sul server e conservarne la cronologia pubblica e privata dopo riconnessione o riavvio.
 
 ## Prova del core loop P0
 
 Dopo `npm run db:migrate`, con master e almeno due player collegati da browser distinti:
 
-1. Master e player accedono con i profili del roster tramite il nuovo login; un player carica e modifica la propria scheda nelle tre tab, il master può consultarla e i dati scelti sono collegati al token.
+1. Master e player accedono con i profili del roster tramite il nuovo login; usano la mappa e le quattro tab del pannello destro. Un player carica e modifica la propria scheda nelle tre tab, il Master può consultarla e i dati scelti sono collegati al token.
 2. Il master crea una scena vuota, disegna con la matita e colloca una roccia e un albero. I player vedono gli aggiornamenti ma non modificano la mappa. Il master importa anche una seconda mappa, ne calibra la griglia, prepara nemici nascosti e porta il party nella scena.
-3. Un player dichiara un'azione in chat, tira dalla scheda e tutti vedono lo stesso risultato generato dal server.
+3. Un player tira un dado dai controlli in basso nel pannello e con `/r 1d20+5`, poi tira un attacco dalla scheda: tutti vedono i risultati pubblici generati dal server nel log. Un tiro segreto resta visibile solo all'autore e al Master.
 4. Il player misura un percorso, fa ping sulla mappa e muove il proprio token: distanza, budget e posizione sincronizzata sono corretti.
-5. Il master rivela i nemici e avvia il combattimento; iniziativa, turno, HP e condizioni restano coerenti per tutti. Prima della rivelazione, i player non ricevono i dati dei nemici nascosti.
-6. Il server viene riavviato: schede, scene, disegni, elementi predefiniti, posizioni, turni, chat e log tornano allo stato salvato automaticamente.
+5. Il Master rivela i nemici e avvia il combattimento; un Player sceglie il tipo di tiro di iniziativa dalla scheda, il Master può inserire una voce in qualsiasi posizione e le modali «Sei il prossimo!»/«Tocca a te!» seguono il turno. Iniziativa, HP e condizioni restano coerenti per tutti. Prima della rivelazione, i player non ricevono i dati dei nemici nascosti.
+6. Il server viene riavviato: schede, scene, disegni, elementi predefiniti, posizioni, turni e log dei tiri tornano allo stato salvato automaticamente.
 
 Il core loop è pronto solo quando questa prova riesce senza interventi manuali sui file o sul database.
 
-Per completare P1, il player esegue anche un level up guidato, la visuale cambia automaticamente quando attraversa una porta e i tiri riservati restano visibili solo ai destinatari previsti.
+Per completare P1, il player esegue anche un level up guidato, la visuale cambia automaticamente quando attraversa una porta e i tiri con destinatari personalizzati restano visibili solo ai partecipanti previsti. La chat testuale in tempo reale è prevista in P2.6.

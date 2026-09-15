@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BOARD_CONFIG } from '../constants/board';
 import type {
   BattleMapSharedState,
@@ -415,6 +415,14 @@ export function useBattleMapState(isAuthenticated: boolean) {
     window.localStorage.setItem(ZOOM_STORAGE_KEY, String(zoom));
   }, [zoom]);
 
+  const applySnapshot = useCallback((nextState: BattleMapSharedState, nextVersion: number) => {
+    const normalizedState = normalizeSharedState(nextState);
+    sharedStateRef.current = normalizedState;
+    versionRef.current = nextVersion;
+    setSharedState(normalizedState);
+    setVersion(nextVersion);
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) {
       setIsReady(false);
@@ -462,11 +470,11 @@ export function useBattleMapState(isAuthenticated: boolean) {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    if (!isReady) {
+    if (!isReady || !isAuthenticated) {
       return undefined;
     }
 
-    // The server pushes the canonical battle map snapshot to every connected client.
+    // A same-origin SSE stream sends a snapshot only when the session state changes.
     const eventSource = new EventSource(EVENTS_URL, { withCredentials: true });
     eventSource.onmessage = (event) => {
       try {
@@ -480,22 +488,13 @@ export function useBattleMapState(isAuthenticated: boolean) {
       }
     };
     eventSource.onerror = () => {
-      // Keep the connection object alive: EventSource will retry automatically.
-      // Closing here left some clients stale until a manual refresh.
+      // EventSource reconnects automatically using the retry interval supplied by the server.
     };
 
     return () => {
       eventSource.close();
     };
-  }, [isReady]);
-
-  const applySnapshot = (nextState: BattleMapSharedState, nextVersion: number) => {
-    const normalizedState = normalizeSharedState(nextState);
-    sharedStateRef.current = normalizedState;
-    versionRef.current = nextVersion;
-    setSharedState(normalizedState);
-    setVersion(nextVersion);
-  };
+  }, [applySnapshot, isAuthenticated, isReady]);
 
   const setOptimisticState = (nextState: BattleMapSharedState) => {
     sharedStateRef.current = nextState;
