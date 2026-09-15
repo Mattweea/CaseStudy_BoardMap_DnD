@@ -5,7 +5,7 @@ import type {
   BattleMapSessionSnapshot,
   BattleMapSessionStatus,
   BattleMapState,
-  DiceRollLog,
+  DiceRollRequest,
   GridPosition,
   InitiativeEntry,
   LightSource,
@@ -119,6 +119,7 @@ const initialSharedState: BattleMapSharedState = {
   initiatives: [],
   activeTurnTokenId: null,
   roundNumber: 1,
+  turnNotice: null,
   movementUsedByTokenId: {},
   movementAxisUsageByTokenId: {},
   dashUsedByTokenId: {},
@@ -296,6 +297,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
     activeTurnTokenId:
       typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null,
     roundNumber: typeof parsed?.roundNumber === 'number' && parsed.roundNumber > 0 ? parsed.roundNumber : 1,
+    turnNotice: parsed?.turnNotice && typeof parsed.turnNotice.id === 'number' && (parsed.turnNotice.kind === 'next' || parsed.turnNotice.kind === 'turn') ? parsed.turnNotice : null,
     movementUsedByTokenId:
       parsed?.movementUsedByTokenId && typeof parsed.movementUsedByTokenId === 'object'
         ? Object.fromEntries(
@@ -586,33 +588,20 @@ export function useBattleMapState(isAuthenticated: boolean) {
     });
   };
 
-  const addDiceLog = async (log: DiceRollLog, flavor?: string) => {
+  const rollDice = async (roll: DiceRollRequest) => {
     return enqueueMutation(async () => {
-      const optimisticState = {
-        ...sharedStateRef.current,
-        diceLogs: [log, ...sharedStateRef.current.diceLogs].slice(0, 30),
-        latestDicePreview:
-          typeof flavor === 'string' && flavor.trim()
-            ? {
-                id: crypto.randomUUID(),
-                flavor,
-                log,
-              }
-            : sharedStateRef.current.latestDicePreview,
-      };
-      setOptimisticState(optimisticState);
-
       try {
         const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-          '/battle-map/dice-logs',
+          '/battle-map/rolls',
           {
             method: 'POST',
-            body: JSON.stringify({ log, flavor }),
+            body: JSON.stringify(roll),
           },
         );
         applySnapshot(payload.state, payload.version);
+        return { ok: true as const };
       } catch (error) {
-        console.error(error);
+        return { ok: false as const, message: error instanceof Error ? error.message : 'Tiro non riuscito.' };
       }
     });
   };
@@ -1231,7 +1220,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     updateToken,
     removeToken,
     removeTokens,
-    addDiceLog,
+    rollDice,
     clearDiceLogs,
     setInitiative,
     setInitiatives,

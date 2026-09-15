@@ -3,19 +3,20 @@ import { AuthScreen } from './components/AuthScreen';
 import { Board } from './components/Board';
 import { DiceLogModal } from './components/DiceLogModal';
 import { DicePanel } from './components/DicePanel';
+import { DiceGlyph, numericDiceToIconType } from './components/DiceIcons';
 import { DiceResultModal } from './components/DiceResultModal';
 import { EditElementModal, ElementsListModal, NewElementModal } from './components/ElementModals';
 import { InitiativeRollModal } from './components/InitiativeRollModal';
 import { InitiativePanel } from './components/InitiativePanel';
 import { Modal } from './components/Modal';
-import { findCharacterProfileByKey } from './constants/characters';
+import { CHARACTER_PROFILES, findCharacterProfileByKey } from './constants/characters';
 import { useAnimatedPresence } from './hooks/useAnimatedPresence';
 import { useAuthSession } from './hooks/useAuthSession';
 import { useBattleMapState } from './hooks/useBattleMapState';
 import { getTokenFootprint } from './utils/board';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
-import type { CombatAnnouncement, DiceRollLog, UnitToken } from './types';
+import type { CombatAnnouncement, DiceRollLog, DiceType, UnitToken } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
 
 const FULLSCREEN_TRANSITION_MS = 260;
@@ -27,7 +28,8 @@ const COMBAT_ANNOUNCEMENT_STORAGE_KEY = 'dnd-battle-map:last-combat-announcement
 const MANUAL_PDF_PATH =
   'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
 
-type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'notes' | 'dice' | 'initiative' | 'legend';
+type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'notes' | 'dice' | 'initiative' | 'characters' | 'legend';
+type WorkspaceTabId = 'chat' | 'initiative' | 'characters' | 'legend';
 
 const KEYBOARD_MOVEMENTS: Record<string, { dx: number; dy: number }> = {
   ArrowUp: { dx: 0, dy: -1 },
@@ -86,6 +88,11 @@ function cellKey(cell: { x: number; y: number }) {
   return `${cell.x}:${cell.y}`;
 }
 
+function diceSidesFromFormula(formula: string): DiceType {
+  const sides = Number(formula.match(/d(4|6|8|10|12|20|100)/i)?.[1] ?? 20);
+  return [4, 6, 8, 10, 12, 20, 100].includes(sides) ? sides as DiceType : 20;
+}
+
 function isObstacleToken(token: UnitToken) {
   return token.type === 'object' && token.blocksMovement === true;
 }
@@ -142,7 +149,7 @@ function App() {
     isMutating,
     state,
     addTokens,
-    addDiceLog,
+    rollDice,
     cycleTurn,
     clearDiceLogs,
     clearInitiative,
@@ -185,9 +192,11 @@ function App() {
   const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
   const [latestDiceResult, setLatestDiceResult] = useState<DiceResultScene | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ tokenId: string; nonce: number } | null>(null);
-  const [isSidebarPinned, setIsSidebarPinned] = useState(false);
+  const [isSidebarPinned, setIsSidebarPinned] = useState(true);
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTabId>('chat');
+  const [expandedDiceLogId, setExpandedDiceLogId] = useState<string | null>(null);
+  const [turnNotice, setTurnNotice] = useState<'next' | 'turn' | null>(null);
   const [isSidebarHoverOpen, setIsSidebarHoverOpen] = useState(false);
-  const [sidebarLeadSection, setSidebarLeadSection] = useState<SidebarSectionId | null>(null);
   const [isBootLoading, setIsBootLoading] = useState(false);
   const [pendingObstaclePlacement, setPendingObstaclePlacement] = useState<PendingObstaclePlacement | null>(null);
   const [isLightPlacementActive, setIsLightPlacementActive] = useState(false);
@@ -203,6 +212,7 @@ function App() {
   const sidebarHoverOpenTimeoutRef = useRef<number | null>(null);
   const reopenEditTimeoutRef = useRef<number | null>(null);
   const lastDicePreviewIdRef = useRef<string | null>(null);
+  const lastTurnNoticeIdRef = useRef<number | null>(null);
   const lastCombatAnnouncementIdRef = useRef<string | null>(null);
   const sessionFeedbackTimeoutRef = useRef<number | null>(null);
   const combatAnnouncementTimeoutRef = useRef<number | null>(null);
@@ -244,27 +254,6 @@ function App() {
     : null;
   const isSidebarCollapsed = !isSidebarPinned && !isSidebarHoverOpen;
   const expandedSidebarPresence = useAnimatedPresence(!isSidebarCollapsed, SIDEBAR_CONTENT_EXIT_MS);
-  const collapsedSidebarPresence = useAnimatedPresence(isSidebarCollapsed, SIDEBAR_CONTENT_EXIT_MS);
-  const sidebarSections: SidebarSectionId[] = canManageBattleMap
-    ? ['session', 'actions', 'lighting', 'notes', 'dice', 'initiative', 'legend']
-    : ['session', 'notes', 'dice', 'initiative', 'legend'];
-  const sidebarShortcuts: Array<{ id: SidebarSectionId; icon: string; label: string }> = canManageBattleMap
-    ? [
-        { id: 'session', icon: '👤', label: 'Sessione' },
-        { id: 'actions', icon: '➕', label: 'Azioni Master' },
-        { id: 'lighting', icon: '☀️', label: 'Illuminazione' },
-        { id: 'notes', icon: '📝', label: 'Note' },
-        { id: 'dice', icon: '🎲', label: 'Dice Roller' },
-        { id: 'initiative', icon: '⚔️', label: 'Ordine Dei Turni' },
-        { id: 'legend', icon: '?', label: 'Legenda Comandi' },
-      ]
-    : [
-        { id: 'session', icon: '👤', label: 'Sessione' },
-        { id: 'notes', icon: '📝', label: 'Note' },
-        { id: 'dice', icon: '🎲', label: 'Dice Roller' },
-        { id: 'initiative', icon: '⚔️', label: 'Ordine Dei Turni' },
-        { id: 'legend', icon: '?', label: 'Legenda Comandi' },
-      ];
   const visibleBoardTokens = canManageBattleMap
     ? state.tokens
     : state.tokens.filter((token) => {
@@ -386,11 +375,24 @@ function App() {
     }
 
     sidebarRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [isSidebarCollapsed, sidebarLeadSection]);
+  }, [isSidebarCollapsed]);
 
   useEffect(() => {
     setDraftNotes(state.sharedNotes);
   }, [state.sharedNotes]);
+
+  useEffect(() => {
+    const notice = state.turnNotice;
+    if (!notice) return;
+    if (lastTurnNoticeIdRef.current === null) {
+      lastTurnNoticeIdRef.current = notice.id;
+      return;
+    }
+    if (notice.id !== lastTurnNoticeIdRef.current) {
+      lastTurnNoticeIdRef.current = notice.id;
+      setTurnNotice(notice.kind);
+    }
+  }, [state.turnNotice]);
 
   useEffect(() => {
     if (state.isBoardFullyLit) {
@@ -570,10 +572,6 @@ function App() {
 
   const editingToken = state.tokens.find((token) => token.id === editingTokenId) ?? null;
   const isBoardFullscreenVisible = boardFullscreenPhase !== 'closed';
-  const orderedSidebarSections = sidebarLeadSection
-    ? [sidebarLeadSection, ...sidebarSections.filter((sectionId) => sectionId !== sidebarLeadSection)]
-    : sidebarSections;
-
   const handleSidebarToggle = () => {
     if (isSidebarPinned) {
       setIsSidebarPinned(false);
@@ -585,14 +583,8 @@ function App() {
       return;
     }
 
-    setSidebarLeadSection(null);
     setIsSidebarPinned(true);
     setIsSidebarHoverOpen(false);
-  };
-
-  const openSidebarSection = (sectionId: SidebarSectionId) => {
-    setSidebarLeadSection(sectionId);
-    setIsSidebarHoverOpen(true);
   };
 
   const showSessionFeedback = (feedback: SessionFeedback) => {
@@ -882,12 +874,7 @@ function App() {
         return (
           <DicePanel
             key="dice"
-            logsCount={state.diceLogs.length}
-            actorKey={user?.characterKey}
-            rollerName={user?.displayName}
-            isResultOpen={latestDiceResult !== null}
-            onAddLog={addDiceLog}
-            onOpenLogs={() => setIsDiceLogModalOpen(true)}
+            onRoll={rollDice}
           />
         );
       case 'notes':
@@ -1124,6 +1111,20 @@ function App() {
             onOpenEditTokenModal={openEditTokenModal}
           />
         );
+      case 'characters':
+        return (
+          <section key="characters" className="sidebar__section character-roster">
+            <div className="panel-heading"><div><p className="eyebrow">Roster</p><h2>Personaggi</h2></div></div>
+            {CHARACTER_PROFILES.map((profile) => {
+              const token = state.tokens.find((entry) => entry.characterKey === profile.key);
+              return <article className="character-roster__entry" key={profile.key}>
+                <img src={profile.imageUrl} alt="" />
+                <strong>{profile.displayName}</strong>
+                {token ? <button type="button" className="secondary-button secondary-button--tiny" onClick={() => locateToken(token.id)}>Localizza</button> : <span>Fuori scena</span>}
+              </article>;
+            })}
+          </section>
+        );
       case 'legend':
         return (
           <section key="legend" className="sidebar__section">
@@ -1140,6 +1141,7 @@ function App() {
                 <p><strong>Shift + click</strong>: multi-selezione.</p>
                 <p><strong>Rotella</strong>: zoom.</p>
                 <p><strong>Ctrl + drag</strong>: muovi visuale.</p>
+                <p><strong>/r 1d20+5</strong>: tiro libero (d4, d6, d8, d10, d12, d20, d100; max 20 dadi).</p>
                 <p><strong>🔎</strong>: lista elementi.</p>
                 <p><strong>📖</strong>: manuale.</p>
               </div>
@@ -1201,7 +1203,7 @@ function App() {
     <div className={`app-shell ${isSidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''}`}>
       <aside
         ref={sidebarRef}
-        className={`sidebar ${isSidebarCollapsed ? 'sidebar--collapsed' : ''}`}
+        className={`sidebar session-workspace ${isSidebarCollapsed ? 'sidebar--collapsed' : ''}`}
         onMouseEnter={() => {
           if (!isSidebarPinned) {
             if (sidebarHoverOpenTimeoutRef.current !== null) {
@@ -1237,32 +1239,25 @@ function App() {
           </button>
         </div>
 
-        {collapsedSidebarPresence.shouldRender ? (
-          <div
-            className="sidebar__shortcuts"
-            data-state={collapsedSidebarPresence.isVisible ? 'open' : 'closed'}
-          >
-            {sidebarShortcuts.map((shortcut) => (
-              <button
-                key={shortcut.id}
-                type="button"
-                className="sidebar__shortcut"
-                onClick={() => openSidebarSection(shortcut.id)}
-                title={shortcut.label}
-                aria-label={shortcut.label}
-              >
-                <span aria-hidden="true">{shortcut.icon}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
-
         {expandedSidebarPresence.shouldRender ? (
           <div
             className="sidebar__content"
             data-state={expandedSidebarPresence.isVisible ? 'open' : 'closed'}
           >
-            {orderedSidebarSections.map((sectionId) => renderSidebarSection(sectionId))}
+            <div className="workspace-tools">
+              {renderSidebarSection('session')}
+              {canManageBattleMap ? renderSidebarSection('actions') : null}
+              {canManageBattleMap ? renderSidebarSection('lighting') : null}
+            </div>
+            <div className="workspace-tabs" role="tablist" aria-label="Pannello sessione">
+              {([
+                ['chat', 'Chat + Dadi', '🎲'], ['initiative', 'Turni di iniziativa', '⚔'], ['characters', 'Personaggi', '♟'], ['legend', 'Legenda dei comandi', '☷'],
+              ] as Array<[WorkspaceTabId, string, string]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
+            </div>
+            <div id={`panel-${workspaceTab}`} role="tabpanel" aria-labelledby={`tab-${workspaceTab}`} className="workspace-tabpanel">
+              {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => { const profile = CHARACTER_PROFILES.find((entry) => entry.id === log.authorUserId); const isExpanded = expandedDiceLogId === log.id; const timestamp = new Date(log.timestamp); const diceSides = diceSidesFromFormula(log.formula); const diceTotal = log.keptRolls.reduce((sum, roll) => sum + roll, 0); return <article key={log.id} className={`dice-log__entry ${isExpanded ? 'dice-log__entry--expanded' : ''}`}><header><img src={profile?.imageUrl} alt="" /><div><strong>{profile?.displayName ?? log.rollerName}</strong><span>{profile?.username ?? log.rollerName}</span></div><time dateTime={log.timestamp}>{Number.isNaN(timestamp.valueOf()) ? '' : timestamp.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</time></header><p className="dice-log__formula">{log.formula}</p>{isExpanded ? <div className="dice-log__detail"><div className="dice-log__dice-row">{log.rolls.map((roll, index) => <span className="dice-log__die" key={`${log.id}-${index}`}><DiceGlyph type={numericDiceToIconType[diceSides]} /><b>{roll}</b></span>)}</div><b className="dice-log__dice-total">{diceTotal}</b></div> : null}<button type="button" className="dice-log__total" onClick={() => setExpandedDiceLogId(isExpanded ? null : log.id)} aria-expanded={isExpanded} aria-label={`Mostra dettaglio di ${log.formula}`}>{log.total}</button>{log.visibility === 'secret' ? <small>Segreto</small> : null}</article>; }) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab === 'initiative' ? 'initiative' : workspaceTab === 'characters' ? 'characters' : 'legend')}
+            </div>
+            <div className="workspace-dice-dock">{renderSidebarSection('dice')}</div>
           </div>
         ) : null}
       </aside>
@@ -1581,6 +1576,8 @@ function App() {
       />
 
       <DiceResultModal result={latestDiceResult} onClose={() => setLatestDiceResult(null)} />
+
+      {turnNotice ? <div className="turn-notice" role="dialog" aria-modal="true" aria-label="Avviso turno"><div><h2>{turnNotice === 'turn' ? 'Tocca a te!' : 'Sei il prossimo!'}</h2><button type="button" className="primary-button" autoFocus onClick={() => setTurnNotice(null)}>Capito</button></div></div> : null}
 
       {isBootLoading ? (
         <div className="boot-loader" role="status" aria-live="polite">

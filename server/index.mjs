@@ -57,11 +57,75 @@ const initialSharedState = {
 
 let battleMapState = normalizeSharedState(initialSharedState);
 let battleMapVersion = 1;
+let turnTransitionId = 0;
 let lastSessionSnapshot = null;
 const streamClients = new Set();
 const masterUndoStack = [];
 const playerUndoStackByUserId = new Map();
 const MAX_UNDO_STEPS = 40;
+const SUPPORTED_DICE = new Set([4, 6, 8, 10, 12, 20, 100]);
+const MAX_DICE_COUNT = 20;
+const MAX_MODIFIER = 1000;
+
+function parseRollFormula(value) {
+  if (typeof value !== 'string') {
+    return { error: 'Inserisci una formula nel formato NdS, ad esempio 1d20+5.' };
+  }
+
+  const match = value.trim().match(/^(\d{1,2})d(4|6|8|10|12|20|100)([+-]\d{1,4})?$/i);
+  if (!match) {
+    return { error: 'Formula non valida. Usa NdS con modificatore opzionale (es. 2d6-1).' };
+  }
+
+  const count = Number(match[1]);
+  const sides = Number(match[2]);
+  const modifier = Number(match[3] ?? 0);
+  if (!SUPPORTED_DICE.has(sides) || count < 1 || count > MAX_DICE_COUNT || Math.abs(modifier) > MAX_MODIFIER) {
+    return { error: `Limiti: 1-${MAX_DICE_COUNT} dadi d4/d6/d8/d10/d12/d20/d100 e modificatore tra -${MAX_MODIFIER} e +${MAX_MODIFIER}.` };
+  }
+
+  return {
+    formula: `${count}d${sides}${modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : modifier}`,
+    count,
+    sides,
+    modifier,
+  };
+}
+
+function createAuthoritativeRoll(user, request) {
+  const parsed = parseRollFormula(request?.formula);
+  if (parsed.error) {
+    return parsed;
+  }
+
+  const visibility = request?.visibility === 'secret' ? 'secret' : request?.visibility === 'public' ? 'public' : null;
+  if (!visibility) {
+    return { error: 'Scegli se il tiro è pubblico o segreto.' };
+  }
+
+  const mode = request?.mode === 'advantage' || request?.mode === 'disadvantage' ? request.mode : 'normal';
+  if (mode !== 'normal' && (parsed.sides !== 20 || parsed.count !== 1)) {
+    return { error: 'Vantaggio e svantaggio sono disponibili solo per 1d20.' };
+  }
+  const rolls = Array.from({ length: mode === 'normal' ? parsed.count : 2 }, () => randomBytes(4).readUInt32BE(0) % parsed.sides + 1);
+  const keptRolls = mode === 'advantage' ? [Math.max(...rolls)] : mode === 'disadvantage' ? [Math.min(...rolls)] : rolls;
+  return {
+    log: {
+      id: randomUUID(),
+      label: parsed.formula,
+      formula: parsed.formula,
+      rollerName: user.displayName ?? user.username,
+      authorUserId: user.id,
+      timestamp: new Date().toISOString(),
+      rolls,
+      keptRolls,
+      total: keptRolls.reduce((sum, roll) => sum + roll, parsed.modifier),
+      modifier: parsed.modifier,
+      mode,
+      visibility,
+    },
+  };
+}
 
 function defaultVehicleColor(side) {
   return side === 'enemy' ? '#7f1d1d' : '#374151';
@@ -261,10 +325,13 @@ function normalizeSharedState(parsed) {
   return {
     tokens: applyVehicleAwareUpdates(tokens),
     diceLogs: Array.isArray(parsed?.diceLogs)
-      ? parsed.diceLogs.map((log) => ({
+      ? parsed.diceLogs.flatMap((log) => (log && typeof log === 'object' && typeof log.authorUserId === 'string' &&
+          (log.visibility === 'public' || log.visibility === 'secret') && Array.isArray(log.rolls) &&
+          typeof log.total === 'number'
+        ? [{
           ...log,
           formula: log.formula ?? log.label,
-        }))
+        }] : []))
       : [],
     latestDicePreview:
       parsed?.latestDicePreview &&
@@ -569,8 +636,13 @@ function findUserControlledVehicle(user) {
 }
 
 function sanitizeStateForUser(state, user) {
+  const canSeeRoll = (log) => user?.role === 'master' || log.visibility === 'public' || log.authorUserId === user?.id;
+  const visibleDiceLogs = state.diceLogs.filter(canSeeRoll);
+  const visiblePreview = state.latestDicePreview && canSeeRoll(state.latestDicePreview.log)
+    ? state.latestDicePreview
+    : null;
   if (!user || user.role === 'master') {
-    return state;
+    return { ...state, diceLogs: visibleDiceLogs, latestDicePreview: visiblePreview };
   }
 
   const visibleTokens = state.tokens.filter(
@@ -584,12 +656,24 @@ function sanitizeStateForUser(state, user) {
     tokens: visibleTokens,
     initiatives: visibleInitiatives,
     activeTurnTokenId: visibleTokenIds.has(state.activeTurnTokenId) ? state.activeTurnTokenId : null,
+    diceLogs: visibleDiceLogs,
+    latestDicePreview: visiblePreview,
   });
+}
+
+function getTurnNotice(user) {
+  if (!user || user.role === 'master' || !battleMapState.activeTurnTokenId) return null;
+  const ownToken = battleMapState.tokens.find((token) => token.ownerUserId === user.id && token.type === 'player');
+  const activeIndex = battleMapState.initiatives.findIndex((entry) => entry.tokenId === battleMapState.activeTurnTokenId);
+  const ownIndex = battleMapState.initiatives.findIndex((entry) => entry.tokenId === ownToken?.id);
+  if (activeIndex < 0 || ownIndex < 0) return null;
+  const kind = activeIndex === ownIndex ? 'turn' : (activeIndex + 1) % battleMapState.initiatives.length === ownIndex ? 'next' : null;
+  return kind ? { id: turnTransitionId, kind } : null;
 }
 
 function nextSnapshot(user = null) {
   return {
-    state: sanitizeStateForUser(battleMapState, user),
+    state: { ...sanitizeStateForUser(battleMapState, user), turnNotice: getTurnNotice(user) },
     version: battleMapVersion,
   };
 }
@@ -687,7 +771,11 @@ function broadcastSnapshot() {
 }
 
 function replaceBattleMapState(nextState) {
-  return commitBattleMapState(nextState, { recordMasterUndo: true, validate: true });
+  return commitBattleMapState({
+    ...nextState,
+    diceLogs: battleMapState.diceLogs,
+    latestDicePreview: battleMapState.latestDicePreview,
+  }, { recordMasterUndo: true, validate: true });
 }
 
 function commitBattleMapState(nextState, options = {}) {
@@ -710,6 +798,7 @@ function commitBattleMapState(nextState, options = {}) {
     };
   }
 
+  if (normalizedState.activeTurnTokenId !== battleMapState.activeTurnTokenId) turnTransitionId += 1;
   battleMapState = normalizedState;
   bumpBattleMapVersion();
   broadcastSnapshot();
@@ -724,30 +813,26 @@ async function restoreLastSessionSnapshot() {
   }
 
   lastSessionSnapshot = snapshot;
-  battleMapState = snapshot.state;
+  battleMapState = normalizeSharedState({
+    ...snapshot.state,
+    diceLogs: battleMapState.diceLogs,
+    latestDicePreview: battleMapState.latestDicePreview,
+  });
   battleMapVersion = snapshot.version;
   broadcastSnapshot();
   return nextSnapshot();
 }
 
-function appendDiceLog(user, log, flavor = '') {
-  const previewFlavor = user?.role === 'master' ? '' : flavor;
-
-  return commitBattleMapState({
+function appendDiceLog(user, log) {
+  commitBattleMapState({
     ...battleMapState,
     diceLogs: [log, ...battleMapState.diceLogs].slice(0, 30),
-    latestDicePreview:
-      typeof previewFlavor === 'string' && previewFlavor.trim()
-        ? {
-            id: randomUUID(),
-            flavor: previewFlavor,
-            log,
-          }
-        : battleMapState.latestDicePreview,
+    latestDicePreview: null,
   }, {
     recordMasterUndo: user?.role === 'master',
     validate: false,
   });
+  return nextSnapshot(user);
 }
 
 function updateSharedNotes(user, notes) {
@@ -776,6 +861,9 @@ function startCombatAnnouncement() {
 }
 
 function clearBattleMapDiceLogs(user) {
+  if (user.role !== 'master') {
+    return { status: 403, message: 'Solo il Master può cancellare il log dei dadi.' };
+  }
   return commitBattleMapState({
     ...battleMapState,
     diceLogs: [],
@@ -1104,7 +1192,11 @@ function undoLastAction(user) {
       return { status: 400, message: 'Nessuna azione da annullare.' };
     }
 
-    battleMapState = normalizeSharedState(previousState);
+    battleMapState = normalizeSharedState({
+      ...previousState,
+      diceLogs: battleMapState.diceLogs,
+      latestDicePreview: battleMapState.latestDicePreview,
+    });
     bumpBattleMapVersion();
     broadcastSnapshot();
     return { status: 200, snapshot: nextSnapshot() };
@@ -1524,14 +1616,23 @@ app.post('/api/battle-map/dice-logs', async (request, reply) => {
   if (!user) {
     return;
   }
+  reply.code(410);
+  return { message: 'Questo endpoint non accetta più log dal client. Usa /rolls.' };
+});
 
-  const body = request.body ?? {};
-  if (!body.log || typeof body.log !== 'object') {
-    reply.code(400);
-    return { message: 'Payload log non valido.' };
+app.post('/api/battle-map/rolls', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
   }
 
-  return appendDiceLog(user, body.log, typeof body.flavor === 'string' ? body.flavor : '');
+  const result = createAuthoritativeRoll(user, request.body ?? {});
+  if (result.error) {
+    reply.code(400);
+    return { message: result.error, ...nextSnapshot(user) };
+  }
+
+  return appendDiceLog(user, result.log);
 });
 
 app.delete('/api/battle-map/dice-logs', async (request, reply) => {
@@ -1540,7 +1641,12 @@ app.delete('/api/battle-map/dice-logs', async (request, reply) => {
     return;
   }
 
-  return clearBattleMapDiceLogs(user);
+  const result = clearBattleMapDiceLogs(user);
+  if (result.status && result.status !== 200) {
+    reply.code(result.status);
+    return { message: result.message, ...nextSnapshot(user) };
+  }
+  return result;
 });
 
 app.post('/api/battle-map/notes', async (request, reply) => {

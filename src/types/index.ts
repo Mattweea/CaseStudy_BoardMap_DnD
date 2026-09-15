@@ -99,6 +99,7 @@ export interface BattleMapState {
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
   roundNumber: number;
+  turnNotice?: { id: number; kind: 'next' | 'turn' } | null;
   movementUsedByTokenId: Record<string, number>;
   movementAxisUsageByTokenId: Record<string, MovementAxisUsage>;
   dashUsedByTokenId: Record<string, boolean>;
@@ -117,6 +118,7 @@ export interface BattleMapSharedState {
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
   roundNumber: number;
+  turnNotice?: { id: number; kind: 'next' | 'turn' } | null;
   movementUsedByTokenId: Record<string, number>;
   movementAxisUsageByTokenId: Record<string, MovementAxisUsage>;
   dashUsedByTokenId: Record<string, boolean>;
@@ -172,6 +174,14 @@ export interface DiceRollLog {
   total: number;
   modifier: number;
   mode: RollMode;
+  authorUserId: string;
+  visibility: 'public' | 'secret';
+}
+
+export interface DiceRollRequest {
+  formula: string;
+  visibility: 'public' | 'secret';
+  mode?: RollMode;
 }
 
 export interface InitiativeEntry {

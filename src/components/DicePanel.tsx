@@ -1,194 +1,51 @@
-import type { CharacterKey } from '../types';
-import { useEffect, useRef, useState } from 'react';
-import type { DiceRollLog, DiceType, RollMode } from '../types';
+import { useState } from 'react';
+import type { DiceRollRequest, DiceType, RollMode } from '../types';
+import { DICE_OPTIONS } from '../utils/dice';
 import { DiceGlyph, numericDiceToIconType } from './DiceIcons';
-import { DICE_OPTIONS, rollDice } from '../utils/dice';
+import { Modal } from './Modal';
 
-const ROLLING_FLAVORS = [
-  'I dadi rimbalzano sul tavolo del DM...',
-  'Lo schermo del master trema appena...',
-  'Le ossa del fato stanno ancora girando...',
-];
+interface DicePanelProps { onRoll: (request: DiceRollRequest) => Promise<{ ok: boolean; message?: string } | undefined>; }
+const initialCounts = Object.fromEntries(DICE_OPTIONS.map((die) => [die, 0])) as Record<DiceType, number>;
 
-const ROLLING_DURATION_MS = 520;
-
-interface DicePanelProps {
-  logsCount: number;
-  actorKey?: CharacterKey | null;
-  rollerName?: string | null;
-  isResultOpen: boolean;
-  onAddLog: (log: DiceRollLog, flavor?: string) => void;
-  onOpenLogs: () => void;
-}
-
-export function DicePanel({
-  logsCount,
-  actorKey,
-  rollerName,
-  isResultOpen,
-  onAddLog,
-  onOpenLogs,
-}: DicePanelProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [diceType, setDiceType] = useState<DiceType>(20);
-  const [count, setCount] = useState(1);
-  const [modifier, setModifier] = useState(0);
+export function DicePanel({ onRoll }: DicePanelProps) {
+  const [selectedDie, setSelectedDie] = useState<DiceType | null>(null);
+  const [counts, setCounts] = useState<Record<DiceType, number>>({ ...initialCounts });
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [visibility, setVisibility] = useState<DiceRollRequest['visibility']>('public');
+  const [modifierInput, setModifierInput] = useState('');
   const [mode, setMode] = useState<RollMode>('normal');
-  const [label, setLabel] = useState('');
+  const [command, setCommand] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
   const [isRolling, setIsRolling] = useState(false);
-  const rollingTimeoutRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (rollingTimeoutRef.current !== null) {
-        window.clearTimeout(rollingTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isResultOpen || !isRolling) {
-      return;
-    }
-
-    setMode('normal');
-    setLabel('');
+  const count = selectedDie ? counts[selectedDie] : 0;
+  const modifier = Number(modifierInput) || 0;
+  const formula = `${Math.max(1, count)}d${selectedDie ?? 20}${modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : modifier}`;
+  const changeCount = (die: DiceType, delta: number) => { setSelectedDie(die); setCounts((current) => ({ ...current, [die]: Math.max(0, Math.min(20, current[die] + delta)) })); };
+  const resetDice = () => { setCounts({ ...initialCounts }); setSelectedDie(null); setModifierInput(''); setMode('normal'); setVisibility('public'); };
+  const submit = async () => { if (isRolling || count < 1) return; setIsRolling(true); setMessage(null); const result = await onRoll({ formula, visibility, mode }); if (!result?.ok) setMessage(result?.message ?? 'Tiro non riuscito.'); else { setIsConfigOpen(false); resetDice(); } setIsRolling(false); };
+  const submitCommand = async () => {
+    const match = command.trim().match(/^\/r\s+(.+)$/i);
+    if (!match || isRolling) { setMessage('Usa /r seguito dalla formula, ad esempio /r 1d20+5.'); return; }
+    setIsRolling(true); setMessage(null);
+    const result = await onRoll({ formula: match[1], visibility: 'public', mode: 'normal' });
+    if (!result?.ok) setMessage(result?.message ?? 'Tiro non riuscito.'); else { setCommand(''); resetDice(); }
     setIsRolling(false);
-  }, [isResultOpen, isRolling]);
-
-  const handleRoll = () => {
-    if (isRolling) {
-      return;
-    }
-
-    const nextFlavor = ROLLING_FLAVORS[Math.floor(Math.random() * ROLLING_FLAVORS.length)];
-    setIsRolling(true);
-
-    rollingTimeoutRef.current = window.setTimeout(() => {
-      const result = rollDice(diceType, count, modifier, mode);
-
-      const log: DiceRollLog = {
-        id: crypto.randomUUID(),
-        label: label.trim() || result.label,
-        formula: result.label,
-        rollerName: rollerName ?? undefined,
-        timestamp: new Date().toLocaleString('it-IT'),
-        rolls: result.rolls,
-        keptRolls: result.keptRolls,
-        total: result.total,
-        modifier,
-        mode,
-      };
-
-      onAddLog(log, actorKey === 'master' ? undefined : nextFlavor);
-      rollingTimeoutRef.current = null;
-    }, ROLLING_DURATION_MS);
   };
 
-  return (
-    <section className="sidebar__section">
-      <div className="panel-heading panel-heading--compact">
-        <div>
-          <p className="eyebrow">Dice Roller</p>
-          <h2>Tira i dadi</h2>
-        </div>
-        <div className="dice-panel__header-actions">
-          <button
-            type="button"
-            className="secondary-button secondary-button--tiny"
-            onClick={() => setIsCollapsed((current) => !current)}
-            aria-expanded={!isCollapsed}
-          >
-            {isCollapsed ? 'Espandi' : 'Comprimi'}
-          </button>
-          <button type="button" className="secondary-button secondary-button--tiny" onClick={onOpenLogs}>
-            Log ({logsCount})
-          </button>
-        </div>
+  return <section className="dice-panel" aria-label="Controlli dadi">
+    <div className="dice-panel__tray" aria-label="Scegli dadi: click sinistro aggiunge, destro rimuove">
+      {DICE_OPTIONS.map((die) => <button key={die} type="button" className={`dice-chip ${selectedDie === die ? 'dice-chip--active' : ''}`} aria-pressed={selectedDie === die} onClick={() => changeCount(die, 1)} onContextMenu={(event) => { event.preventDefault(); changeCount(die, -1); }} aria-label={`d${die}, quantità ${counts[die]}. Click aggiunge, click destro rimuove.`}><DiceGlyph type={numericDiceToIconType[die]} className="dice-chip__icon" /><span className="dice-chip__shape">d{die}</span>{counts[die] ? <b className="dice-chip__count">{counts[die]}</b> : null}</button>)}
+    </div>
+    <div className="dice-panel__actions"><span aria-live="polite">{count ? `${count}d${selectedDie}` : 'Scegli un dado'}</span><button type="button" className="primary-button" onClick={() => setIsConfigOpen(true)} disabled={!count}>Tira</button></div>
+    <textarea className="dice-panel__chat-input" value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submitCommand(); } }} placeholder="Scrivi /r 1d20+5 e premi Invio" rows={2} aria-label="Comando dadi" />
+    {message ? <p className="dice-panel__error" role="alert">{message}</p> : null}
+    <Modal title={`Tira ${Math.max(1, count)}d${selectedDie}`} isOpen={isConfigOpen} onClose={() => setIsConfigOpen(false)} className="modal-card--dice" backdropClassName="modal-backdrop--map">
+      <div className="dice-roll-config">
+        <fieldset className="dice-roll-config__group"><legend>Modificatore</legend><input className="dice-roll-config__modifier" type="number" min="-1000" max="1000" value={modifierInput} placeholder="0" onChange={(event) => setModifierInput(event.target.value)} /></fieldset>
+        <fieldset className="dice-roll-config__group"><legend>Modalità</legend>{(['normal', 'advantage', 'disadvantage'] as RollMode[]).map((value) => <button key={value} type="button" className={mode === value ? 'dice-choice dice-choice--active' : 'dice-choice'} aria-pressed={mode === value} onClick={() => setMode(value)}>{value === 'normal' ? 'Normale' : value === 'advantage' ? 'Vantaggio' : 'Svantaggio'}</button>)}</fieldset>
+        <fieldset className="dice-roll-config__group"><legend>Visibilità</legend>{(['public', 'secret'] as const).map((value) => <button key={value} type="button" className={visibility === value ? 'dice-choice dice-choice--active' : 'dice-choice'} aria-pressed={visibility === value} onClick={() => setVisibility(value)}>{value === 'public' ? 'Pubblico' : 'Segreto'}</button>)}</fieldset>
+        <button type="button" className="primary-button" onClick={() => void submit()} disabled={isRolling}>{isRolling ? 'Il fato decide…' : `Tira ${formula}`}</button>
       </div>
-
-      {!isCollapsed ? (
-        <>
-          <div className="dice-grid">
-            <div className="dice-picker">
-              <span className="dice-picker__label">Dado</span>
-              <div className="dice-picker__list">
-                {DICE_OPTIONS.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    className={`dice-chip ${diceType === option ? 'dice-chip--active' : ''}`}
-                    onClick={() => setDiceType(option)}
-                    aria-pressed={diceType === option}
-                    aria-label={`Seleziona dado d${option}`}
-                  >
-                    <DiceGlyph type={numericDiceToIconType[option]} className="dice-chip__icon" />
-                    <span className="dice-chip__shape">d{option}</span>
-                  </button>
-                ))}
-
-                <label className="dice-picker__field dice-picker__field--compact">
-                  Quantita
-                  <input
-                    type="number"
-                    min="1"
-                    value={count}
-                    onChange={(event) => setCount(Number(event.target.value) || 1)}
-                    disabled={mode !== 'normal'}
-                  />
-                </label>
-
-                <label className="dice-picker__field dice-picker__field--compact">
-                  Modificatore
-                  <input
-                    type="number"
-                    value={modifier}
-                    onChange={(event) => setModifier(Number(event.target.value) || 0)}
-                  />
-                </label>
-              </div>
-            </div>
-
-            <label>
-              Modalita
-              <select value={mode} onChange={(event) => setMode(event.target.value as RollMode)}>
-                <option value="normal">Normale</option>
-                <option value="advantage">Vantaggio</option>
-                <option value="disadvantage">Svantaggio</option>
-              </select>
-            </label>
-          </div>
-
-          <label>
-            Etichetta log
-            <input
-              type="text"
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-              placeholder="Es. Attacco spada lunga"
-            />
-          </label>
-
-          {rollerName ? (
-            <p className="dice-panel__actor">
-              Tiro di: {rollerName}
-              {actorKey === 'master' ? ' (master)' : ''}
-            </p>
-          ) : null}
-          {rollerName ? (
-            <p className="dice-panel__hint">Il log dei dadi e sempre associato al profilo online in sessione.</p>
-          ) : null}
-
-          <button
-            type="button"
-            className={`primary-button dice-panel__roll-button ${isRolling ? 'dice-panel__roll-button--rolling' : ''}`}
-            onClick={handleRoll}
-            disabled={isRolling}
-          >
-            {isRolling ? 'Il fato decide...' : 'Tira dado'}
-          </button>
-        </>
-      ) : null}
-    </section>
-  );
+    </Modal>
+  </section>;
 }

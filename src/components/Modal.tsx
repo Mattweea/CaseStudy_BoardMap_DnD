@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useAnimatedPresence } from '../hooks/useAnimatedPresence';
 
 const MODAL_EXIT_DURATION_MS = 220;
@@ -10,9 +11,10 @@ interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   className?: string;
+  backdropClassName?: string;
 }
 
-export function Modal({ title, isOpen, onClose, children, className }: ModalProps) {
+export function Modal({ title, isOpen, onClose, children, className, backdropClassName }: ModalProps) {
   const { shouldRender, isVisible } = useAnimatedPresence(isOpen, MODAL_EXIT_DURATION_MS);
 
   useEffect(() => {
@@ -34,9 +36,9 @@ export function Modal({ title, isOpen, onClose, children, className }: ModalProp
     return null;
   }
 
-  return (
+  return createPortal(
     <div
-      className="modal-backdrop"
+      className={['modal-backdrop', backdropClassName].filter(Boolean).join(' ')}
       data-state={isVisible ? 'open' : 'closed'}
       onClick={onClose}
       role="presentation"
@@ -60,5 +62,5 @@ export function Modal({ title, isOpen, onClose, children, className }: ModalProp
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
