@@ -11,6 +11,13 @@ import {
 import { openDatabase } from '../database/connection.mjs';
 import { bootstrapRoster, AuthService } from './auth-service.mjs';
 import { UserRepository } from './user-repository.mjs';
+import { bootstrapCharacterSheets } from './character-sheet-bootstrap.mjs';
+import { CharacterSheetPolicy } from './character-sheet-policy.mjs';
+import { broadcastCharacterSheetEvent as broadcastSheetEvent } from './character-sheet-events.mjs';
+import { CharacterSheetRepository } from './character-sheet-repository.mjs';
+import { registerCharacterSheetRoutes } from './character-sheet-routes.mjs';
+import { CharacterSheetService } from './character-sheet-service.mjs';
+import { PortraitStorage } from './portrait-storage.mjs';
 
 const app = Fastify({
   logger: true,
@@ -23,6 +30,7 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_DATA_DIR = path.join(SERVER_DIR, 'data');
 const SESSION_SNAPSHOT_PATH = path.join(SESSION_DATA_DIR, 'last-session.json');
+const PORTRAIT_STORAGE_PATH = path.join(SESSION_DATA_DIR, 'portraits');
 
 const DEFAULT_TOKEN_COLORS = {
   player: '#2f9e44',
@@ -770,6 +778,22 @@ function broadcastSnapshot() {
   });
 }
 
+function broadcastCharacterSheetEvent(event, sheet) {
+  broadcastSheetEvent(streamClients, event, sheet, characterSheetPolicy);
+}
+
+function projectCharacterSheetToToken(ownerUserId, updates) {
+  const tokenIndex = battleMapState.tokens.findIndex(
+    (token) => token.ownerUserId === ownerUserId && token.type === 'player' && token.isFamiliar !== true,
+  );
+  if (tokenIndex < 0) return;
+  const nextTokens = [...battleMapState.tokens];
+  nextTokens[tokenIndex] = { ...nextTokens[tokenIndex], ...updates };
+  battleMapState = normalizeSharedState({ ...battleMapState, tokens: nextTokens });
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+}
+
 function replaceBattleMapState(nextState) {
   return commitBattleMapState({
     ...nextState,
@@ -1266,6 +1290,9 @@ const sessionStore = new Map();
 let database;
 let userRepository;
 let authService;
+let characterSheetService;
+const characterSheetPolicy = new CharacterSheetPolicy();
+const portraitStorage = new PortraitStorage(PORTRAIT_STORAGE_PATH);
 
 function parseCookies(headerValue) {
   if (!headerValue) {
@@ -1513,7 +1540,7 @@ app.addHook('onRequest', async (request, reply) => {
     reply.header('Access-Control-Allow-Origin', origin);
     reply.header('Access-Control-Allow-Credentials', 'true');
     reply.header('Access-Control-Allow-Headers', 'Content-Type');
-    reply.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    reply.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
     reply.header('Vary', 'Origin');
   }
 
@@ -1562,6 +1589,7 @@ app.post('/api/auth/login', async (request, reply) => {
 });
 
 app.post('/api/auth/logout', async (request, reply) => {
+  try { characterSheetService?.flushAll(); } catch (error) { app.log.error(error, 'Unable to flush character sheets during logout.'); }
   const cookies = parseCookies(request.headers.cookie);
   const sessionId = cookies[SESSION_COOKIE];
   if (sessionId) {
@@ -1801,6 +1829,7 @@ app.post('/api/battle-map/session/suspend', async (request, reply) => {
     return;
   }
 
+  characterSheetService.flushAll();
   const snapshot = await saveCurrentSessionSnapshot();
   return snapshot;
 });
@@ -1860,15 +1889,43 @@ async function start() {
   database = openDatabase();
   try {
     await bootstrapRoster(database, CHARACTER_PROFILES);
+    bootstrapCharacterSheets(database, CHARACTER_PROFILES);
   } catch (error) {
     database.close();
     throw new Error(`Database non pronto: ${error.message} Esegui npm run db:migrate.`);
   }
   userRepository = new UserRepository(database);
   authService = new AuthService(userRepository, sessionStore, SESSION_TTL_MS, CHARACTER_PROFILES.map((profile) => profile.id));
-  app.addHook('onClose', async () => database.close());
+  const characterSheetRepository = new CharacterSheetRepository(database);
+  characterSheetService = new CharacterSheetService({
+    repository: characterSheetRepository,
+    policy: characterSheetPolicy,
+    emit: broadcastCharacterSheetEvent,
+    projectToken: projectCharacterSheetToToken,
+  });
+  await portraitStorage.initialize();
+  await registerCharacterSheetRoutes(app, { service: characterSheetService, portraitStorage, getUser: getSessionUser });
+  app.addHook('onClose', async () => {
+    characterSheetService.flushAll();
+    database.close();
+  });
   await loadPersistedSessionMetadata();
   await app.listen({ port: PORT, host: HOST });
+  let isShuttingDown = false;
+  const shutdown = async (signal) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    app.log.info({ signal }, 'Graceful shutdown requested.');
+    try {
+      await app.close();
+      process.exitCode = 0;
+    } catch (error) {
+      app.log.error(error, 'Graceful shutdown failed.');
+      process.exitCode = 1;
+    }
+  };
+  process.once('SIGINT', () => { void shutdown('SIGINT'); });
+  process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
 }
 
 start().catch((error) => {

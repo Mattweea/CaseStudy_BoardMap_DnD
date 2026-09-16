@@ -70,6 +70,8 @@ export interface UnitToken {
   groupId?: string | null;
   hitPoints?: number | null;
   maxHitPoints?: number | null;
+  temporaryHitPoints?: number | null;
+  speed?: string | null;
   isInvisible?: boolean;
   isFamiliar?: boolean;
   blocksMovement?: boolean;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AuthScreen } from './components/AuthScreen';
 import { Board } from './components/Board';
+import { CharacterSheetWindow } from './components/character-sheet/CharacterSheetWindow';
 import { DiceLogModal } from './components/DiceLogModal';
 import { DicePanel } from './components/DicePanel';
 import { DiceGlyph, numericDiceToIconType } from './components/DiceIcons';
@@ -16,6 +17,8 @@ import { useBattleMapState } from './hooks/useBattleMapState';
 import { getTokenFootprint } from './utils/board';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
+import { characterSheetApi } from './utils/characterSheetApi';
+import type { CharacterSheetRosterEntry } from './utils/characterSheetApi';
 import type { CombatAnnouncement, DiceRollLog, DiceType, UnitToken } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
 
@@ -205,6 +208,8 @@ function App() {
   const [combatAnnouncement, setCombatAnnouncement] = useState<CombatAnnouncement | null>(null);
   const [isCombatAnnouncementOpen, setIsCombatAnnouncementOpen] = useState(false);
   const [draftNotes, setDraftNotes] = useState('');
+  const [characterSheets, setCharacterSheets] = useState<CharacterSheetRosterEntry[]>([]);
+  const [openCharacterSheetId, setOpenCharacterSheetId] = useState<string | null>(null);
   const [boardFullscreenPhase, setBoardFullscreenPhase] = useState<
     'closed' | 'opening' | 'open' | 'closing'
   >('closed');
@@ -217,6 +222,19 @@ function App() {
   const lastCombatAnnouncementIdRef = useRef<string | null>(null);
   const sessionFeedbackTimeoutRef = useRef<number | null>(null);
   const combatAnnouncementTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!user) { setCharacterSheets([]); setOpenCharacterSheetId(null); return; }
+    let active = true;
+    void characterSheetApi.list().then(({ sheets }) => { if (active) setCharacterSheets(sheets); }).catch(console.error);
+    const onPortrait = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { type: string; sheetId: string; ownerUserId: string; portraitUrl: string; portraitUpdatedAt: string };
+      if (detail.type !== 'character-sheet-portrait') return;
+      setCharacterSheets((current) => current.map((sheet) => sheet.id === detail.sheetId ? { ...sheet, portraitUrl: detail.portraitUrl, portraitUpdatedAt: detail.portraitUpdatedAt } : sheet));
+    };
+    window.addEventListener('vtt:character-sheet-event', onPortrait);
+    return () => { active = false; window.removeEventListener('vtt:character-sheet-event', onPortrait); };
+  }, [user]);
 
   useEffect(() => {
     if (workspaceTab !== 'chat') return;
@@ -1125,12 +1143,17 @@ function App() {
         return (
           <section key="characters" className="sidebar__section character-roster">
             <div className="panel-heading"><div><p className="eyebrow">Roster</p><h2>Personaggi</h2></div></div>
-            {CHARACTER_PROFILES.map((profile) => {
+            {CHARACTER_PROFILES.filter((profile) => profile.role === 'adventurer').map((profile) => {
               const token = state.tokens.find((entry) => entry.characterKey === profile.key);
+              const sheet = characterSheets.find((entry) => entry.ownerUserId === profile.id);
+              const canOpenSheet = Boolean(sheet && (user?.role === 'master' || user?.id === profile.id));
               return <article className="character-roster__entry" key={profile.key}>
-                <img src={profile.imageUrl} alt="" />
+                <img src={sheet?.portraitUrl ?? profile.imageUrl} alt="" />
                 <strong>{profile.displayName}</strong>
-                {token ? <button type="button" className="secondary-button secondary-button--tiny" onClick={() => locateToken(token.id)}>Localizza</button> : <span>Fuori scena</span>}
+                <div className="character-roster__actions">
+                  {token ? <button type="button" className="secondary-button secondary-button--tiny" onClick={() => locateToken(token.id)}>Localizza</button> : <span>Fuori scena</span>}
+                  {canOpenSheet ? <button type="button" className="secondary-button secondary-button--tiny" onClick={() => setOpenCharacterSheetId(sheet!.id)}>Apri scheda</button> : null}
+                </div>
               </article>;
             })}
           </section>
@@ -1491,6 +1514,13 @@ function App() {
           });
         }}
         onDuplicateToken={(tokenId) => duplicateToken(tokenId)}
+      />
+
+      <CharacterSheetWindow
+        sheetId={openCharacterSheetId}
+        isOpen={openCharacterSheetId !== null}
+        title={CHARACTER_PROFILES.find((profile) => characterSheets.find((sheet) => sheet.id === openCharacterSheetId)?.ownerUserId === profile.id)?.displayName ?? 'Scheda del personaggio'}
+        onClose={() => setOpenCharacterSheetId(null)}
       />
 
       <div className="combat-announcement-overlay" data-state={isCombatAnnouncementOpen ? 'open' : 'closed'}>

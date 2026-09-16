@@ -1,16 +1,4 @@
-function isLocalHostname(hostname: string) {
-  return hostname === 'localhost' || hostname === '127.0.0.1';
-}
-
 function resolveLocalApiBaseUrl() {
-  if (typeof window === 'undefined') {
-    return '/api';
-  }
-
-  if (isLocalHostname(window.location.hostname)) {
-    return 'http://localhost:3001/api';
-  }
-
   return '/api';
 }
 

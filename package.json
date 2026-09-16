@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "test": "node --test",
     "dev": "vite",
     "dev:client": "vite",
     "dev:server": "node --watch server/index.mjs",
@@ -17,6 +18,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fastify/multipart": "^8.3.1",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.10.0",
     "fastify": "^4.29.1",

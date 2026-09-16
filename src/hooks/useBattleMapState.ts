@@ -487,6 +487,14 @@ export function useBattleMapState(isAuthenticated: boolean) {
         console.error(error);
       }
     };
+    const relayCharacterSheetEvent = (event: MessageEvent) => {
+      try {
+        window.dispatchEvent(new CustomEvent('vtt:character-sheet-event', { detail: JSON.parse(event.data) }));
+      } catch (error) { console.error(error); }
+    };
+    eventSource.addEventListener('character-sheet-patch', relayCharacterSheetEvent as EventListener);
+    eventSource.addEventListener('character-sheet-persistence', relayCharacterSheetEvent as EventListener);
+    eventSource.addEventListener('character-sheet-portrait', relayCharacterSheetEvent as EventListener);
     eventSource.onerror = () => {
       // EventSource reconnects automatically using the retry interval supplied by the server.
     };
