@@ -52,3 +52,11 @@
 - [x] 6.6 Rendere ogni privilegio una riga singola con nome, fonte selezionabile e descrizione, preceduta da un filtro di testo che restringe l'elenco senza modificare i dati.
 - [x] 6.7 Eseguire suite automatica, type-check e build di produzione dopo la riorganizzazione; verificare che tutti i comandi terminino con successo.
 - [x] 6.8 Riacquisire gli screenshot della tab a viewport desktop e stretto e rivedere proporzioni della finestra, densità delle tre colonne, leggibilità dei riquadri stretti delle caratteristiche e assenza di overflow orizzontale.
+
+## 7. Rework visivo Grimorio di brace
+
+- [x] 7.1 Riscrivere i token della scheda nella palette Grimorio di brace e sostituire le cornici basate su `clip-path` con smussi che non tagliano il focus; verificare contrasto AA dei testi e indicatore di focus integro su tutti i controlli.
+- [x] 7.2 Introdurre il font display a cifre tabulari per i valori e invertire la gerarchia fra modificatore e punteggio delle caratteristiche; verificare allineamento delle colonne numeriche.
+- [x] 7.3 Aggiungere la barra dei punti ferita con soglie di tono e strato dei temporanei, puramente visiva; verificare valori vuoti, non numerici e oltre il massimo.
+- [x] 7.4 Mostrare i pulsanti di rimozione riga solo al passaggio del puntatore o con il focus nella riga, aggiungere la transizione fra tab e l'impulso sullo stato di salvataggio nel rispetto di `prefers-reduced-motion`; verificare da tastiera e con reduced motion.
+- [x] 7.5 Acquisire screenshot delle tre tab a viewport desktop e stretto e verificare coerenza con la sessione, leggibilità e assenza di regressioni di build e test.

@@ -13,7 +13,7 @@ La scheda deve seguire i contenuti delle tre pagine di `5E_CharacterSheet_Fillab
 - Separare lo stato live autorevole dalla frequenza di persistenza, senza perdere i dati nei normali punti di uscita.
 - Applicare autorizzazioni e filtraggio SSE sul server, inclusi gli asset del ritratto.
 - Integrare soltanto i valori esplicitamente condivisi con il token, con un flusso privo di aggiornamenti circolari.
-- Tradurre la composizione del PDF in un sistema visivo web riconoscibile, accessibile e responsive.
+- Tradurre la gerarchia del PDF in un sistema visivo web scuro, coerente con la sessione, accessibile e responsive.
 
 **Non-Goals:**
 
@@ -74,9 +74,11 @@ Il contenitore coordinerà `useCharacterSheet`, indicatore di salvataggio e conf
 
 Un unico componente monolitico in `App.tsx` è stato scartato per la quantità di campi e stati. Una pagina separata e un dialog modale con fondale bloccante sono stati scartati perché perderebbero il contesto visivo della mappa e impedirebbero il flusso multitasking mostrato dalla reference Roll20.
 
-### 9. Sistema visivo derivato dalla composizione del PDF
+### 9. Sistema visivo "Grimorio di brace" derivato dalla composizione del PDF
 
-Le tre pagine renderizzate di `5E_CharacterSheet_Fillable.pdf` saranno il riferimento per gerarchia e contenuti, mentre la finestra personaggio Roll20 fornita dal creator sarà il riferimento per proporzioni, densità e comportamento nel workspace. La UI userà una cornice applicativa sottile e neutra attorno a un foglio chiaro, con inchiostro quasi nero, grigi strutturali, spessori delle cornici, raggi e smussi, spaziatura, etichette compatte e tipografia. Componenti riutilizzabili come `SheetPanel`, `FramedValue`, `SectionLabel`, `AbilityBlock` e `SpellLevelSection` costruiranno la stessa grammatica visiva senza incorporare il PDF come sfondo.
+Le tre pagine renderizzate di `5E_CharacterSheet_Fillable.pdf` saranno il riferimento per gerarchia e contenuti, mentre la finestra personaggio Roll20 fornita dal creator sarà il riferimento per proporzioni, densità e comportamento nel workspace. La superficie seguirà la direzione "Grimorio di brace", coerente con il mondo cromatico della sessione: token per superfici carbone e bordeaux profondo, inchiostro avorio, toni attenuati, cornici, accento brace riservato a focus e stato di salvataggio, stati dei punti ferita e un font display condensato a cifre tabulari per i valori. Gli smussi dei riquadri saranno ottenuti con bordi e sfondi invece di `clip-path`, così da non tagliare focus e ombre. Il modificatore delle caratteristiche diventerà il numero primario e i punti ferita avranno una barra puramente visiva derivata dai valori inseriti. Componenti riutilizzabili come `SheetPanel`, `FramedValue`, `SectionLabel`, `AbilityBlock` e `SpellLevelSection` costruiranno la stessa grammatica visiva senza incorporare il PDF come sfondo.
+
+Il foglio chiaro fedele alla stampa è stato scartato perché crea uno stacco di luminosità con la mappa scura durante la sessione; un tema glass o neon generico è stato scartato perché perderebbe il legame con la gerarchia del PDF.
 
 Sul desktop ogni tab userà CSS Grid per preservare i gruppi e i rapporti principali della pagina dentro una superficie più stretta: due colonne principali nella prima tab con i pannelli narrativi a tutta larghezza, grandi pannelli asimmetrici nella seconda e due colonne verticali di livelli nella terza. La scheda privilegerà lo sviluppo e lo scorrimento verticale invece di espandersi orizzontalmente. A larghezze inferiori, i gruppi seguiranno l'ordine di lettura del PDF in una sola colonna. I campi manterranno target e testo leggibili, focus visibile e contrasto conforme all'interfaccia esistente anche quando ciò richiede dimensioni maggiori rispetto alla stampa.
 
@@ -100,6 +102,7 @@ Una sincronizzazione bidirezionale è stata scartata in questa milestone perché
 - [Una finestra trascinata può finire fuori schermo dopo un ridimensionamento] → limitare ogni movimento al viewport e ricontrollare la posizione all'apertura e al resize.
 - [La finestra non modale può confondere l'ordine del focus] → usare una testata focalizzabile con istruzioni accessibili, mantenere Escape e ripristino del focus e lasciare un ordine di tabulazione naturale tra scheda e workspace.
 - [La fedeltà al foglio stampato può ridurre leggibilità o flessibilità] → preservare gerarchia e identità visiva, ma lasciare che accessibilità, contenuti dinamici e breakpoint determinino dimensioni e riflusso.
+- [Una superficie scura con testi piccoli e densi può ridurre la leggibilità] → token con contrasto AA verificato, etichette di almeno circa 11px e cifre tabulari per i valori.
 - [La proiezione unidirezionale può sorprendere chi modifica direttamente il token] → indicare nell'interfaccia quali valori sono collegati e documentare che la scheda li governa in P0.4.
 
 ## Migration Plan

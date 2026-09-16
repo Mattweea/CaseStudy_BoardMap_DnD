@@ -49,3 +49,12 @@ The narrow check reported no window or document horizontal overflow and exactly 
 - The overlay uses `pointer-events: none`, the window restores `pointer-events: auto`, and a click on the exposed map reached `.app-main` while the sheet remained open.
 - The character tab exposes 31 stable `data-roll-source` anchors across abilities, saving throws, skills, initiative, attacks and spell controls; no P0.5 roll command is rendered or executed.
 - Screenshots: `compact-roll20-character.png`, `compact-roll20-spells.png`, and `compact-roll20-narrow.png`.
+
+## Grimorio di brace visual rework
+
+- Tokens, chamfered plates (pseudo-element frames, no `clip-path` on focusable containers), Alegreya Sans / Alegreya Sans SC / Barlow Condensed with tabular figures, modifier-first ability blocks, visual-only HP meter, hover/focus-revealed row removal, tab entrance and saved pulse with `prefers-reduced-motion` fallbacks.
+- `npx tsc -b`, `npm test` (26 pass) and `npm run build` passed; the Impeccable detector reported no findings on the changed sheet files.
+- Screenshots captured with `tmp/p04-e2e/verify-grimorio.mjs` against a copy of the seeded test database at 1440×1000 and 390×844 for all three tabs (`grimorio-*.png`); every tab reported zero horizontal overflow, and the focus capture shows an intact ember ring on an ability modifier.
+- The rework exposed and fixed a latent resource-block overflow previously hidden by `clip-path`.
+- No roll affordance is shown: `data-roll-source` identifiers are unchanged and remain reserved for P0.5.
+

@@ -66,9 +66,9 @@ La scheda SHALL aprirsi dalla tab Personaggi in una finestra flottante e compatt
 - **WHEN** l'utente chiude e riapre la scheda sullo stesso dispositivo desktop
 - **THEN** la finestra riutilizza l'ultima posizione valida oppure la riporta entro il viewport se le dimensioni disponibili sono cambiate
 
-### Requirement: Resa grafica coerente con il PDF 5e
+### Requirement: Resa grafica derivata dal PDF 5e in direzione Grimorio di brace
 
-La scheda SHALL tradurre nel web la gerarchia grafica delle tre pagine di `5E_CharacterSheet_Fillable.pdf`. SHALL usare una superficie chiara ad alto contrasto, cornici scure ornamentali, pannelli e separatori grigio chiaro, etichette compatte, valori principali in riquadri sagomati e una composizione a colonne riconoscibile. SHALL preservare raggruppamento, peso visivo e ordine di lettura della pagina PDF corrispondente in ciascuna tab, adattandoli in modo responsive senza usare il logo o le illustrazioni del documento originale.
+La scheda SHALL tradurre nel web la gerarchia grafica delle tre pagine di `5E_CharacterSheet_Fillable.pdf`, preservando raggruppamento, peso visivo e ordine di lettura della pagina corrispondente in ciascuna tab e adattandoli in modo responsive. SHALL usare la direzione visiva "Grimorio di brace": superficie scura coerente con la sessione, testo avorio con contrasto almeno WCAG AA, valori principali in riquadri con angoli smussati che non tagliano l'indicatore di focus, etichette di almeno circa 11px e accento brace riservato a elementi interattivi e stato di salvataggio. SHALL NOT usare il logo o le illustrazioni del documento originale.
 
 #### Scenario: Confronto della tab Personaggio e combattimento
 
@@ -89,6 +89,19 @@ La scheda SHALL tradurre nel web la gerarchia grafica delle tre pagine di `5E_Ch
 
 - **WHEN** la larghezza non consente la composizione desktop a più colonne
 - **THEN** i gruppi si dispongono in un ordine verticale coerente con il PDF, restano leggibili e utilizzabili e non richiedono scorrimento orizzontale della finestra
+
+#### Scenario: Gerarchia dei valori in gioco
+
+- **WHEN** la tab `Personaggio e combattimento` è visibile
+- **THEN** il modificatore di ogni caratteristica è il numero primario e il punteggio è secondario
+- **AND** i punti ferita mostrano una barra non interattiva derivata da attuali e massimi, con tono che cambia sotto soglia e i temporanei come strato separato; con valori non numerici la barra non compare e nessun dato viene scritto
+
+#### Scenario: Focus e movimento
+
+- **WHEN** l'utente naviga la scheda da tastiera
+- **THEN** ogni controllo mostra un indicatore di focus integro e non tagliato
+- **AND** i pulsanti di rimozione delle righe diventano visibili al passaggio del puntatore o con il focus nella riga
+- **AND** le transizioni tra tab e gli indicatori animati rispettano `prefers-reduced-motion`
 
 ### Requirement: Dati di personaggio e combattimento
 
