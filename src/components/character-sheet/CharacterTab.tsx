@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import type {
   AbilityKey, CharacterSheetAttack, CharacterSheetData, CharacterSheetEquipmentItem, CharacterSheetFeature,
   CharacterSheetLanguage, CharacterSheetPatchOperation, CharacterSheetResourceSection, CharacterSheetRow, CharacterSheetTool, CoinKey, SkillKey,
@@ -18,6 +18,25 @@ const coins: Array<[CoinKey, string]> = [['cp', 'Monete di rame'], ['sp', 'Monet
 const proficiencyOptions = [['proficient', 'Competente'], ['expertise', 'Esperto'], ['none', 'Nessuna']] as const;
 const abilityOptions = [['', '—'], ...abilities.map(([key, label]) => [key, label] as const)] as ReadonlyArray<readonly [string, string]>;
 const featureSourceOptions = [['race', 'Razziale'], ['class', 'Classe'], ['feat', 'Talento'], ['background', 'Background'], ['item', 'Oggetto'], ['other', 'Altro']] as const;
+
+function readWholeNumber(value: string) {
+  return /^\s*-?\d+\s*$/.test(value) ? Number.parseInt(value, 10) : null;
+}
+
+// Purely visual: derived from the typed values, never written back to the sheet.
+function HitPointMeter({ maximum, current, temporary }: { maximum: string; current: string; temporary: string }) {
+  const max = readWholeNumber(maximum);
+  const now = readWholeNumber(current);
+  if (max === null || now === null || max <= 0) return null;
+  const currentRatio = Math.min(1, Math.max(0, now / max));
+  const tempRatio = Math.min(1 - currentRatio, Math.max(0, (readWholeNumber(temporary) ?? 0) / max));
+  const tone = currentRatio > .5 ? '' : currentRatio > .25 ? 'hp-meter--warn' : 'hp-meter--danger';
+  const style = { '--hp-current': currentRatio, '--hp-temp': tempRatio } as CSSProperties;
+  return <div className={`hp-meter ${tone}`} style={style} aria-hidden="true">
+    <span className="hp-meter__current" />
+    <span className="hp-meter__temp" />
+  </div>;
+}
 
 export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch: (operation: CharacterSheetPatchOperation) => void }) {
   const [featureFilter, setFeatureFilter] = useState('');
@@ -46,8 +65,8 @@ export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch:
         <div className="ability-rail">
           <div className="ability-stack">{abilities.map(([key, label, short]) => <div className="ability-block" key={key} data-roll-source={`ability:${key}`}>
             <span title={label}>{short}</span>
-            <input value={data.character.abilities[key].score} onChange={(event) => set(`character.abilities.${key}.score`)(event.target.value)} aria-label={`${label}: punteggio`} />
             <input className="ability-block__modifier" value={data.character.abilities[key].modifier} onChange={(event) => set(`character.abilities.${key}.modifier`)(event.target.value)} aria-label={`${label}: modificatore`} />
+            <input className="ability-block__score" value={data.character.abilities[key].score} onChange={(event) => set(`character.abilities.${key}.score`)(event.target.value)} aria-label={`${label}: punteggio`} />
           </div>)}</div>
           <div className="ability-rail__side">
             <FramedValue label="Ispirazione" value={data.character.inspiration} onChange={set('character.inspiration')} compact />
@@ -83,7 +102,7 @@ export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch:
           <FramedValue label="Iniziativa" value={data.character.initiativeModifier} onChange={set('character.initiativeModifier')} rollSource="initiative" />
           <FramedValue label="Velocità" value={data.character.speed} onChange={set('character.speed')} />
         </div>
-        <SheetPanel title="Punti ferita"><div className="hp-grid">
+        <SheetPanel title="Punti ferita"><HitPointMeter {...data.character.hitPoints} /><div className="hp-grid">
           <SheetField label="Massimi" value={data.character.hitPoints.maximum} onChange={set('character.hitPoints.maximum')} />
           <SheetField label="Attuali" value={data.character.hitPoints.current} onChange={set('character.hitPoints.current')} />
           <SheetField label="Temporanei" value={data.character.hitPoints.temporary} onChange={set('character.hitPoints.temporary')} />

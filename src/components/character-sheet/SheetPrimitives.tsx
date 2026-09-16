@@ -1,7 +1,7 @@
 import type { ChangeEvent, ReactNode } from 'react';
 
 export function SheetPanel({ title, className = '', children }: { title: string; className?: string; children: ReactNode }) {
-  return <section className={`sheet-panel ${className}`}><div className="sheet-panel__body">{children}</div><h3>{title}</h3></section>;
+  return <section className={`sheet-panel ${className}`}><h3>{title}</h3><div className="sheet-panel__body">{children}</div></section>;
 }
 
 export function SheetField({ label, value, onChange, className = '', multiline = false, type = 'text' }: {
