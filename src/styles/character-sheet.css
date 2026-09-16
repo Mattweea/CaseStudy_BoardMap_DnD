@@ -152,13 +152,13 @@
 .sheet-add-row { justify-self: start; padding: .3rem .55rem; border: 1px solid var(--sheet-rule); border-radius: 0; background: var(--sheet-paper-deep); color: var(--sheet-ink); font-size: .68rem; font-weight: 800; cursor: pointer; }
 
 .currency-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .35rem; margin-bottom: .35rem; }
-.coin-field { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: .2rem; padding: .16rem .34rem; border: 2px solid var(--sheet-ink); background: var(--sheet-paper); clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%); }
-.coin-field__badge { display: grid; place-items: center; width: 21px; height: 21px; border: 1px solid rgba(0, 0, 0, .45); border-radius: 50%; color: #2b1d0b; font: 900 .46rem/1 "Trebuchet MS", sans-serif; }
+.coin-field { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: .15rem; padding: .14rem .22rem; border: 2px solid var(--sheet-ink); background: var(--sheet-paper); }
+.coin-field__badge { display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid rgba(0, 0, 0, .45); border-radius: 50%; color: #2b1d0b; font: 900 .42rem/1 "Trebuchet MS", sans-serif; }
 .coin-field--cp .coin-field__badge { background: radial-gradient(circle at 32% 28%, #e3a978, #b87333 58%, #85481c); }
 .coin-field--sp .coin-field__badge { background: radial-gradient(circle at 32% 28%, #f3f5f7, #bfc5cb 58%, #8b9298); }
 .coin-field--gp .coin-field__badge { background: radial-gradient(circle at 32% 28%, #f7dc7a, #d4a017 58%, #9c7208); }
 .coin-field--pp .coin-field__badge { background: radial-gradient(circle at 32% 28%, #ffffff, #dfe6ec 58%, #a9b6c2); }
-.coin-field input { width: 100%; border: 0; background: transparent; text-align: center; font: 700 .82rem/1.2 "Trebuchet MS", sans-serif; }
+.coin-field input { width: 100%; padding-inline: 0; border: 0; background: transparent; text-align: center; font: 700 .78rem/1.2 "Trebuchet MS", sans-serif; }
 .equipment-total { justify-self: end; width: 8.5rem; margin-top: .25rem; }
 .equipment-total .sheet-field input, .equipment-total .sheet-field > span { text-align: right; }
 
@@ -166,8 +166,12 @@
 .traits-panel .sheet-field textarea { min-height: 4.4rem; }
 .resources-panel .sheet-panel__body { display: grid; gap: .55rem; }
 .resource-section { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
-.resource-block { display: grid; gap: .28rem; align-content: start; padding: 0; }
-.resource-block__counters { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }
+.resource-block { display: grid; gap: .2rem; align-content: start; padding: .4rem .45rem .3rem; border: 2px solid var(--sheet-ink); background: var(--sheet-paper); clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 0 calc(100% - 8px), 0 8px); }
+.resource-block__total input { padding: .12rem .2rem; font-size: .72rem; }
+.resource-block__total > span { font-size: .5rem; }
+.resource-block__current { margin-top: .15rem; text-align: center; }
+.resource-block__current input { border-bottom: 0; background: transparent; text-align: center; font: 800 1.75rem/1.1 Georgia, serif; }
+.resource-block__current > span { text-align: center; font-size: .55rem; }
 input.resource-block__caption { margin: .15rem 0 0; padding: .18rem .1rem; border: 0; border-top: 1px solid color-mix(in oklch, var(--sheet-rule) 45%, transparent); background: transparent; color: var(--sheet-ink); text-align: center; font: 900 .58rem/1.1 Georgia, serif; letter-spacing: .05em; text-transform: uppercase; }
 input.resource-block__caption::placeholder { color: var(--sheet-muted); opacity: 1; }
 .resource-section > .sheet-remove-row { position: absolute; top: -.4rem; right: -.4rem; background: var(--sheet-paper); }

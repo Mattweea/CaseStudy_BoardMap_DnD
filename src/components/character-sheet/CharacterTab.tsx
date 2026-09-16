@@ -54,27 +54,27 @@ export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch:
             <FramedValue label="Bonus competenza" value={data.character.proficiencyBonus} onChange={set('character.proficiencyBonus')} compact />
             <SheetPanel title="Tiri salvezza">{abilities.map(([key, label]) => <ProficiencyRow key={key} label={label} checked={data.character.savingThrows[key].proficient} value={data.character.savingThrows[key].value} onChecked={set(`character.savingThrows.${key}.proficient`)} onValue={set(`character.savingThrows.${key}.value`)} rollSource={`saving-throw:${key}`} />)}</SheetPanel>
             <SheetPanel title="Abilità" className="skills-panel">{skills.map(([key, label]) => <ProficiencyRow key={key} label={label} checked={data.character.skills[key].proficient} value={data.character.skills[key].value} onChecked={set(`character.skills.${key}.proficient`)} onValue={set(`character.skills.${key}.value`)} rollSource={`skill:${key}`} />)}</SheetPanel>
-            <FramedValue label="Percezione passiva" value={data.character.passivePerception} onChange={set('character.passivePerception')} compact />
-            <SheetPanel title="Strumenti e competenze" className="repeatable-panel">
-              <div className="repeatable-head tool-row"><span>Nome</span><span>Comp.</span><span>Attr.</span><span>Mod.</span><span /></div>
-              {data.character.tools.map((tool: CharacterSheetTool) => <div className="tool-row" key={tool.id} data-roll-source={`tool:${tool.id}`}>
-                <input value={tool.name} onChange={(event) => set(`character.tools.${tool.id}.name`)(event.target.value)} aria-label="Nome strumento" />
-                <SheetSelect label="Tipo di competenza" value={tool.proficiency} className="sheet-field--inline" options={proficiencyOptions} onChange={set(`character.tools.${tool.id}.proficiency`)} />
-                <SheetSelect label="Attributo" value={tool.ability} className="sheet-field--inline" options={abilityOptions} onChange={set(`character.tools.${tool.id}.ability`)} />
-                <input value={tool.modifier} onChange={(event) => set(`character.tools.${tool.id}.modifier`)(event.target.value)} aria-label="Modificatore" />
-                <RemoveRowButton label={`Rimuovi ${tool.name || 'strumento'}`} onRemove={remove(`character.tools.${tool.id}`)} />
-              </div>)}
-              <RowActions onAdd={add('tools', { id: crypto.randomUUID(), name: '', proficiency: 'proficient', ability: '', modifier: '' })} label="Aggiungi strumento" />
-            </SheetPanel>
-            <SheetPanel title="Linguaggi" className="repeatable-panel">
-              {data.character.languages.map((language: CharacterSheetLanguage) => <div className="language-row" key={language.id}>
-                <input value={language.name} onChange={(event) => set(`character.languages.${language.id}.name`)(event.target.value)} aria-label="Linguaggio" />
-                <RemoveRowButton label={`Rimuovi ${language.name || 'linguaggio'}`} onRemove={remove(`character.languages.${language.id}`)} />
-              </div>)}
-              <RowActions onAdd={add('languages', { id: crypto.randomUUID(), name: '' })} label="Aggiungi linguaggio" />
-            </SheetPanel>
           </div>
         </div>
+        <FramedValue label="Percezione passiva" value={data.character.passivePerception} onChange={set('character.passivePerception')} compact />
+        <SheetPanel title="Strumenti e competenze" className="repeatable-panel">
+          <div className="repeatable-head tool-row"><span>Nome</span><span>Comp.</span><span>Attr.</span><span>Mod.</span><span /></div>
+          {data.character.tools.map((tool: CharacterSheetTool) => <div className="tool-row" key={tool.id} data-roll-source={`tool:${tool.id}`}>
+            <input value={tool.name} onChange={(event) => set(`character.tools.${tool.id}.name`)(event.target.value)} aria-label="Nome strumento" />
+            <SheetSelect label="Tipo di competenza" value={tool.proficiency} className="sheet-field--inline" options={proficiencyOptions} onChange={set(`character.tools.${tool.id}.proficiency`)} />
+            <SheetSelect label="Attributo" value={tool.ability} className="sheet-field--inline" options={abilityOptions} onChange={set(`character.tools.${tool.id}.ability`)} />
+            <input value={tool.modifier} onChange={(event) => set(`character.tools.${tool.id}.modifier`)(event.target.value)} aria-label="Modificatore" />
+            <RemoveRowButton label={`Rimuovi ${tool.name || 'strumento'}`} onRemove={remove(`character.tools.${tool.id}`)} />
+          </div>)}
+          <RowActions onAdd={add('tools', { id: crypto.randomUUID(), name: '', proficiency: 'proficient', ability: '', modifier: '' })} label="Aggiungi strumento" />
+        </SheetPanel>
+        <SheetPanel title="Linguaggi" className="repeatable-panel">
+          {data.character.languages.map((language: CharacterSheetLanguage) => <div className="language-row" key={language.id}>
+            <input value={language.name} onChange={(event) => set(`character.languages.${language.id}.name`)(event.target.value)} aria-label="Linguaggio" />
+            <RemoveRowButton label={`Rimuovi ${language.name || 'linguaggio'}`} onRemove={remove(`character.languages.${language.id}`)} />
+          </div>)}
+          <RowActions onAdd={add('languages', { id: crypto.randomUUID(), name: '' })} label="Aggiungi linguaggio" />
+        </SheetPanel>
       </div>
 
       <div className="character-page__column character-page__combat">
@@ -132,10 +132,8 @@ export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch:
         <SheetPanel title="Risorse" className="resources-panel">
           {data.character.resources.map((section: CharacterSheetResourceSection, index: number) => <div className="resource-section" key={section.id}>
             {([['classResource', 'Risorsa di classe'], ['otherResource', 'Altra risorsa']] as const).map(([block, blockLabel]) => <div className="resource-block" key={block}>
-              <div className="resource-block__counters">
-                <SheetField label="Totale" value={section[block].total} onChange={set(`character.resources.${section.id}.${block}.total`)} />
-                <SheetField label="Attuale" value={section[block].current} onChange={set(`character.resources.${section.id}.${block}.current`)} />
-              </div>
+              <SheetField label="Totale" className="resource-block__total" value={section[block].total} onChange={set(`character.resources.${section.id}.${block}.total`)} />
+              <SheetField label="Attuale" className="resource-block__current" value={section[block].current} onChange={set(`character.resources.${section.id}.${block}.current`)} />
               <input className="resource-block__caption" value={section[block].name} placeholder={blockLabel} onChange={(event) => set(`character.resources.${section.id}.${block}.name`)(event.target.value)} aria-label={blockLabel} />
             </div>)}
             {index > 0 ? <RemoveRowButton label={`Rimuovi sezione risorse ${index + 1}`} onRemove={remove(`character.resources.${section.id}`)} /> : null}
