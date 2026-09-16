@@ -15,7 +15,8 @@
     "db:rollback": "node database/cli.mjs rollback",
     "db:fresh": "node database/cli.mjs fresh --confirm",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "docs:check": "node tools/check-doc-routing.mjs"
   },
   "dependencies": {
     "@fastify/multipart": "^8.3.1",

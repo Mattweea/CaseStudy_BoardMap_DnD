@@ -453,8 +453,14 @@ function App() {
     }
 
     lastDicePreviewIdRef.current = state.latestDicePreview.id;
-    setLatestDiceResult(state.latestDicePreview);
-  }, [state.latestDicePreview]);
+    const canViewPreview =
+      user?.role === 'master' ||
+      state.latestDicePreview.rollerUserId === user?.id ||
+      (!state.latestDicePreview.rollerUserId &&
+        state.latestDicePreview.log.rollerName === user?.displayName);
+
+    setLatestDiceResult(canViewPreview ? state.latestDicePreview : null);
+  }, [state.latestDicePreview, user]);
 
   useEffect(() => {
     if (!state.combatAnnouncement) {

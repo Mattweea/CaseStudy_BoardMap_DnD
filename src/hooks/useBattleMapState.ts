@@ -166,12 +166,12 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
             ? defaultVehicleColor(affiliation === 'enemy' ? 'enemy' : 'player')
             : DEFAULT_TOKEN_COLORS[type];
         const initiativeMode = token.initiativeMode === 'advantage' ? 'advantage' : 'normal';
-        const legacyAura = (token as UnitToken & {
+        const { aura: legacyAura, ...tokenWithoutLegacyAura } = token as UnitToken & {
           aura?: { enabled?: boolean; radiusCells?: number } | null;
-        }).aura;
+        };
 
         return {
-          ...token,
+          ...tokenWithoutLegacyAura,
           type,
           size: token.size ?? (token.vehicleKind ? VEHICLE_PRESETS[token.vehicleKind].size : 'medium'),
           widthCells:
@@ -216,6 +216,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
                       id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
                       radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
                       isVisible: aura.isVisible !== false,
+                      color: typeof aura.color === 'string' ? aura.color : token.color,
                     }]
                   : [],
               )
@@ -224,6 +225,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
                   id: `${token.id}-aura-legacy`,
                   radiusCells: Math.max(0, Math.floor(legacyAura.radiusCells)),
                   isVisible: true,
+                  color: token.color,
                 }]
               : [],
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
@@ -274,6 +276,10 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
         ? {
             id: parsed.latestDicePreview.id,
             flavor: parsed.latestDicePreview.flavor,
+            rollerUserId:
+              typeof parsed.latestDicePreview.rollerUserId === 'string'
+                ? parsed.latestDicePreview.rollerUserId
+                : undefined,
             log: {
               ...parsed.latestDicePreview.log,
               formula:

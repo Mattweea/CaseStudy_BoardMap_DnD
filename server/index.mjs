@@ -232,6 +232,7 @@ function applyVehicleAwareUpdates(tokens) {
 function normalizeSharedState(parsed) {
   const tokens = Array.isArray(parsed?.tokens)
     ? parsed.tokens.map((token) => {
+        const { aura: legacyAura, ...tokenWithoutLegacyAura } = token;
         const type = token.type ?? 'object';
         const affiliation =
           token.affiliation ??
@@ -242,7 +243,7 @@ function normalizeSharedState(parsed) {
             : DEFAULT_TOKEN_COLORS[type];
 
         return {
-          ...token,
+          ...tokenWithoutLegacyAura,
           type,
           size: token.size ?? (token.vehicleKind ? VEHICLE_PRESETS[token.vehicleKind].size : 'medium'),
           widthCells:
@@ -287,17 +288,19 @@ function normalizeSharedState(parsed) {
                       id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
                       radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
                       isVisible: aura.isVisible !== false,
+                      color: typeof aura.color === 'string' ? aura.color : token.color,
                     }]
                   : [],
               )
-            : token.aura &&
-                typeof token.aura === 'object' &&
-                token.aura.enabled === true &&
-                typeof token.aura.radiusCells === 'number'
+            : legacyAura &&
+                typeof legacyAura === 'object' &&
+                legacyAura.enabled === true &&
+                typeof legacyAura.radiusCells === 'number'
               ? [{
                   id: `${token.id}-aura-legacy`,
-                  radiusCells: Math.max(0, Math.floor(token.aura.radiusCells)),
+                  radiusCells: Math.max(0, Math.floor(legacyAura.radiusCells)),
                   isVisible: true,
+                  color: token.color,
                 }]
               : [],
           conditions: Array.isArray(token.conditions) ? token.conditions : [],
@@ -351,6 +354,10 @@ function normalizeSharedState(parsed) {
         ? {
             id: parsed.latestDicePreview.id,
             flavor: parsed.latestDicePreview.flavor,
+            rollerUserId:
+              typeof parsed.latestDicePreview.rollerUserId === 'string'
+                ? parsed.latestDicePreview.rollerUserId
+                : undefined,
             log: {
               ...parsed.latestDicePreview.log,
               formula:
@@ -658,10 +665,13 @@ function sanitizeStateForUser(state, user) {
   );
   const visibleTokenIds = new Set(visibleTokens.map((token) => token.id));
   const visibleInitiatives = state.initiatives.filter((entry) => visibleTokenIds.has(entry.tokenId));
+  const visibleDicePreview =
+    state.latestDicePreview?.rollerUserId === user.id ? state.latestDicePreview : null;
 
   return normalizeSharedState({
     ...state,
     tokens: visibleTokens,
+    latestDicePreview: visibleDicePreview,
     initiatives: visibleInitiatives,
     activeTurnTokenId: visibleTokenIds.has(state.activeTurnTokenId) ? state.activeTurnTokenId : null,
     diceLogs: visibleDiceLogs,
@@ -1119,6 +1129,7 @@ function updateOwnedToken(user, tokenId, updates) {
             id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
             radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
             isVisible: aura.isVisible !== false,
+            color: typeof aura.color === 'string' ? aura.color : token.color,
           }]
         : [],
     );

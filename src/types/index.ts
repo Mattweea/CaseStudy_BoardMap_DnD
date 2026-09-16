@@ -45,6 +45,7 @@ export interface TokenAura {
   id: string;
   radiusCells: number;
   isVisible: boolean;
+  color: string;
 }
 
 export interface UnitToken {
@@ -83,6 +84,7 @@ export interface UnitToken {
 export interface DicePreviewState {
   id: string;
   flavor: string;
+  rollerUserId?: string;
   log: DiceRollLog;
 }
 

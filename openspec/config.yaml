@@ -1,32 +1,22 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Segui AGENTS.md e avvia la selezione del contesto da Docs/ai/documentation_context_router.md.
+  OpenSpec governa i requisiti osservabili delle capability; Docs/ai governa architettura, invarianti e operazioni.
+  Lo stack comprende React, TypeScript, Vite, Fastify, SSE, SQLite e snapshot JSON locali secondo la documentazione corrente.
+  Scrivi gli artefatti in italiano, preservando identificatori tecnici e parole normative SHALL/MUST.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  specs:
+    - Copri autorizzazione, errori, compatibilita, concorrenza e migrazione quando applicabili.
+  tasks:
+    - Collega ogni requisito modificato a test automatici o a una verifica manuale esplicitamente giustificata.
+    - Includi la valutazione dell'impatto su Docs/ai e npm run docs:check quando cambia la documentazione.
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+operations:
+  apply:
+    guidance:
+      - Segui tutti i router Docs/ai applicabili ed esegui i controlli richiesti da AGENTS.md prima di completare un task.
+  archive:
+    guidance:
+      - Archivia solo dopo la verifica tra implementazione e specifiche e dopo il superamento dei controlli di progetto.

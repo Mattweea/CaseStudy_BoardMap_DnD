@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   DndSize,
   TokenAffiliation,
@@ -115,11 +116,16 @@ function buildProgressiveName(baseName: string, index: number, total: number): s
   return total === 1 ? baseName : `${baseName} ${index + 1}`;
 }
 
-function createAura(): TokenAura {
+function createAura(color: string): TokenAura {
+  const id = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `aura-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
   return {
-    id: crypto.randomUUID(),
+    id,
     radiusCells: 3,
     isVisible: true,
+    color,
   };
 }
 
@@ -973,6 +979,9 @@ export function EditElementModal({
   const [blocksMovement, setBlocksMovement] = useState(false);
   const [familiarName, setFamiliarName] = useState('');
   const [auras, setAuras] = useState<TokenAura[]>([]);
+  const [openAuraColorId, setOpenAuraColorId] = useState<string | null>(null);
+  const [isSaveFooterVisible, setIsSaveFooterVisible] = useState(false);
+  const saveFooterRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -1009,7 +1018,27 @@ export function EditElementModal({
     setBlocksMovement(token.blocksMovement === true);
     setFamiliarName('');
     setAuras(token.auras ?? []);
+    setOpenAuraColorId(null);
   }, [token]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    setIsSaveFooterVisible(false);
+    const saveFooter = saveFooterRef.current;
+    if (!saveFooter) {
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsSaveFooterVisible(entry.isIntersecting);
+    }, { threshold: 0.15 });
+
+    observer.observe(saveFooter);
+    return () => observer.disconnect();
+  }, [isOpen, token?.id]);
 
   const compatibleVehicles = useMemo(() => {
     if (!token || (type !== 'player' && type !== 'enemy')) {
@@ -1222,7 +1251,7 @@ export function EditElementModal({
 
   return (
     <Modal title={`Modifica ${token.name}`} isOpen={isOpen} onClose={onClose}>
-      <form className="token-form" onSubmit={handleSubmit}>
+      <form id="edit-element-form" className="token-form" onSubmit={handleSubmit}>
         <label>
           Tipo
           <select
@@ -1579,7 +1608,7 @@ export function EditElementModal({
               <button
                 type="button"
                 className="aura-settings__add"
-                onClick={() => setAuras((current) => [...current, createAura()])}
+                onClick={() => setAuras((current) => [...current, createAura(color)])}
                 aria-label="Aggiungi un'aura"
                 title="Aggiungi un'aura"
               >
@@ -1606,6 +1635,16 @@ export function EditElementModal({
                   </label>
                   <button
                     type="button"
+                    className="aura-settings__icon aura-settings__icon--color"
+                    onClick={() => setOpenAuraColorId((current) => current === aura.id ? null : aura.id)}
+                    aria-label={`Modifica colore aura ${index + 1}`}
+                    title="Colore aura"
+                    aria-expanded={openAuraColorId === aura.id}
+                  >
+                    <span className="aura-settings__color-swatch" style={{ backgroundColor: aura.color }} />
+                  </button>
+                  <button
+                    type="button"
                     className={`aura-settings__icon${aura.isVisible ? ' aura-settings__icon--active' : ''}`}
                     onClick={() => setAuras((current) => current.map((item) =>
                       item.id === aura.id ? { ...item, isVisible: !item.isVisible } : item
@@ -1623,7 +1662,10 @@ export function EditElementModal({
                   <button
                     type="button"
                     className="aura-settings__icon aura-settings__icon--delete"
-                    onClick={() => setAuras((current) => current.filter((item) => item.id !== aura.id))}
+                    onClick={() => {
+                      setAuras((current) => current.filter((item) => item.id !== aura.id));
+                      setOpenAuraColorId((current) => current === aura.id ? null : current);
+                    }}
                     aria-label={`Elimina aura ${index + 1}`}
                     title="Elimina aura"
                   >
@@ -1631,6 +1673,25 @@ export function EditElementModal({
                       <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />
                     </svg>
                   </button>
+                  {openAuraColorId === aura.id ? (
+                    <div className="aura-settings__palette" role="group" aria-label={`Colore aura ${index + 1}`}>
+                      {TOKEN_COLOR_PALETTE.map((paletteColor) => (
+                        <button
+                          key={paletteColor}
+                          type="button"
+                          className={`color-picker__option ${aura.color === paletteColor ? 'color-picker__option--active' : ''}`}
+                          style={{ backgroundColor: paletteColor }}
+                          onClick={() => {
+                            setAuras((current) => current.map((item) =>
+                              item.id === aura.id ? { ...item, color: paletteColor } : item
+                            ));
+                            setOpenAuraColorId(null);
+                          }}
+                          aria-label={`Seleziona colore ${paletteColor} per aura ${index + 1}`}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -1694,8 +1755,7 @@ export function EditElementModal({
 
         <TokenConditionFields type={type} conditions={conditions} onToggle={handleConditionToggle} />
 
-        <div className="token-form__actions">
-          <button type="submit">Salva modifiche</button>
+        <div ref={saveFooterRef} className="token-form__actions token-form__actions--footer">
           {canManageStructure && type !== 'player' && onDuplicateToken ? (
             <button
               type="button"
@@ -1720,8 +1780,29 @@ export function EditElementModal({
               Rimuovi elemento
             </button>
           ) : null}
+          <button type="submit">Salva modifiche</button>
         </div>
       </form>
+      {isOpen && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              className="floating-save-action"
+              data-state={isSaveFooterVisible ? 'hidden' : 'visible'}
+              aria-hidden={isSaveFooterVisible}
+            >
+              <button
+                type="submit"
+                form="edit-element-form"
+                className="floating-save-action__button"
+                tabIndex={isSaveFooterVisible ? -1 : 0}
+                aria-label="Salva modifiche, azione rapida"
+              >
+                Salva modifiche
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
     </Modal>
   );
 }
