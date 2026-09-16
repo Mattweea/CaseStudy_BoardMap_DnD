@@ -104,39 +104,45 @@ database/
 
 **Accettazione:** verificata con build e sessioni Master/Player. Su desktop la mappa occupa circa il 75% e il pannello destro circa il 25%; le quattro tab, zoom, spostamento della visuale e trascinamento dei token consentiti funzionano con pannello aperto o richiuso. I dadi sono configurati in una modale sulla mappa e disponibili da tutte le tab; due client vedono lo stesso tiro pubblico da click o `/r 1d20+5`, mentre un tiro segreto è visibile solo all'autore e al Master. Il log si aggiorna via SSE e mantiene visibile l’ultimo tiro. Con un ordine impostato, il Player riceve le due modali al cambio di turno. La chat testuale resta fuori da P0.3.
 
-### P0.4 — Scheda personale a tab, caricabile e liberamente modificabile
+### P0.4 — Scheda personale Roll20 a tre tab
 
-**Riferimento UI:** [5E_CharacterSheet_Fillable.pdf](./5E_CharacterSheet_Fillable.pdf), composto da tre pagine. La scheda nell'app usa tre tab corrispondenti alle pagine del PDF, mantenendo campi modificabili e spazio per aggiunte personalizzate; il PDF è un riferimento alla struttura, non un vincolo a riprodurne l'impaginazione pixel per pixel.
+**Riferimenti UI e funzionali:** la scheda segue il flusso di Roll20: si apre dalla tab **Personaggi** di P0.3 in una finestra ampia sopra la sessione, si può chiudere senza perdere il contesto della mappa e mantiene una struttura compatta da consultare e modificare durante il gioco. I campi derivano dal [5E_CharacterSheet_Fillable.pdf](./5E_CharacterSheet_Fillable.pdf), composto da tre pagine e 334 campi form. Il PDF definisce contenuti e raggruppamenti, ma l'interfaccia web non deve riprodurne l'impaginazione pixel per pixel.
 
-**Architettura prevista:** repository espliciti per accesso e mappatura dei dati, policy per autorizzare proprietario, Master e player con permessi concessi, service transazionali per salvataggio, versioni e sincronizzazione con il token. Non introdurre una gerarchia di Model in stile Eloquent né un ORM completo.
+**Confine degli import:** non importare PDF, JSON, schede di altri VTT o altri file di dati e non conservare allegati generici. L'unico upload previsto in P0.4 è il ritratto del personaggio, sostituibile in qualsiasi momento dal proprietario. La scheda viene compilata direttamente nell'app.
+
+**Modello della scheda:** per la campagna corrente esiste una sola scheda attiva per ciascun utente `adventurer` del roster. Al primo accesso la scheda vuota viene inizializzata e collegata al proprietario e al relativo token. Tutti i valori restano modificabili manualmente per supportare decisioni del tavolo e homebrew; P0.4 non calcola automaticamente regole, level up o tiri.
+
+**Architettura prevista:** repository espliciti per l'accesso e la mappatura dei dati, policy per autorizzare proprietario e Master, service per validazione, patch, sincronizzazione live e persistenza. Usare `character_sheets.version` per il controllo di concorrenza; non introdurre una gerarchia di Model in stile Eloquent né un ORM completo.
+
+**Sincronizzazione e salvataggio:** ogni modifica valida viene inviata al server come patch del campo, applicata allo stato live autorevole e distribuita subito via SSE ai client autorizzati. Il client mostra gli stati **Modifica in corso**, **Salvataggio** e **Salvato**, conserva localmente l'input mentre la richiesta è in corso e segnala gli errori senza fingere che il dato sia salvato. Per evitare scritture SQLite a ogni tasto, il server raggruppa le modifiche della singola scheda con un debounce breve (obiettivo 1 secondo) e forza il flush su cambio campo, chiusura della scheda, logout e fine sessione. Non attendere esclusivamente la fine della sessione: un crash non deve poter perdere l'intera scheda modificata.
 
 **Players**
 
-- [ ] Creare la propria scheda oppure caricare un file esistente da conservare come allegato.
-- [ ] Supportare l'importazione di dati strutturati quando il formato è compatibile; per PDF e immagini offrire l'inserimento manuale, senza presumere una conversione automatica affidabile.
-- [ ] Usare tre tab corrispondenti alle pagine del PDF: **Personaggio e combattimento**, **Aspetto e storia**, **Incantesimi**.
-- [ ] Nella tab **Personaggio e combattimento** (pagina 1) modificare identità, caratteristiche, salvataggi, abilità, CA, iniziativa, velocità, HP, dadi vita, tiri salvezza contro morte, attacchi, equipaggiamento, monete, competenze, lingue, tratti della personalità, ideali, legami, difetti, privilegi e altri tratti.
-- [ ] Nella tab **Aspetto e storia** (pagina 2) modificare aspetto, età, altezza, peso, occhi, pelle, capelli, alleati, organizzazioni, storia, tratti aggiuntivi e tesori.
-- [ ] Nella tab **Incantesimi** (pagina 3) modificare classe e caratteristica da incantatore, CD, bonus d'attacco, trucchetti, incantesimi di livello 1–9, preparazione/conoscenza e slot totali/usati.
-- [ ] Aggiungere sezioni o campi personalizzati e modificare liberamente valori, note, risorse, inventario, competenze, incantesimi e azioni.
+- [ ] Aprire la propria scheda dalla tab Personaggi in una finestra sopra la sessione, passare fra le tre tab e tornare alla mappa senza perdere modifiche o posizione di consultazione.
+- [ ] Caricare, visualizzare e sostituire soltanto il ritratto del proprio personaggio. Accettare immagini JPEG, PNG o WebP fino a 5 MB; il ritratto aggiornato compare nella scheda e nella tab Personaggi. Non usare automaticamente il ritratto come immagine del token.
+- [ ] Usare la tab **Personaggio e combattimento** (pagina 1) per modificare: nome; classe e livello; background; razza/specie; allineamento; punti esperienza; ispirazione; bonus di competenza; sei caratteristiche e modificatori; competenze e valori dei tiri salvezza; competenze e valori delle abilità; Percezione passiva; CA; iniziativa; velocità; HP massimi, correnti e temporanei; tipo, totale e dadi vita rimanenti; successi e fallimenti contro morte; attacchi e azioni ripetibili con nome, bonus, danno/tipo e note; monete CP/SP/EP/GP/PP; equipaggiamento; altre competenze e lingue; tratti della personalità, ideali, legami, difetti, privilegi e tratti.
+- [ ] Usare la tab **Aspetto e storia** (pagina 2) per modificare: nome; età; altezza; peso; occhi; pelle; capelli; descrizione dell'aspetto; alleati e organizzazioni; nome della fazione come testo; storia; privilegi e tratti aggiuntivi; tesori. Il riquadro del simbolo di fazione non introduce un secondo upload di immagini.
+- [ ] Usare la tab **Incantesimi** (pagina 3) per modificare: classe da incantatore; caratteristica da incantatore; CD dei tiri salvezza; bonus di attacco; trucchetti; incantesimi di livello 1–9; indicatore preparato/conosciuto; slot totali e slot rimanenti per livello. Le liste degli incantesimi sono ripetibili e non limitate al numero di righe visibili nel PDF.
+- [ ] Vedere immediatamente nella propria scheda le modifiche accettate dal server e uno stato chiaro quando una modifica è ancora in sincronizzazione o non è stata salvata.
 
 **Master**
 
-- [ ] Consultare e correggere le schede dei personaggi della campagna; assegnare esplicitamente eventuali permessi di accesso ad altri player.
+- [ ] Aprire dalla tab Personaggi la scheda di ogni Player, consultarla e correggerla durante la sessione; le correzioni seguono lo stesso flusso live e di salvataggio del proprietario.
+- [ ] Vedere l'aggiornamento di una scheda già aperta senza ricaricare la pagina quando il proprietario modifica un campo o sostituisce il ritratto.
 
 **Sistema**
 
-- [ ] Inizializzare la campagna corrente con il Master del roster e associare a essa le schede e i rispettivi proprietari.
-- [ ] Salvare automaticamente la scheda su SQLite e conservarne una cronologia recuperabile, aggiungendo nuove migrazioni per versioni e allegati dove necessario.
-- [ ] Verificare sul server i permessi di lettura e modifica: proprietario e Master, più eventuali player autorizzati esplicitamente; non affidarsi ai soli controlli della UI.
-- [ ] Collegare la scheda al token, sincronizzando i valori scelti come HP, CA e velocità senza sovrascrivere modifiche manuali inattese.
-- [ ] Conservare almeno caratteristiche, competenze, CA, HP, velocità, attacchi, salvataggi, risorse, inventario e incantesimi nei dati della scheda.
+- [ ] Inizializzare la campagna locale corrente con il Master del roster e creare o recuperare in modo idempotente una sola scheda attiva per ogni `adventurer`; aggiungere con una nuova migrazione il vincolo univoco necessario per proprietario e campagna senza modificare migrazioni già applicate.
+- [ ] Modellare in `data_json` sezioni strutturate e collezioni ripetibili per attacchi, azioni e incantesimi, mantenendo colonne relazionali per proprietario, campagna, versione e date. Validare tipo, formato e limiti di ogni patch sul server.
+- [ ] Applicare patch per campo o elemento ripetibile, anziché sostituire l'intero documento, e usare la versione della scheda per riconoscere modifiche concorrenti. Modifiche a campi diversi non si sovrascrivono; una collisione sullo stesso campo restituisce lo stato corrente e un errore comprensibile da risolvere nell'interfaccia.
+- [ ] Verificare sul server i permessi di lettura e modifica: proprietario e Master possono leggere e modificare la scheda completa; gli altri Player ricevono soltanto i dati di presentazione già pubblici nel roster e non possono leggere o cambiare la scheda tramite API o SSE.
+- [ ] Gestire il ritratto come asset locale controllato dal server: verificare tipo e dimensione, generare il nome del file, impedire percorsi arbitrari e sostituire in sicurezza il file precedente dopo che il nuovo upload è valido.
+- [ ] Trasmettere subito via SSE le patch accettate ai soli client autorizzati, raggruppare la persistenza SQLite con debounce e forzare il flush nei punti di chiusura previsti. Dopo un errore di scrittura mantenere lo stato non salvato, ritentare senza perdere dati e mostrare l'errore ai client interessati.
+- [ ] Collegare la scheda al token con una mappatura esplicita per nome, HP massimi/correnti/temporanei, velocità e modificatore di iniziativa. Una modifica accettata aggiorna le viste collegate senza refresh; il ritratto e la CA restano dati della scheda finché una feature successiva non ne richiede l'uso sul token.
 
-**Stato attuale:** esistono un roster fisso, alcuni dati sui token e la tabella `character_sheets`, ma non una scheda personale persistente ed editabile né le sue tab, versioni e allegati. P0.2 ha fornito l'identità e i ruoli necessari alla scheda; P0.3 prepara la tab Personaggi da cui aprirla.
+**Stato attuale:** P0.2 fornisce identità e ruoli e P0.3 offre la tab Personaggi. SQLite contiene `campaigns` e `character_sheets` con proprietario, campagna, versione e `data_json`, ma non inizializza la campagna corrente, non impone ancora una sola scheda per proprietario/campagna e non espone repository, service, policy, API, sincronizzazione SSE o interfaccia della scheda. Le immagini del roster sono ancora statiche.
 
-**Accettazione:** un Player accede, crea o allega una scheda, compila le tre tab e ritrova i dati dopo un riavvio. Il Master può consultarla e correggerla; un altro Player senza permesso esplicito non può modificarla tramite API. Una versione precedente è recuperabile e i valori concordati compaiono sul token senza perdere modifiche manuali inattese.
-
-**Decisione aperta prima della proposta P0.4:** una sola scheda attiva per ogni Player del roster, oppure più schede per lo stesso Player. Lo schema P0.1 consente entrambe le opzioni; non imporre un vincolo di unicità finché la scelta non è confermata.
+**Accettazione:** un Player apre la propria scheda dalla tab Personaggi, compila campi in tutte e tre le tab e sostituisce il ritratto senza importare altri file. In una seconda finestra il Master vede gli aggiornamenti accettati senza refresh e può correggere un campo; un altro Player non riceve il contenuto della scheda. Digitazione rapida non produce una scrittura SQLite per ogni tasto, ma dopo circa un secondo di inattività lo stato risulta salvato; chiusura della scheda o fine sessione forza il flush. Dopo riavvio, campi e ritratto ricompaiono, e un conflitto sullo stesso campo viene segnalato senza cancellare modifiche non correlate.
 
 ### P0.5 — Tiri dalla scheda
 
@@ -364,7 +370,7 @@ database/
 
 Dopo `npm run db:migrate`, con master e almeno due player collegati da browser distinti:
 
-1. Master e player accedono con i profili del roster tramite il nuovo login; usano la mappa e le quattro tab del pannello destro. Un player carica e modifica la propria scheda nelle tre tab, il Master può consultarla e i dati scelti sono collegati al token.
+1. Master e player accedono con i profili del roster tramite il nuovo login e usano la mappa e le quattro tab del pannello destro. Un Player apre la propria scheda Roll20, compila le tre tab e sostituisce il ritratto; il Master vede e corregge gli aggiornamenti live, mentre i dati mappati sono collegati al token.
 2. Il master crea una scena vuota, disegna con la matita e colloca una roccia e un albero. I player vedono gli aggiornamenti ma non modificano la mappa. Il master importa anche una seconda mappa, ne calibra la griglia, prepara nemici nascosti e porta il party nella scena.
 3. Un player tira un dado dai controlli in basso nel pannello e con `/r 1d20+5`, poi tira un attacco dalla scheda: tutti vedono i risultati pubblici generati dal server nel log. Un tiro segreto resta visibile solo all'autore e al Master.
 4. Il player misura un percorso, fa ping sulla mappa e muove il proprio token: distanza, budget e posizione sincronizzata sono corretti.
