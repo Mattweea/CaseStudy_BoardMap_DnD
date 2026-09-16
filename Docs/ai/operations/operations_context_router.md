@@ -11,6 +11,7 @@ Route local development, build, environment, proxy, public-session, and runtime 
 ## Cross-context routes
 
 - Add [Backend](../backend/backend_context_router.md) for cookie, CORS, API, snapshot, or process-state behavior.
+- Add [Database](../database/database_context_router.md) for SQLite paths, migrations, backups, reset behavior, or database startup failures.
 - Add [Frontend](../frontend/frontend_context_router.md) for Vite/client environment or API URL behavior.
 - Add [Gameplay roster](../gameplay/roster_and_identity_contract.md) when authentication configuration changes character behavior.
 

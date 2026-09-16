@@ -40,7 +40,9 @@ Before an adventurer receives a snapshot:
 - remove invisible tokens not owned by that user;
 - remove initiative entries for removed tokens;
 - clear the active turn when it points to a removed token;
-- deliver the latest flavored dice preview only to its roller.
+- filter dice logs by public/secret visibility before every HTTP or SSE delivery.
+
+`latestDicePreview` remains in the snapshot shape only for compatibility with older snapshots. The server-authoritative roll flow clears it and presents accepted results through the authorized dice log; new behavior must not depend on a flavored preview being populated.
 
 The master receives full state. Sanitization applies independently for HTTP and each SSE client.
 

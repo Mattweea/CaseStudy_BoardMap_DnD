@@ -11,6 +11,7 @@ Read [Frontend architecture](frontend_architecture.md) for every frontend task. 
 | Document | Read when the task involves | Usually skip when |
 |---|---|---|
 | [Board interaction and visibility](board_interaction_and_visibility.md) | Board rendering, selection, drag, pan, zoom, keyboard movement, fullscreen, fog/lighting, line of sight, obstacle placement, token visibility, or board accessibility | Non-board UI whose state and interaction do not affect the map |
+| [Character-sheet client and window](character_sheet_client_and_window.md) | Character-sheet UI, tabs, editing, save status, conflict feedback, portrait upload, floating-window behavior, or sheet accessibility | UI work that cannot open, render, or update a character sheet |
 
 ## Cross-context routes
 

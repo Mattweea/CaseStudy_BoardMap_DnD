@@ -102,6 +102,7 @@ Treat these as high-risk shared contracts:
 - `src/hooks/useBattleMapState.ts`;
 - the shared-state types in `src/types/index.ts`;
 - normalization, validation, authorization, snapshots, and broadcasting in `server/index.mjs`;
+- SQLite migrations, repositories, versioned writes, and character-sheet lifecycle flushes;
 - the duplicated roster in `src/constants/characters.ts` and `server/characters.mjs`;
 - board geometry, visibility, movement, initiative, and vehicle-link helpers.
 

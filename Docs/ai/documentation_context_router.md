@@ -24,6 +24,7 @@ Process each router at most once. Cross-context links compose concerns but do no
 | OpenSpec, spec-driven development, capability requirements, change proposals, delta specs, planning gates, verification, or archival | [Developer workflows context router](developer_workflows/developer_workflows_context_router.md) |
 | React UI, components, board rendering, interaction, styling, accessibility, modals, hooks, or client state | [Frontend context router](frontend/frontend_context_router.md) |
 | Fastify API, authentication, authorization, shared-state mutation, SSE, snapshots, or server validation | [Backend context router](backend/backend_context_router.md) |
+| SQLite connection policy, schema migrations, repositories, database lifecycle, or persisted relational data | [Database context router](database/database_context_router.md) |
 | Tokens, roster, vehicles, visibility, movement, combat, initiative, dice, or gameplay invariants | [Gameplay context router](gameplay/gameplay_context_router.md) |
 | Local development, build, environment variables, Vite proxying, ngrok, deployment, or troubleshooting | [Operations context router](operations/operations_context_router.md) |
 
@@ -33,6 +34,7 @@ Process each router at most once. Cross-context links compose concerns but do no
 - Adding a token field usually requires Gameplay + Backend + Frontend because its type, normalization, persistence, sanitization, and editing UI must agree.
 - Changing login or roster credentials requires Backend + Gameplay + Frontend; add Operations when environment configuration changes.
 - Changing the SSE payload requires Backend + Frontend and the gameplay router for every affected domain field.
+- Changing a character sheet requires Backend + Frontend + Database; add Gameplay when projecting sheet values onto tokens or changing roster access.
 - A new user-visible capability requires Developer Workflows plus every implementation domain it touches.
 
 ## When no route is exact
