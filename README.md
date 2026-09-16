@@ -38,7 +38,7 @@ L'app unisce in un'unica interfaccia:
 - turno attivo condiviso con selezione manuale, `Next`, `Prev` e wrap automatico a fine round
 - sospensione e ripresa della sessione tramite snapshot JSON persistito lato server
 - salvataggio delle note condivise insieme allo snapshot della sessione
-- permessi mappa: solo il master puo aggiungere, modificare, rimuovere o spostare elementi
+- permessi mappa: il master gestisce tutti gli elementi; ogni avventuriero puo muovere e aggiornare i campi consentiti dei token che controlla
 - elementi creati dal master invisibili di default ai player, con toggle `Mostra`/`Nascondi`
 - avvio combattimento dal pannello iniziativa con annuncio sincronizzato su tutti i client
 - sidebar in modalita hover, bloccabile aperta dal pulsante dedicato
@@ -110,6 +110,17 @@ server/
   index.mjs
 media/
   images/
+Docs/ai/
+  documentation_context_router.md
+  backend/
+  developer_workflows/
+  documentation/
+  frontend/
+  gameplay/
+  operations/
+tools/
+  check-doc-routing.mjs
+AGENTS.md
 ```
 
 ## Architettura
@@ -131,7 +142,7 @@ media/
 - lo stato condiviso della partita vive nel processo Fastify ed e sincronizzato via SSE
 - ogni modifica valida genera un nuovo snapshot broadcastato via SSE
 - il master puo sospendere la sessione salvando uno snapshot completo su `server/data/last-session.json`
-- al riavvio del backend, se esiste uno snapshot salvato, viene ricaricato automaticamente
+- al riavvio il backend rileva l'ultimo snapshot salvato; il master lo ripristina esplicitamente con `Riprendi Ultima Sessione`
 - i client autenticati restano allineati su:
   - token in mappa
   - log dadi
@@ -162,7 +173,10 @@ media/
 - puo consultare board, manuale, log dadi e tracker iniziativa
 - vede solo gli elementi resi visibili dal master, oltre ai propri token controllati
 - puo tirare i dadi con il proprio nome di sessione
-- non puo aggiungere, modificare o spostare elementi
+- puo muovere il proprio personaggio, i familiari controllati e il mezzo a cui e assegnato
+- puo aggiornare punti ferita, condizioni, aure e i campi consentiti dei propri token
+- puo usare scatto, movimento extra e undo personale secondo le regole del turno
+- non puo creare, rimuovere o riconfigurare strutturalmente gli elementi della mappa
 - non puo gestire iniziativa o turno attivo
 
 ## Configurazione importante
@@ -192,3 +206,20 @@ Per la procedura completa con `./start-live-session.sh`, tunnel HTTPS e troubles
 ## Documentazione funzionale
 
 Per la guida operativa completa dell'app, consulta [HOWITWORKS.md](./HOWITWORKS.md).
+
+Per contribuire al progetto, il punto di ingresso obbligatorio e
+[Docs/ai/documentation_context_router.md](./Docs/ai/documentation_context_router.md). Il router
+seleziona i contratti tecnici e di gameplay pertinenti senza richiedere la lettura di tutta la
+documentazione. Le regole operative per agenti e contributor sono in [AGENTS.md](./AGENTS.md).
+
+Il workflow OpenSpec/spec-driven e definito nella documentazione instradata sotto
+`Docs/ai/developer_workflows`: le capability spec descrivono il comportamento osservabile,
+mentre `Docs/ai` resta responsabile di architettura, convenzioni e operazioni. Quando una
+directory `openspec/` esiste gia in un branch da integrare, va preservata come unica root invece
+di inizializzare una seconda struttura concorrente.
+
+Verifica struttura, raggiungibilita e link della documentazione con:
+
+```bash
+npm run docs:check
+```

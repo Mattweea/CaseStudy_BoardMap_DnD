@@ -59,12 +59,15 @@ L'avventuriero puo:
 - vedere solo gli elementi che il master ha reso visibili, oltre ai propri token controllati
 - tirare dadi col proprio nome di sessione
 - selezionare token e localizzarli
+- muovere il proprio personaggio, i familiari controllati e il mezzo a cui e assegnato
+- aggiornare punti ferita, condizioni, aure e i campi consentiti dei propri token
+- usare scatto, movimento extra e undo personale secondo le regole del turno
 
 L'avventuriero non puo:
 
 - creare elementi
-- modificare o rimuovere elementi
-- spostare token
+- rimuovere o riconfigurare strutturalmente gli elementi
+- spostare token non controllati
 - gestire iniziativa
 - cambiare il turno attivo
 
@@ -120,12 +123,16 @@ Se il master cambia qualcosa, gli altri client vedono il risultato senza refresh
 
 ### Movimento
 
-Solo il master puo spostare elementi.
+Il master puo spostare qualsiasi elemento. Ogni avventuriero puo spostare il proprio personaggio,
+i familiari controllati e il mezzo a cui il personaggio e assegnato.
 
 - il drag usa snap a griglia
 - piu token o elementi selezionati mantengono gli offset reciproci
 - anche oggetti e ostacoli disegnati come gruppo si spostano se sono selezionati
 - durante il drag compare l'highlight della destinazione
+- durante l'iniziativa il server applica budget di movimento, scatto e movimento extra agli avventurieri
+- ostacoli bloccanti fermano gli avventurieri; master e mezzi li ignorano
+- `Ctrl/Cmd + Z` annulla l'ultima azione disponibile nel perimetro del proprio ruolo
 
 ### Elementi supportati
 
@@ -171,15 +178,17 @@ Permette di:
 - localizzare rapidamente un token
 - filtrare per tipo
 
-Solo il master puo anche:
+Il master puo inoltre:
 
-- aprire la modifica
 - rimuovere un elemento
 - rendere visibile o nascondere un elemento con `Mostra`/`Nascondi`
 
+Gli avventurieri possono aprire la modifica dei propri token, limitata ai campi consentiti.
+
 ### Modifica elemento
 
-Solo il master puo aprire la modale di modifica.
+Il master puo modificare la struttura completa di ogni elemento. Gli avventurieri possono aprire
+i propri token per aggiornare solo i campi consentiti dal server.
 
 Si possono aggiornare, a seconda del tipo:
 
@@ -192,6 +201,10 @@ Si possono aggiornare, a seconda del tipo:
 - occupanti del mezzo
 - condizioni
 - visibilita verso i player
+
+Per i token posseduti, un avventuriero puo aggiornare punti ferita, condizioni e aure; la
+visibilita e modificabile anche per i propri familiari. Nome, tipo, dimensioni, posizione e
+relazioni strutturali restano sotto il controllo del master.
 
 ## Dice roller
 
