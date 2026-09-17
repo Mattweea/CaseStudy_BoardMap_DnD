@@ -104,7 +104,7 @@
 .character-sheet-window__bar {
   min-height: 58px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: .75rem;
   padding: .5rem .7rem .45rem 1rem;
@@ -125,6 +125,9 @@
 .character-sheet-window__bar:focus-visible { outline: 2px solid var(--sheet-ember); outline-offset: -4px; }
 .character-sheet-window__close { width: 36px; height: 36px; padding: 0; border: 1px solid var(--sheet-line); border-radius: 4px; color: var(--sheet-muted); background: transparent; font: 400 1.4rem/1 var(--sheet-font-ui); cursor: pointer; transition: color 160ms var(--sheet-ease), background-color 160ms var(--sheet-ease), border-color 160ms var(--sheet-ease); }
 .character-sheet-window__close:hover { color: var(--sheet-ink); background: var(--sheet-surface-raised); border-color: var(--sheet-line-strong); }
+
+.sheet-debug-clear { padding: .3rem .6rem; border: 1px dashed var(--sheet-line-strong); border-radius: 999px; background: transparent; color: var(--sheet-muted); font: 500 .8125rem/1 var(--sheet-font-label); letter-spacing: .03em; cursor: pointer; transition: color 160ms var(--sheet-ease), border-color 160ms var(--sheet-ease); }
+.sheet-debug-clear:hover { color: oklch(88% .06 30); border-color: color-mix(in oklch, var(--sheet-hp-danger) 65%, transparent); }
 
 .sheet-save-state { display: inline-flex; align-items: center; gap: .45rem; padding: .3rem .6rem; border: 1px solid var(--sheet-line); border-radius: 999px; color: var(--sheet-muted); background: var(--sheet-well); font: 500 .8125rem/1 var(--sheet-font-label); letter-spacing: .03em; }
 .sheet-save-state > span { width: 7px; height: 7px; border-radius: 50%; background: var(--sheet-hp-ok); }
@@ -394,6 +397,7 @@ input.resource-block__caption::placeholder { color: var(--sheet-muted); }
   .character-sheet-window__bar { grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; padding: .6rem .7rem; }
   .character-sheet-window__bar { cursor: default; touch-action: auto; }
   .sheet-save-state { grid-column: 1; grid-row: 2; justify-self: start; }
+  .sheet-debug-clear { grid-column: 1; grid-row: 3; justify-self: start; }
   .character-sheet-window__close { grid-column: 2; grid-row: 1 / span 2; }
   .character-sheet-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; padding-inline: .2rem; }
   .character-sheet-tabs button { min-width: 0; min-height: 48px; padding: .4rem .25rem; font-size: .8125rem; white-space: normal; }

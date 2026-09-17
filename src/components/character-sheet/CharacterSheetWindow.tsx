@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useCharacterSheet } from '../../hooks/useCharacterSheet';
+import { buildClearOperations } from './clearOperations';
 import { CharacterTab } from './CharacterTab';
 import { SpellsTab } from './SpellsTab';
 import { StoryTab } from './StoryTab';
@@ -179,6 +180,10 @@ export function CharacterSheetWindow({ sheetId, isOpen, title, onClose }: { shee
     <div className={windowClassName} style={windowStyle} ref={dialogRef} role="dialog" aria-modal="false" aria-labelledby="character-sheet-title">
       <header className="character-sheet-window__bar" tabIndex={0} aria-label="Sposta la scheda. Trascina oppure usa Alt più i tasti freccia." title="Trascina per spostare · Alt + frecce da tastiera" onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={finishDrag} onPointerCancel={finishDrag} onKeyDown={onMoveKey}>
         <div className="character-sheet-window__title"><span className="character-sheet-window__grip" aria-hidden="true">⠿</span><div><p>Archivio dell’avventuriero</p><h2 id="character-sheet-title">{title}</h2></div></div>
+        {import.meta.env.DEV && draft ? <button type="button" className="sheet-debug-clear" onClick={() => {
+          if (!window.confirm('Debug: svuotare tutti i campi della scheda? La modifica viene sincronizzata con gli altri partecipanti.')) return;
+          buildClearOperations(draft).forEach((operation) => patch(operation));
+        }} title="Solo in sviluppo: svuota ogni campo della scheda">Svuota scheda</button> : null}
         <div className={`sheet-save-state sheet-save-state--${saveState}`} role="status"><span aria-hidden="true" />{saveLabels[saveState]}</div>
         <button type="button" data-sheet-close className="character-sheet-window__close" onClick={() => void close()} aria-label="Chiudi scheda">×</button>
       </header>

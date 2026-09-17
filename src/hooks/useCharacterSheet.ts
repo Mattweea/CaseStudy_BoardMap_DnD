@@ -14,7 +14,10 @@ function collectionAt(data: CharacterSheetData, parts: string[]): Array<{ id: st
 function applyOperation(data: CharacterSheetData, operation: CharacterSheetPatchOperation) {
   const parts = operation.path.split('.');
   if (operation.op === 'add') {
-    collectionAt(data, parts).push(structuredClone(operation.value)); return;
+    // The server echoes our own patch over SSE, so an add can arrive twice: apply it by id.
+    const collection = collectionAt(data, parts);
+    if (!collection.some((item) => item.id === operation.value.id)) collection.push(structuredClone(operation.value));
+    return;
   }
   if (operation.op === 'remove') {
     const collection = collectionAt(data, parts);
