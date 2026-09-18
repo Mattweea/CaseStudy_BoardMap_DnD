@@ -1,4 +1,5 @@
 import { CHARACTER_COLLECTION_KEYS, validateCharacterSheetData, validatePatchOperation } from './character-sheet-schema.mjs';
+import { computeInitiative } from '../shared/dnd-rules.mjs';
 
 export class CharacterSheetError extends Error {
   constructor(message, status = 400, details = {}) {
@@ -183,11 +184,13 @@ export class CharacterSheetService {
       operations: structuredClone(operations),
     };
     this.emit(event, state.record);
-    this.#projectOperations(state.record.ownerUserId, operations);
+    this.#projectOperations(state.record.ownerUserId, operations, state.data);
     return { ...publicSheet(state), operations: event.operations };
   }
 
-  #projectOperations(ownerUserId, operations) {
+  // L'iniziativa non è più un campo della scheda: una patch sul punteggio di Destrezza o
+  // sul suo bonus vari innesca il ricalcolo dal modulo condiviso, non una mappatura diretta.
+  #projectOperations(ownerUserId, operations, data) {
     const updates = {};
     const mapping = {
       'character.name': ['name', (value) => value],
@@ -195,13 +198,23 @@ export class CharacterSheetService {
       'character.hitPoints.current': ['hitPoints', numericValue],
       'character.hitPoints.temporary': ['temporaryHitPoints', numericValue],
       'character.speed': ['speed', (value) => value],
-      'character.initiativeModifier': ['initiativeModifier', numericValue],
     };
+    const initiativePaths = new Set(['character.abilities.dexterity.score', 'character.initiativeMiscBonus']);
+    let recalculateInitiative = false;
     operations.forEach((operation) => {
-      if (operation.op !== 'set' || !mapping[operation.path]) return;
+      if (operation.op !== 'set') return;
+      if (initiativePaths.has(operation.path)) { recalculateInitiative = true; return; }
+      if (!mapping[operation.path]) return;
       const [key, transform] = mapping[operation.path];
       updates[key] = transform(operation.value);
     });
+    if (recalculateInitiative) {
+      const initiativeModifier = computeInitiative({
+        dexScore: data.character.abilities.dexterity.score,
+        miscBonus: data.character.initiativeMiscBonus,
+      });
+      if (initiativeModifier !== null) updates.initiativeModifier = initiativeModifier;
+    }
     if (Object.keys(updates).length) this.projectToken(ownerUserId, updates);
   }
 

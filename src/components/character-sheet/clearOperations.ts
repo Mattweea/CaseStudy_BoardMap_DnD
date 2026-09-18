@@ -2,12 +2,24 @@ import type { CharacterSheetData, CharacterSheetPatchOperation } from '../../typ
 
 const skipKeys = new Set(['schemaVersion', 'id']);
 
+// Il predefinito di un campo dipende dal suo dominio: il testo libero torna a '', ma un
+// punteggio, il livello e i contatori chiusi hanno un predefinito diverso da '' che il
+// server accetta. Senza questa eccezione "Svuota scheda" produrrebbe patch rifiutate.
+function defaultForPath(path: string) {
+  if (path === 'character.level') return '1';
+  if (/^character\.abilities\.[a-z]+\.score$/.test(path)) return '10';
+  if (path === 'character.deathSaves.successes' || path === 'character.deathSaves.failures') return '0';
+  if (path.endsWith('.proficiency')) return 'none';
+  return '';
+}
+
 // Debug helper: walks the draft and produces the patch operations that blank it.
-// Text becomes '', booleans false, repeatable rows are removed. The first resource
-// section stays because the UI never lets it be removed.
+// Text becomes its domain default, booleans false, repeatable rows are removed. The first
+// resource section stays because the UI never lets it be removed.
 function clearValues(value: unknown, path: string, operations: CharacterSheetPatchOperation[]) {
   if (typeof value === 'string') {
-    if (value !== '') operations.push({ op: 'set', path, value: '' });
+    const target = defaultForPath(path);
+    if (value !== target) operations.push({ op: 'set', path, value: target });
     return;
   }
   if (typeof value === 'boolean') {

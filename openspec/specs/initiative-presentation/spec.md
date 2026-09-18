@@ -41,7 +41,7 @@ Quando il turno attivo immediatamente precedente al token del Player comincia, l
 
 ### Requirement: Confine della logica P0.3
 
-La presentazione SHALL usare l'ordine di iniziativa già disponibile senza richiedere il tiro dalla scheda, la scelta normale/vantaggio/svantaggio per l'iniziativa o nuove regole di inserimento manuale. Queste funzioni sono previste in P0.7.
+La presentazione SHALL usare l'ordine di iniziativa già disponibile senza richiedere il tiro dalla scheda, la scelta normale/vantaggio/svantaggio per l'iniziativa o nuove regole di inserimento manuale. Queste funzioni sono previste in P0.8.
 
 #### Scenario: Sessione senza schede
 

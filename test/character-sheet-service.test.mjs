@@ -125,13 +125,33 @@ test('only linked paths project to the token and token changes cannot affect the
     { op: 'set', path: 'character.hitPoints.maximum', value: '30' },
     { op: 'set', path: 'character.hitPoints.temporary', value: '4' },
     { op: 'set', path: 'character.speed', value: '12 m' },
-    { op: 'set', path: 'character.initiativeModifier', value: '3' },
     { op: 'set', path: 'character.armorClass', value: '19' },
   ] });
   assert.deepEqual(projections[0], { ownerUserId: 'player-1', updates: {
-    name: 'Ragnar', hitPoints: 12, maxHitPoints: 30, temporaryHitPoints: 4, speed: '12 m', initiativeModifier: 3,
+    name: 'Ragnar', hitPoints: 12, maxHitPoints: 30, temporaryHitPoints: 4, speed: '12 m',
   } });
   assert.equal(service.get(owner, 'sheet-1').data.character.armorClass, '19');
+});
+
+test('initiative is recalculated and projected from a dexterity score or misc bonus patch, never stored on the sheet', () => {
+  const { service, projections } = harness();
+  const fromScore = service.applyPatch(owner, 'sheet-1', { baseVersion: 1, operations: [
+    { op: 'set', path: 'character.abilities.dexterity.score', value: '16' },
+  ] });
+  assert.deepEqual(projections.at(-1), { ownerUserId: 'player-1', updates: { initiativeModifier: 3 } });
+  assert.equal('initiativeModifier' in fromScore.data.character, false);
+
+  const fromMiscBonus = service.applyPatch(owner, 'sheet-1', { baseVersion: fromScore.version, operations: [
+    { op: 'set', path: 'character.initiativeMiscBonus', value: '2' },
+  ] });
+  assert.deepEqual(projections.at(-1), { ownerUserId: 'player-1', updates: { initiativeModifier: 5 } });
+  assert.equal('initiativeModifier' in fromMiscBonus.data.character, false);
+
+  const unrelated = service.applyPatch(owner, 'sheet-1', { baseVersion: fromMiscBonus.version, operations: [
+    { op: 'set', path: 'character.armorClass', value: '18' },
+  ] });
+  assert.equal(projections.length, 2);
+  assert.equal(unrelated.data.character.armorClass, '18');
 });
 
 test('owner or master can replace a portrait without projecting it to the token', async () => {

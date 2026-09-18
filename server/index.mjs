@@ -17,6 +17,7 @@ import { broadcastCharacterSheetEvent as broadcastSheetEvent } from './character
 import { CharacterSheetRepository } from './character-sheet-repository.mjs';
 import { registerCharacterSheetRoutes } from './character-sheet-routes.mjs';
 import { CharacterSheetService } from './character-sheet-service.mjs';
+import { rollCharacterSheetTarget } from './character-sheet-roll-resolver.mjs';
 import { PortraitStorage } from './portrait-storage.mjs';
 
 const app = Fastify({
@@ -1665,7 +1666,10 @@ app.post('/api/battle-map/rolls', async (request, reply) => {
     return;
   }
 
-  const result = createAuthoritativeRoll(user, request.body ?? {});
+  const body = request.body ?? {};
+  const result = body.source
+    ? rollCharacterSheetTarget(user, characterSheetService, body)
+    : createAuthoritativeRoll(user, body);
   if (result.error) {
     reply.code(400);
     return { message: result.error, ...nextSnapshot(user) };

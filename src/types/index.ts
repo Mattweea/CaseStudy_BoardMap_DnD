@@ -167,12 +167,31 @@ export interface DragState {
 
 export type DiceType = 4 | 6 | 8 | 10 | 12 | 20 | 100;
 
+export interface DiceRollLogPart {
+  label: string;
+  formula: string;
+  rolls: number[];
+  keptRolls: number[];
+  modifier: number;
+  total: number;
+  critical?: boolean;
+}
+
+export interface DiceRollLogSavingThrow {
+  ability: string | null;
+  dc: string;
+}
+
 export interface DiceRollLog {
   id: string;
   label: string;
   formula: string;
   rollerName?: string;
   timestamp: string;
+  // Per un bersaglio 1d20 della scheda (P0.5 Fase B), due tiri indipendenti: `rolls` porta
+  // entrambi i valori naturali, senza vantaggio/svantaggio pre-scelto dal server. `total`/
+  // `keptRolls` restano il primo dei due, per compatibilità con un lettore che guarda solo il
+  // campo di primo livello. Il tiro libero di P0.3 e il dado vita restano un solo dado.
   rolls: number[];
   keptRolls: number[];
   total: number;
@@ -180,13 +199,33 @@ export interface DiceRollLog {
   mode: RollMode;
   authorUserId: string;
   visibility: 'public' | 'secret';
+  characterName?: string;
+  actionLabel?: string;
+  // true su un tiro di attacco quando uno dei due d20 raggiunge la soglia di critico, o su un
+  // tiro di danno i cui dadi sono stati raddoppiati di conseguenza.
+  critical?: boolean;
+  // Bersaglio della scheda che ha originato il tiro: permette di rilanciare il danno di un
+  // attacco dal log, e al client di dedurre il critico dall'ultimo tiro di attacco per lo stesso id.
+  source?: { sheetId: string; target: string };
+  parts?: DiceRollLogPart[];
+  savingThrow?: DiceRollLogSavingThrow | null;
 }
 
-export interface DiceRollRequest {
+export interface DiceRollFormulaRequest {
   formula: string;
   visibility: 'public' | 'secret';
   mode?: RollMode;
 }
+
+export interface DiceRollSourceRequest {
+  source: { sheetId: string; target: string };
+  visibility?: 'public' | 'secret';
+  // Dichiarato dal client per un tiro di danno (`attack-damage:<id>`): il server raddoppia i
+  // dadi di ogni blocco attivo quando true. Ignorato per ogni altro bersaglio.
+  critical?: boolean;
+}
+
+export type DiceRollRequest = DiceRollFormulaRequest | DiceRollSourceRequest;
 
 export interface InitiativeEntry {
   tokenId: string;

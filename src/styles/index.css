@@ -149,6 +149,20 @@ button {
 .dice-log__dice-total { display: grid; flex: 0 0 auto; place-items: center; width: 2.65rem; height: 2.65rem; border: 1px solid rgba(59, 38, 30, .36); border-radius: .24rem; background: rgba(255,255,255,.34); color: #24201e; font-size: 1.1rem; }
 .dice-log__entry small { color: #f3bd8d; }
 .dice-log__empty { margin: auto 0; text-align: center; color: #c6a79a; }
+
+/* Bersagli 1d20 della scheda (P0.5 Fase B): due tiri indipendenti mostrati fianco a fianco,
+   senza vantaggio/svantaggio pre-scelto dal server. */
+.dice-log__pair { display: flex; align-items: stretch; gap: .5rem; }
+.dice-log__pair-total { flex: 1; display: grid; place-items: center; min-height: 2.4rem; border: 1px solid rgba(59, 38, 30, .32); border-radius: .24rem; background: rgba(255,255,255,.3); font-size: 1.35rem; font-weight: 800; cursor: default; }
+.dice-log__pair-total--crit { color: #1c7a34; }
+.dice-log__pair-total--fumble { color: #a3221f; }
+.dice-log__pair-divider { width: 1px; background: rgba(59, 38, 30, .32); }
+.dice-log__pair-caption { display: flex; align-items: center; justify-content: center; gap: .35rem; font-size: .85rem; }
+.dice-log__pair-caption--parts { gap: .5rem; }
+.dice-log__pair-caption--parts small { flex: 1; text-align: center; }
+.dice-log__action-name { padding: 0; border: none; background: none; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.dice-log__pair-caption small { opacity: .72; }
+.dice-log__saving-throw { margin: 0; font-size: .8rem; opacity: .85; }
 .dice-roll-config { display: grid; gap: .7rem; }
 .dice-roll-config label { display: flex; align-items: center; gap: .5rem; }
 .dice-roll-config > label { display: grid; align-items: initial; gap: .35rem; padding: .55rem .65rem; border: 1px solid rgba(255, 192, 150, .2); }

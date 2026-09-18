@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useCharacterSheet } from '../../hooks/useCharacterSheet';
+import type { DiceRollLog, DiceRollSourceRequest } from '../../types';
 import { buildClearOperations } from './clearOperations';
 import { CharacterTab } from './CharacterTab';
 import { SpellsTab } from './SpellsTab';
@@ -46,7 +47,10 @@ function storePosition(position: WindowPosition) {
   }
 }
 
-export function CharacterSheetWindow({ sheetId, isOpen, title, onClose }: { sheetId: string | null; isOpen: boolean; title: string; onClose: () => void }) {
+export function CharacterSheetWindow({ sheetId, isOpen, title, onClose, onRoll, diceLogs }: {
+  sheetId: string | null; isOpen: boolean; title: string; onClose: () => void;
+  onRoll?: (request: DiceRollSourceRequest) => void; diceLogs?: DiceRollLog[];
+}) {
   const [activeTab, setActiveTab] = useState<TabId>('character');
   const [position, setPosition] = useState<WindowPosition | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -191,7 +195,7 @@ export function CharacterSheetWindow({ sheetId, isOpen, title, onClose }: { shee
       {error ? <div className="sheet-alert" role="alert"><strong>{saveState === 'error' ? 'La pergamena non è stata salvata.' : 'Attenzione'}</strong><span>{error}</span></div> : null}
       {conflicts.length ? <div className="sheet-conflicts" role="alert"><strong>Conflitto da risolvere</strong>{conflicts.map((conflict) => <p key={conflict.path}><code>{conflict.path}</code>: il tuo valore <b>{String(conflict.localValue ?? '')}</b>, sul server <b>{String(conflict.value ?? '')}</b>.</p>)}</div> : null}
       <div className="character-sheet-window__scroll" role="tabpanel">
-        {!draft ? <div className="sheet-loading">Apro la scheda…</div> : activeTab === 'character' ? <CharacterTab data={draft} patch={patch} /> : activeTab === 'story' ? <StoryTab data={draft} portraitUrl={sheet?.portraitUrl ?? null} patch={patch} onPortrait={(file) => void uploadPortrait(file)} /> : <SpellsTab data={draft} patch={patch} />}
+        {!draft ? <div className="sheet-loading">Apro la scheda…</div> : activeTab === 'character' ? <CharacterTab data={draft} patch={patch} sheetId={sheetId ?? undefined} onRoll={onRoll} diceLogs={diceLogs} /> : activeTab === 'story' ? <StoryTab data={draft} portraitUrl={sheet?.portraitUrl ?? null} patch={patch} onPortrait={(file) => void uploadPortrait(file)} /> : <SpellsTab data={draft} patch={patch} />}
       </div>
     </div>
   </div>;

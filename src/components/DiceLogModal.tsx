@@ -8,6 +8,13 @@ interface DiceLogModalProps {
   onClear: () => void;
 }
 
+const abilityLabels: Record<string, string> = {
+  strength: 'Forza', dexterity: 'Destrezza', constitution: 'Costituzione',
+  intelligence: 'Intelligenza', wisdom: 'Saggezza', charisma: 'Carisma',
+};
+
+const modeLabels: Record<string, string> = { advantage: 'Vantaggio', disadvantage: 'Svantaggio' };
+
 export function DiceLogModal({ isOpen, logs, onClose, onClear }: DiceLogModalProps) {
   return (
     <Modal title="Log dei dadi" isOpen={isOpen} onClose={onClose}>
@@ -23,14 +30,32 @@ export function DiceLogModal({ isOpen, logs, onClose, onClear }: DiceLogModalPro
         {logs.map((log) => (
           <article key={log.id} className="log-card">
             <div className="log-card__header">
-              <strong>{log.label}</strong>
+              <strong>{log.actionLabel ?? log.label}</strong>
               <span>{log.timestamp}</span>
             </div>
             <div className="log-card__body">
-              {log.rollerName ? <span>Autore: {log.rollerName}</span> : null}
-              <span>Formula: {log.formula}</span>
-              <span>Tiri: {log.rolls.join(', ')}</span>
-              <span>Totale: {log.total}</span>
+              {log.characterName ? <span>Personaggio: {log.characterName}</span> : log.rollerName ? <span>Autore: {log.rollerName}</span> : null}
+              {log.rollerName && log.characterName ? <span>Autore: {log.rollerName}</span> : null}
+              {log.parts?.length ? (
+                <ul className="log-card__parts">
+                  {log.parts.map((part, index) => (
+                    <li key={`${log.id}-part-${index}`}>
+                      <strong>{part.label}</strong>: {part.formula} — Tiri: {part.rolls.join(', ')} — Totale: {part.total}
+                      {part.critical ? ' — Critico!' : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <>
+                  <span>Formula: {log.formula}</span>
+                  <span>Tiri: {log.rolls.join(', ')}</span>
+                  <span>Totale: {log.total}</span>
+                </>
+              )}
+              {modeLabels[log.mode] ? <span>Modalità: {modeLabels[log.mode]} (dadi tenuti: {log.keptRolls.join(', ')})</span> : null}
+              {log.savingThrow ? (
+                <span>Tiro salvezza: {log.savingThrow.ability ? abilityLabels[log.savingThrow.ability] ?? log.savingThrow.ability : '—'} CD {log.savingThrow.dc || '—'}</span>
+              ) : null}
             </div>
           </article>
         ))}

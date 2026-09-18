@@ -11,7 +11,7 @@ export function DicePanel({ onRoll }: DicePanelProps) {
   const [selectedDie, setSelectedDie] = useState<DiceType | null>(null);
   const [counts, setCounts] = useState<Record<DiceType, number>>({ ...initialCounts });
   const [isConfigOpen, setIsConfigOpen] = useState(false);
-  const [visibility, setVisibility] = useState<DiceRollRequest['visibility']>('public');
+  const [visibility, setVisibility] = useState<'public' | 'secret'>('public');
   const [modifierInput, setModifierInput] = useState('');
   const [mode, setMode] = useState<RollMode>('normal');
   const [command, setCommand] = useState('');

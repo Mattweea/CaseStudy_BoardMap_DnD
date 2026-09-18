@@ -4,7 +4,7 @@ import { Board } from './components/Board';
 import { CharacterSheetWindow } from './components/character-sheet/CharacterSheetWindow';
 import { DiceLogModal } from './components/DiceLogModal';
 import { DicePanel } from './components/DicePanel';
-import { DiceGlyph, numericDiceToIconType } from './components/DiceIcons';
+import { DiceLogEntry } from './components/DiceLogEntry';
 import { DiceResultModal } from './components/DiceResultModal';
 import { EditElementModal, ElementsListModal, NewElementModal } from './components/ElementModals';
 import { InitiativeRollModal } from './components/InitiativeRollModal';
@@ -19,7 +19,7 @@ import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
 import { characterSheetApi } from './utils/characterSheetApi';
 import type { CharacterSheetRosterEntry } from './utils/characterSheetApi';
-import type { CombatAnnouncement, DiceRollLog, DiceType, UnitToken } from './types';
+import type { CombatAnnouncement, DiceRollLog, UnitToken } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
 
 const FULLSCREEN_TRANSITION_MS = 260;
@@ -89,11 +89,6 @@ const COMBAT_ANNOUNCEMENT_DURATION_MS = 5600;
 
 function cellKey(cell: { x: number; y: number }) {
   return `${cell.x}:${cell.y}`;
-}
-
-function diceSidesFromFormula(formula: string): DiceType {
-  const sides = Number(formula.match(/d(4|6|8|10|12|20|100)/i)?.[1] ?? 20);
-  return [4, 6, 8, 10, 12, 20, 100].includes(sides) ? sides as DiceType : 20;
 }
 
 function isObstacleToken(token: UnitToken) {
@@ -1294,7 +1289,7 @@ function App() {
               ] as Array<[WorkspaceTabId, string, string]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
             </div>
             <div id={`panel-${workspaceTab}`} role="tabpanel" aria-labelledby={`tab-${workspaceTab}`} className="workspace-tabpanel">
-              {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div ref={diceLogFeedRef} className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => { const profile = CHARACTER_PROFILES.find((entry) => entry.id === log.authorUserId); const isExpanded = expandedDiceLogId === log.id; const timestamp = new Date(log.timestamp); const diceSides = diceSidesFromFormula(log.formula); const diceTotal = log.keptRolls.reduce((sum, roll) => sum + roll, 0); return <article key={log.id} className={`dice-log__entry ${isExpanded ? 'dice-log__entry--expanded' : ''}`}><header><img src={profile?.imageUrl} alt="" /><div><strong>{profile?.displayName ?? log.rollerName}</strong><span>{profile?.username ?? log.rollerName}</span></div><time dateTime={log.timestamp}>{Number.isNaN(timestamp.valueOf()) ? '' : timestamp.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</time></header><p className="dice-log__formula">{log.formula}</p>{isExpanded ? <div className="dice-log__detail"><div className="dice-log__dice-row">{log.rolls.map((roll, index) => <span className="dice-log__die" key={`${log.id}-${index}`}><DiceGlyph type={numericDiceToIconType[diceSides]} /><b>{roll}</b></span>)}</div><b className="dice-log__dice-total">{diceTotal}</b></div> : null}<button type="button" className="dice-log__total" onClick={() => setExpandedDiceLogId(isExpanded ? null : log.id)} aria-expanded={isExpanded} aria-label={`Mostra dettaglio di ${log.formula}`}>{log.total}</button>{log.visibility === 'secret' ? <small>Segreto</small> : null}</article>; }) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab === 'initiative' ? 'initiative' : workspaceTab === 'characters' ? 'characters' : 'legend')}
+              {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div ref={diceLogFeedRef} className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => <DiceLogEntry key={log.id} log={log} isExpanded={expandedDiceLogId === log.id} onToggle={() => setExpandedDiceLogId(expandedDiceLogId === log.id ? null : log.id)} onRoll={(request) => void rollDice(request)} />) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab === 'initiative' ? 'initiative' : workspaceTab === 'characters' ? 'characters' : 'legend')}
             </div>
             <div className="workspace-dice-dock">{renderSidebarSection('dice')}</div>
           </div>
@@ -1527,6 +1522,8 @@ function App() {
         isOpen={openCharacterSheetId !== null}
         title={CHARACTER_PROFILES.find((profile) => characterSheets.find((sheet) => sheet.id === openCharacterSheetId)?.ownerUserId === profile.id)?.displayName ?? 'Scheda del personaggio'}
         onClose={() => setOpenCharacterSheetId(null)}
+        onRoll={(request) => void rollDice(request)}
+        diceLogs={state.diceLogs}
       />
 
       <div className="combat-announcement-overlay" data-state={isCombatAnnouncementOpen ? 'open' : 'closed'}>

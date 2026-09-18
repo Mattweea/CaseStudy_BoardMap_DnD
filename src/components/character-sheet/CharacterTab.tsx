@@ -1,9 +1,19 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import type {
   AbilityKey, CharacterSheetAttack, CharacterSheetData, CharacterSheetEquipmentItem, CharacterSheetFeature,
   CharacterSheetLanguage, CharacterSheetPatchOperation, CharacterSheetResourceSection, CharacterSheetRow, CharacterSheetTool, CoinKey, SkillKey,
 } from '../../types/character-sheet';
-import { FramedValue, ProficiencyRow, RemoveRowButton, RowActions, SheetField, SheetPanel, SheetSelect } from './SheetPrimitives';
+import type { DiceRollLog, DiceRollSourceRequest } from '../../types';
+import {
+  abilityModifier, computeAttackBonus, computeDamageModifier, computeInitiative, computePassivePerception,
+  computeSavingThrowValue, computeSkillValue, computeToolBonus, formatSigned, proficiencyBonusForLevel, SKILL_ABILITY,
+} from '../../../shared/dnd-rules';
+import {
+  ComputedWithMiscBonus, CompetenceRow, FramedCheckbox, FramedValue, GearButton, LockToggle, PipCounter, ReadOnlyStat,
+  RemoveRowButton, RowActions, SAVING_THROW_STATES, SKILL_STATES, SheetField, SheetPanel, SheetSelect,
+} from './SheetPrimitives';
+import { AttackEditor, ToolEditor } from './RowEditor';
+import { createAttack as createAttackDraft, createTool as createToolDraft } from './rowDefaults';
 
 const abilities: Array<[AbilityKey, string, string]> = [
   ['strength', 'Forza', 'FOR'], ['dexterity', 'Destrezza', 'DES'], ['constitution', 'Costituzione', 'COS'],
@@ -15,12 +25,16 @@ const identityFields: Array<[keyof CharacterSheetData['character'], string]> = [
   ['background', 'Background'], ['alignment', 'Allineamento'], ['experience', 'Punti esperienza'],
 ];
 const coins: Array<[CoinKey, string]> = [['cp', 'Monete di rame'], ['sp', 'Monete d’argento'], ['gp', 'Monete d’oro'], ['pp', 'Monete di platino']];
-const proficiencyOptions = [['proficient', 'Competente'], ['expertise', 'Esperto'], ['none', 'Nessuna']] as const;
-const abilityOptions = [['', '—'], ...abilities.map(([key, label]) => [key, label] as const)] as ReadonlyArray<readonly [string, string]>;
 const featureSourceOptions = [['race', 'Razziale'], ['class', 'Classe'], ['feat', 'Talento'], ['background', 'Background'], ['item', 'Oggetto'], ['other', 'Altro']] as const;
+const hitDiceOptions = [['', 'Non scelto'], ['d4', 'd4'], ['d6', 'd6'], ['d8', 'd8'], ['d10', 'd10'], ['d12', 'd12']] as const;
 
 function readWholeNumber(value: string) {
   return /^\s*-?\d+\s*$/.test(value) ? Number.parseInt(value, 10) : null;
+}
+
+function clampCount(value: string) {
+  const parsed = readWholeNumber(value);
+  return parsed === null ? 0 : Math.min(3, Math.max(0, parsed));
 }
 
 // Purely visual: derived from the typed values, never written back to the sheet.
@@ -38,12 +52,59 @@ function HitPointMeter({ maximum, current, temporary }: { maximum: string; curre
   </div>;
 }
 
-export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch: (operation: CharacterSheetPatchOperation) => void }) {
+function attackBonusOf(row: CharacterSheetAttack, data: CharacterSheetData) {
+  if (!row.attackEnabled) return null;
+  return computeAttackBonus({
+    score: row.attackAbility ? data.character.abilities[row.attackAbility].score : '',
+    proficient: row.attackProficient,
+    level: data.character.level,
+    magicBonus: row.magicBonus,
+    bonus: row.attackBonus,
+  });
+}
+
+function damageDisplayOf(row: CharacterSheetAttack, data: CharacterSheetData) {
+  if (!row.damageEnabled || !row.damageDice) return null;
+  const modifier = row.damageAbility ? computeDamageModifier({ score: data.character.abilities[row.damageAbility].score, bonus: row.damageBonus }) : null;
+  const dice = `${row.damageDice}${modifier ? formatSigned(modifier) : ''}`;
+  return [dice, row.damageType].filter(Boolean).join(' ');
+}
+
+function toolBonusOf(tool: CharacterSheetTool, data: CharacterSheetData) {
+  if (!tool.ability) return null;
+  return computeToolBonus({ score: data.character.abilities[tool.ability].score, proficiency: tool.proficiency, level: data.character.level, miscBonus: tool.bonus });
+}
+
+// Il danno di un attacco è un bersaglio separato dal tiro di attacco (vedi resolver server): il
+// client deduce da sé se applicare il critico, guardando l'ultimo tiro di attacco per questo
+// stesso bersaglio nel log condiviso — niente scelta manuale, come in Roll20.
+function wasLastAttackCritical(diceLogs: DiceRollLog[] | undefined, attackTarget: string) {
+  return diceLogs?.find((log) => log.source?.target === attackTarget)?.critical === true;
+}
+
+// Emette una patch 'set' solo per i campi effettivamente cambiati rispetto all'apertura dell'editor.
+function buildRowDiffOps<T extends { id: string }>(collection: string, before: T, after: T): CharacterSheetPatchOperation[] {
+  const ops: CharacterSheetPatchOperation[] = [];
+  (Object.keys(after) as Array<keyof T>).forEach((key) => {
+    if (key === 'id') return;
+    if (after[key] !== before[key]) ops.push({ op: 'set', path: `character.${collection}.${after.id}.${String(key)}`, value: after[key] as string | boolean });
+  });
+  return ops;
+}
+
+export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs }: {
+  data: CharacterSheetData; patch: (operation: CharacterSheetPatchOperation) => void;
+  sheetId?: string; onRoll?: (request: DiceRollSourceRequest) => void; diceLogs?: DiceRollLog[];
+}) {
   const [featureFilter, setFeatureFilter] = useState('');
+  const [editingAttackId, setEditingAttackId] = useState<string | 'new' | null>(null);
+  const [editingToolId, setEditingToolId] = useState<string | 'new' | null>(null);
   const set = (path: string) => (value: string | boolean) => patch({ op: 'set', path, value });
   const remove = (path: string) => () => patch({ op: 'remove', path });
   const add = (collection: string, value: CharacterSheetRow) => () => patch({ op: 'add', path: `character.${collection}`, value });
   const emptyBlock = { name: '', total: '', current: '' };
+  const level = data.character.level;
+  const proficiencyBonus = proficiencyBonusForLevel(level);
 
   const visibleFeatures = useMemo(() => {
     const needle = featureFilter.trim().toLowerCase();
@@ -52,7 +113,41 @@ export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch:
       `${feature.name} ${feature.description}`.toLowerCase().includes(needle));
   }, [data.character.features, featureFilter]);
 
-  return <div className="character-sheet-page character-page">
+  const editingAttack = editingAttackId === 'new' ? createAttackDraft() : editingAttackId ? data.character.attacks.find((row) => row.id === editingAttackId) ?? null : null;
+  const editingTool = editingToolId === 'new' ? createToolDraft() : editingToolId ? data.character.tools.find((row) => row.id === editingToolId) ?? null : null;
+
+  const confirmAttack = (updated: CharacterSheetAttack) => {
+    if (editingAttackId === 'new') add('attacks', updated)();
+    else if (editingAttack) buildRowDiffOps('attacks', editingAttack, updated).forEach(patch);
+    setEditingAttackId(null);
+  };
+  const confirmTool = (updated: CharacterSheetTool) => {
+    if (editingToolId === 'new') add('tools', updated)();
+    else if (editingTool) buildRowDiffOps('tools', editingTool, updated).forEach(patch);
+    setEditingToolId(null);
+  };
+
+  // Interazione di tiro (P0.5 Fase B): delegata sull'intera scheda invece di un gestore per
+  // ciascun nodo `data-roll-source`, così SheetPrimitives resta invariato. Un elemento
+  // interattivo (input, select, button, link) dentro il bersaglio intercetta il click prima che
+  // raggiunga il bersaglio: modificare un campo non avvia mai un tiro. Un solo click tira sempre
+  // subito (niente modale): i bersagli 1d20 tirano due dadi indipendenti lato server, il danno di
+  // un attacco applica da sé il critico dell'ultimo tiro di attacco visto per lo stesso bersaglio.
+  const handleSheetClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!onRoll || !sheetId) return;
+    const clicked = event.target as HTMLElement;
+    if (clicked.closest('button, input, select, textarea, a')) return;
+    const target = clicked.closest<HTMLElement>('[data-roll-source]')?.dataset.rollSource;
+    if (!target) return;
+    if (target.startsWith('attack-damage:')) {
+      const attackTarget = `attack:${target.slice('attack-damage:'.length)}`;
+      onRoll({ source: { sheetId, target }, critical: wasLastAttackCritical(diceLogs, attackTarget) });
+      return;
+    }
+    onRoll({ source: { sheetId, target } });
+  };
+
+  return <div className="character-sheet-page character-page" onClick={handleSheetClick}>
     <header className="sheet-identity">
       <SheetField label="Nome del personaggio" value={data.character.name} onChange={set('character.name')} className="sheet-identity__name" />
       <div className="sheet-identity__facts">
@@ -65,27 +160,54 @@ export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch:
         <div className="ability-rail">
           <div className="ability-stack">{abilities.map(([key, label, short]) => <div className="ability-block" key={key} data-roll-source={`ability:${key}`}>
             <span title={label}>{short}</span>
-            <input className="ability-block__modifier" value={data.character.abilities[key].modifier} onChange={(event) => set(`character.abilities.${key}.modifier`)(event.target.value)} aria-label={`${label}: modificatore`} />
+            <output className="ability-block__modifier" aria-label={`${label}: modificatore`}>{formatSigned(abilityModifier(data.character.abilities[key].score))}</output>
             <input className="ability-block__score" value={data.character.abilities[key].score} onChange={(event) => set(`character.abilities.${key}.score`)(event.target.value)} aria-label={`${label}: punteggio`} />
           </div>)}</div>
           <div className="ability-rail__side">
-            <FramedValue label="Ispirazione" value={data.character.inspiration} onChange={set('character.inspiration')} compact />
-            <FramedValue label="Bonus competenza" value={data.character.proficiencyBonus} onChange={set('character.proficiencyBonus')} compact />
-            <SheetPanel title="Tiri salvezza">{abilities.map(([key, label]) => <ProficiencyRow key={key} label={label} checked={data.character.savingThrows[key].proficient} value={data.character.savingThrows[key].value} onChecked={set(`character.savingThrows.${key}.proficient`)} onValue={set(`character.savingThrows.${key}.value`)} rollSource={`saving-throw:${key}`} />)}</SheetPanel>
-            <SheetPanel title="Abilità" className="skills-panel">{skills.map(([key, label]) => <ProficiencyRow key={key} label={label} checked={data.character.skills[key].proficient} value={data.character.skills[key].value} onChecked={set(`character.skills.${key}.proficient`)} onValue={set(`character.skills.${key}.value`)} rollSource={`skill:${key}`} />)}</SheetPanel>
+            <FramedCheckbox label="Ispirazione" checked={data.character.inspiration} onChange={set('character.inspiration')} compact />
+            <ReadOnlyStat label="Bonus competenza" value={proficiencyBonus} compact />
+            <SheetPanel title="Tiri salvezza">{abilities.map(([key, label]) => {
+              const saving = data.character.savingThrows[key];
+              return <CompetenceRow
+                key={key} label={label} states={SAVING_THROW_STATES} currentIndex={saving.proficient ? 1 : 0}
+                onCycle={() => set(`character.savingThrows.${key}.proficient`)(!saving.proficient)}
+                value={computeSavingThrowValue({ score: data.character.abilities[key].score, proficient: saving.proficient, level, miscBonus: saving.miscBonus })}
+                miscBonus={saving.miscBonus} onMiscBonus={set(`character.savingThrows.${key}.miscBonus`)}
+                rollSource={`saving-throw:${key}`}
+              />;
+            })}</SheetPanel>
+            <SheetPanel title="Abilità" className="skills-panel">{skills.map(([key, label]) => {
+              const skill = data.character.skills[key];
+              const stateIndex = SKILL_STATES.findIndex((state) => state.key === skill.proficiency);
+              return <CompetenceRow
+                key={key} label={label} states={SKILL_STATES} currentIndex={stateIndex < 0 ? 0 : stateIndex}
+                onCycle={() => {
+                  const nextIndex = (stateIndex < 0 ? 0 : stateIndex) + 1;
+                  set(`character.skills.${key}.proficiency`)(SKILL_STATES[nextIndex % SKILL_STATES.length].key);
+                }}
+                value={computeSkillValue({ score: data.character.abilities[SKILL_ABILITY[key]].score, proficiency: skill.proficiency, level, miscBonus: skill.miscBonus })}
+                miscBonus={skill.miscBonus} onMiscBonus={set(`character.skills.${key}.miscBonus`)}
+                rollSource={`skill:${key}`}
+              />;
+            })}</SheetPanel>
           </div>
         </div>
-        <FramedValue label="Percezione passiva" value={data.character.passivePerception} onChange={set('character.passivePerception')} compact />
-        <SheetPanel title="Strumenti e competenze" className="repeatable-panel">
-          <div className="repeatable-head tool-row"><span>Nome</span><span>Comp.</span><span>Attr.</span><span>Mod.</span><span /></div>
+        <ReadOnlyStat label="Percezione passiva" compact value={computePassivePerception(computeSkillValue({
+          score: data.character.abilities[SKILL_ABILITY.perception].score,
+          proficiency: data.character.skills.perception.proficiency,
+          level, miscBonus: data.character.skills.perception.miscBonus,
+        }))} />
+        <SheetPanel
+          title="Strumenti e competenze" className="repeatable-panel"
+          headerAction={<LockToggle label="Strumenti e competenze" locked={data.character.sectionLocks.tools} onToggle={() => set('character.sectionLocks.tools')(!data.character.sectionLocks.tools)} />}
+        >
+          <div className="repeatable-head tool-row"><span>Nome</span><span>Bonus</span><span /></div>
           {data.character.tools.map((tool: CharacterSheetTool) => <div className="tool-row" key={tool.id} data-roll-source={`tool:${tool.id}`}>
-            <input value={tool.name} onChange={(event) => set(`character.tools.${tool.id}.name`)(event.target.value)} aria-label="Nome strumento" />
-            <SheetSelect label="Tipo di competenza" value={tool.proficiency} className="sheet-field--inline" options={proficiencyOptions} onChange={set(`character.tools.${tool.id}.proficiency`)} />
-            <SheetSelect label="Attributo" value={tool.ability} className="sheet-field--inline" options={abilityOptions} onChange={set(`character.tools.${tool.id}.ability`)} />
-            <input value={tool.modifier} onChange={(event) => set(`character.tools.${tool.id}.modifier`)(event.target.value)} aria-label="Modificatore" />
-            <RemoveRowButton label={`Rimuovi ${tool.name || 'strumento'}`} onRemove={remove(`character.tools.${tool.id}`)} />
+            <span className="tool-row__name">{tool.name || '—'}</span>
+            <output className="tool-row__bonus" aria-label={`Bonus di ${tool.name || 'strumento'}`}>{formatSigned(toolBonusOf(tool, data))}</output>
+            {data.character.sectionLocks.tools ? <span /> : <GearButton label={`Modifica ${tool.name || 'strumento'}`} onClick={() => setEditingToolId(tool.id)} />}
           </div>)}
-          <RowActions onAdd={add('tools', { id: crypto.randomUUID(), name: '', proficiency: 'proficient', ability: '', modifier: '' })} label="Aggiungi strumento" />
+          {data.character.sectionLocks.tools ? null : <RowActions onAdd={() => setEditingToolId('new')} label="Aggiungi strumento" />}
         </SheetPanel>
         <SheetPanel title="Linguaggi" className="repeatable-panel">
           {data.character.languages.map((language: CharacterSheetLanguage) => <div className="language-row" key={language.id}>
@@ -99,7 +221,11 @@ export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch:
       <div className="character-page__column character-page__combat">
         <div className="combat-vitals">
           <FramedValue label="Classe Armatura" value={data.character.armorClass} onChange={set('character.armorClass')} className="framed-value--shield" />
-          <FramedValue label="Iniziativa" value={data.character.initiativeModifier} onChange={set('character.initiativeModifier')} rollSource="initiative" />
+          <ComputedWithMiscBonus
+            label="Iniziativa" rollSource="initiative"
+            value={computeInitiative({ dexScore: data.character.abilities.dexterity.score, miscBonus: data.character.initiativeMiscBonus })}
+            miscBonus={data.character.initiativeMiscBonus} onMiscBonus={set('character.initiativeMiscBonus')}
+          />
           <FramedValue label="Velocità" value={data.character.speed} onChange={set('character.speed')} />
         </div>
         <SheetPanel title="Punti ferita"><HitPointMeter {...data.character.hitPoints} /><div className="hp-grid">
@@ -108,23 +234,30 @@ export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch:
           <SheetField label="Temporanei" value={data.character.hitPoints.temporary} onChange={set('character.hitPoints.temporary')} />
         </div></SheetPanel>
         <div className="combat-secondary">
-          <SheetPanel title="Dadi vita">
-            <SheetField label="Tipo" value={data.character.hitDice.type} onChange={set('character.hitDice.type')} />
-            <SheetField label="Totali" value={data.character.hitDice.total} onChange={set('character.hitDice.total')} />
-            <SheetField label="Rimasti" value={data.character.hitDice.remaining} onChange={set('character.hitDice.remaining')} />
+          <SheetPanel title="Dadi vita" rollSource="hit-dice" className="hit-dice-panel">
+            <div className="hit-dice-box">
+              <SheetField label="Totali" className="hit-dice-box__total" value={data.character.hitDice.total} onChange={set('character.hitDice.total')} />
+              <SheetField label="Rimasti" className="hit-dice-box__remaining" value={data.character.hitDice.remaining} onChange={set('character.hitDice.remaining')} />
+              <SheetSelect label="Tipo di dado" value={data.character.hitDice.type} className="hit-dice-box__type" options={hitDiceOptions} onChange={set('character.hitDice.type')} />
+            </div>
           </SheetPanel>
-          <SheetPanel title="Tiri salvezza contro morte">
-            <SheetField label="Successi" value={data.character.deathSaves.successes} onChange={set('character.deathSaves.successes')} />
-            <SheetField label="Fallimenti" value={data.character.deathSaves.failures} onChange={set('character.deathSaves.failures')} />
+          <SheetPanel title="Tiri salvezza contro morte" rollSource="death-saves" className="death-saves-panel">
+            <div className="death-save-row"><span>Successi</span><PipCounter label="Successi" count={clampCount(data.character.deathSaves.successes)} max={3} onChange={(count) => set('character.deathSaves.successes')(String(count))} /></div>
+            <div className="death-save-row"><span>Fallimenti</span><PipCounter label="Fallimenti" count={clampCount(data.character.deathSaves.failures)} max={3} onChange={(count) => set('character.deathSaves.failures')(String(count))} /></div>
           </SheetPanel>
         </div>
-        <SheetPanel title="Attacchi e incantesimi" className="repeatable-panel">
-          <div className="repeatable-head attack-row"><span>Nome</span><span>Bonus</span><span>Danno / tipo</span><span>Note</span><span /></div>
-          {data.character.attacks.map((row: CharacterSheetAttack) => <div className="attack-row" key={row.id} data-roll-source={`attack:${row.id}`}>
-            {(['name', 'bonus', 'damageType', 'notes'] as const).map((field) => <input key={field} value={row[field]} onChange={(event) => set(`character.attacks.${row.id}.${field}`)(event.target.value)} aria-label={`${field} attacco`} />)}
-            <RemoveRowButton label={`Rimuovi ${row.name || 'attacco'}`} onRemove={remove(`character.attacks.${row.id}`)} />
+        <SheetPanel
+          title="Attacchi e incantesimi" className="repeatable-panel"
+          headerAction={<LockToggle label="Attacchi" locked={data.character.sectionLocks.attacks} onToggle={() => set('character.sectionLocks.attacks')(!data.character.sectionLocks.attacks)} />}
+        >
+          <div className="repeatable-head attack-row"><span>Nome</span><span>Bonus</span><span>Danno / tipo</span><span /></div>
+          {data.character.attacks.map((row: CharacterSheetAttack) => <div className="attack-row" key={row.id}>
+            <span className="attack-row__name">{row.name || '—'}</span>
+            <output className="attack-row__bonus" data-roll-source={`attack:${row.id}`} aria-label={`Tiro di attacco di ${row.name || 'attacco'}`}>{formatSigned(attackBonusOf(row, data))}</output>
+            <span className="attack-row__damage" data-roll-source={`attack-damage:${row.id}`} aria-label={`Danno di ${row.name || 'attacco'}`}>{damageDisplayOf(row, data) ?? '—'}</span>
+            {data.character.sectionLocks.attacks ? <span /> : <GearButton label={`Modifica ${row.name || 'attacco'}`} onClick={() => setEditingAttackId(row.id)} />}
           </div>)}
-          <RowActions onAdd={add('attacks', { id: crypto.randomUUID(), name: '', bonus: '', damageType: '', notes: '' })} label="Aggiungi attacco" />
+          {data.character.sectionLocks.attacks ? null : <RowActions onAdd={() => setEditingAttackId('new')} label="Aggiungi attacco" />}
         </SheetPanel>
         <SheetPanel title="Equipaggiamento e monete" className="repeatable-panel equipment-panel">
           <div className="currency-row">{coins.map(([coin, label]) => <label className={`coin-field coin-field--${coin}`} key={coin}>
@@ -176,5 +309,14 @@ export function CharacterTab({ data, patch }: { data: CharacterSheetData; patch:
         </SheetPanel>
       </div>
     </div>
+
+    {editingAttack ? <AttackEditor
+      initial={editingAttack} onConfirm={confirmAttack} onCancel={() => setEditingAttackId(null)}
+      onRemove={editingAttackId !== 'new' ? () => { remove(`character.attacks.${editingAttack.id}`)(); setEditingAttackId(null); } : undefined}
+    /> : null}
+    {editingTool ? <ToolEditor
+      initial={editingTool} onConfirm={confirmTool} onCancel={() => setEditingToolId(null)}
+      onRemove={editingToolId !== 'new' ? () => { remove(`character.tools.${editingTool.id}`)(); setEditingToolId(null); } : undefined}
+    /> : null}
   </div>;
 }
