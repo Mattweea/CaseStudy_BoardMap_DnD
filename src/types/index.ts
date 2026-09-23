@@ -30,15 +30,56 @@ export interface GridPosition {
   y: number;
 }
 
-export interface MovementAxisUsage {
-  horizontal: number;
-  vertical: number;
+export type DiagonalRule = 'standard' | 'alternating';
+export type DiagonalParity = 0 | 1;
+
+export interface MeasurementUnit {
+  label: string;
+  cellsValue: number;
 }
 
 export interface LightSource {
   id: string;
   position: GridPosition;
   radiusCells: number;
+}
+
+export type TemplateShape = 'circle' | 'cone' | 'line';
+
+export interface EphemeralPing {
+  id: string;
+  position: GridPosition;
+  authorUserId: string;
+  authorName: string;
+}
+
+export interface EphemeralTemplate {
+  id: string;
+  shape: TemplateShape;
+  origin: GridPosition;
+  target: GridPosition;
+  color: string;
+  authorUserId: string;
+  authorName: string;
+}
+
+export interface TokenWalkEvent {
+  id: string;
+  tokenId: string;
+  waypoints: GridPosition[];
+}
+
+// Motivo per cui il server ha rifiutato un movimento, tenuto fuori dallo stato condiviso perche
+// riguarda solo il client che ha inviato la richiesta.
+export interface MovementNotice {
+  id: string;
+  message: string;
+}
+
+export interface TokenMovementBudget {
+  usedCells: number;
+  totalCells: number | null;
+  diagonalParity: DiagonalParity;
 }
 
 export interface TokenAura {
@@ -105,7 +146,9 @@ export interface BattleMapState {
   roundNumber: number;
   turnNotice?: { id: number; kind: 'next' | 'turn' } | null;
   movementUsedByTokenId: Record<string, number>;
-  movementAxisUsageByTokenId: Record<string, MovementAxisUsage>;
+  diagonalParityByTokenId: Record<string, DiagonalParity>;
+  diagonalRule: DiagonalRule;
+  measurementUnit: MeasurementUnit;
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
   isBoardBackgroundHidden: boolean;
@@ -124,7 +167,9 @@ export interface BattleMapSharedState {
   roundNumber: number;
   turnNotice?: { id: number; kind: 'next' | 'turn' } | null;
   movementUsedByTokenId: Record<string, number>;
-  movementAxisUsageByTokenId: Record<string, MovementAxisUsage>;
+  diagonalParityByTokenId: Record<string, DiagonalParity>;
+  diagonalRule: DiagonalRule;
+  measurementUnit: MeasurementUnit;
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
   isBoardBackgroundHidden: boolean;

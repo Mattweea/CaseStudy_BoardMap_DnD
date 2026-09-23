@@ -5,13 +5,21 @@ import type {
   BattleMapSessionSnapshot,
   BattleMapSessionStatus,
   BattleMapState,
+  DiagonalRule,
   DiceRollRequest,
+  EphemeralPing,
+  EphemeralTemplate,
   GridPosition,
   InitiativeEntry,
   LightSource,
+  MeasurementUnit,
+  TemplateShape,
+  TokenWalkEvent,
+  MovementNotice,
   UnitToken,
 } from '../types';
 import { clampZoom, getTokenFootprint } from '../utils/board';
+import { isValidCellsValue, pathCost } from '../../shared/grid-movement';
 import {
   DEFAULT_TOKEN_COLORS,
   VEHICLE_PRESETS,
@@ -20,6 +28,11 @@ import {
 } from '../utils/tokens';
 import { API_BASE_URL, EVENTS_URL } from '../utils/api';
 const ZOOM_STORAGE_KEY = 'dnd-battle-map-zoom';
+// Il ping ha una durata fissa; la sagoma termina quando il suo autore invia l'evento di fine,
+// più una durata massima di sicurezza per chi si disconnette senza inviarlo.
+const PING_DURATION_MS = 3000;
+const TEMPLATE_MAX_DURATION_MS = 30000;
+const TOKEN_WALK_EVENT_TTL_MS = 4000;
 
 function normalizeVehicleLinks(tokens: UnitToken[]): UnitToken[] {
   const clonedTokens = tokens.map((token) => ({
@@ -121,7 +134,9 @@ const initialSharedState: BattleMapSharedState = {
   roundNumber: 1,
   turnNotice: null,
   movementUsedByTokenId: {},
-  movementAxisUsageByTokenId: {},
+  diagonalParityByTokenId: {},
+  diagonalRule: 'standard',
+  measurementUnit: { label: 'm', cellsValue: 1.5 },
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
   isBoardBackgroundHidden: false,
@@ -137,21 +152,6 @@ function readStoredZoom() {
 
   const rawValue = window.localStorage.getItem(ZOOM_STORAGE_KEY);
   return clampZoom(rawValue ? Number(rawValue) : 1);
-}
-
-function calculateMovementAxisUsage(
-  previousUsage: { horizontal: number; vertical: number } | undefined,
-  from: GridPosition,
-  to: GridPosition,
-) {
-  return {
-    horizontal: (previousUsage?.horizontal ?? 0) + Math.abs(to.x - from.x),
-    vertical: (previousUsage?.vertical ?? 0) + Math.abs(to.y - from.y),
-  };
-}
-
-function movementUsedFromAxisUsage(usage: { horizontal: number; vertical: number } | undefined) {
-  return Math.max(usage?.horizontal ?? 0, usage?.vertical ?? 0);
 }
 
 function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): BattleMapSharedState {
@@ -315,26 +315,23 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
             ),
           )
         : {},
-    movementAxisUsageByTokenId:
-      parsed?.movementAxisUsageByTokenId && typeof parsed.movementAxisUsageByTokenId === 'object'
+    diagonalParityByTokenId:
+      parsed?.diagonalParityByTokenId && typeof parsed.diagonalParityByTokenId === 'object'
         ? Object.fromEntries(
-            Object.entries(parsed.movementAxisUsageByTokenId).flatMap(([tokenId, usage]) => {
-              if (
-                !tokens.some((token) => token.id === tokenId) ||
-                !usage ||
-                typeof usage !== 'object' ||
-                typeof usage.horizontal !== 'number' ||
-                typeof usage.vertical !== 'number' ||
-                usage.horizontal < 0 ||
-                usage.vertical < 0
-              ) {
-                return [];
-              }
-
-              return [[tokenId, { horizontal: usage.horizontal, vertical: usage.vertical }]];
-            }),
+            Object.entries(parsed.diagonalParityByTokenId).filter(
+              ([tokenId, parity]) =>
+                tokens.some((token) => token.id === tokenId) && (parity === 0 || parity === 1),
+            ),
           )
         : {},
+    diagonalRule: parsed?.diagonalRule === 'alternating' ? 'alternating' : 'standard',
+    measurementUnit:
+      parsed?.measurementUnit &&
+      typeof parsed.measurementUnit.label === 'string' &&
+      parsed.measurementUnit.label.trim() !== '' &&
+      isValidCellsValue(parsed.measurementUnit.cellsValue)
+        ? { label: parsed.measurementUnit.label, cellsValue: parsed.measurementUnit.cellsValue }
+        : { label: 'm', cellsValue: 1.5 },
     dashUsedByTokenId:
       parsed?.dashUsedByTokenId && typeof parsed.dashUsedByTokenId === 'object'
         ? Object.fromEntries(
@@ -408,6 +405,15 @@ export function useBattleMapState(isAuthenticated: boolean) {
   const versionRef = useRef(version);
   const mutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const mutationCountRef = useRef(0);
+  const [ephemeralPings, setEphemeralPings] = useState<EphemeralPing[]>([]);
+  const [ephemeralTemplates, setEphemeralTemplates] = useState<EphemeralTemplate[]>([]);
+  const [tokenWalkEvents, setTokenWalkEvents] = useState<TokenWalkEvent[]>([]);
+  // Il server distingue budget insufficiente, ostacolo e destinazione occupata nel messaggio di
+  // rifiuto: senza questo stato il motivo andrebbe perso e il token tornerebbe indietro da solo,
+  // senza spiegazione. L'id cambia a ogni rifiuto cosi che due rifiuti identici restino distinti.
+  const [movementNotice, setMovementNotice] = useState<MovementNotice | null>(null);
+  const pingTimeoutsRef = useRef(new Map<string, ReturnType<typeof window.setTimeout>>());
+  const templateTimeoutsRef = useRef(new Map<string, ReturnType<typeof window.setTimeout>>());
 
   useEffect(() => {
     sharedStateRef.current = sharedState;
@@ -501,12 +507,94 @@ export function useBattleMapState(isAuthenticated: boolean) {
     eventSource.addEventListener('character-sheet-patch', relayCharacterSheetEvent as EventListener);
     eventSource.addEventListener('character-sheet-persistence', relayCharacterSheetEvent as EventListener);
     eventSource.addEventListener('character-sheet-portrait', relayCharacterSheetEvent as EventListener);
+
+    const handlePing = (event: MessageEvent) => {
+      try {
+        const ping = JSON.parse(event.data) as EphemeralPing;
+        setEphemeralPings((current) => [...current.filter((entry) => entry.id !== ping.id), ping]);
+        const previousTimeout = pingTimeoutsRef.current.get(ping.id);
+        if (previousTimeout !== undefined) {
+          window.clearTimeout(previousTimeout);
+        }
+        pingTimeoutsRef.current.set(
+          ping.id,
+          window.setTimeout(() => {
+            setEphemeralPings((current) => current.filter((entry) => entry.id !== ping.id));
+            pingTimeoutsRef.current.delete(ping.id);
+          }, PING_DURATION_MS),
+        );
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    const removeTemplate = (id: string) => {
+      setEphemeralTemplates((current) => current.filter((entry) => entry.id !== id));
+      const timeout = templateTimeoutsRef.current.get(id);
+      if (timeout !== undefined) {
+        window.clearTimeout(timeout);
+        templateTimeoutsRef.current.delete(id);
+      }
+    };
+
+    const handleTemplateUpdate = (event: MessageEvent) => {
+      try {
+        const template = JSON.parse(event.data) as EphemeralTemplate;
+        setEphemeralTemplates((current) => [...current.filter((entry) => entry.id !== template.id), template]);
+        const previousTimeout = templateTimeoutsRef.current.get(template.id);
+        if (previousTimeout !== undefined) {
+          window.clearTimeout(previousTimeout);
+        }
+        templateTimeoutsRef.current.set(
+          template.id,
+          window.setTimeout(() => removeTemplate(template.id), TEMPLATE_MAX_DURATION_MS),
+        );
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    const handleTemplateEnd = (event: MessageEvent) => {
+      try {
+        const { id } = JSON.parse(event.data) as { id: string };
+        removeTemplate(id);
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    const tokenWalkTimeoutsRef = new Set<ReturnType<typeof window.setTimeout>>();
+    const handleTokenWalk = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as { tokenId: string; waypoints: GridPosition[] };
+        const id = `${payload.tokenId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        setTokenWalkEvents((current) => [...current, { id, tokenId: payload.tokenId, waypoints: payload.waypoints }]);
+        const timeout = window.setTimeout(() => {
+          setTokenWalkEvents((current) => current.filter((entry) => entry.id !== id));
+          tokenWalkTimeoutsRef.delete(timeout);
+        }, TOKEN_WALK_EVENT_TTL_MS);
+        tokenWalkTimeoutsRef.add(timeout);
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    eventSource.addEventListener('ephemeral-ping', handlePing as EventListener);
+    eventSource.addEventListener('ephemeral-template', handleTemplateUpdate as EventListener);
+    eventSource.addEventListener('ephemeral-template-end', handleTemplateEnd as EventListener);
+    eventSource.addEventListener('token-walk', handleTokenWalk as EventListener);
     eventSource.onerror = () => {
       // EventSource reconnects automatically using the retry interval supplied by the server.
     };
 
     return () => {
       eventSource.close();
+      pingTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
+      pingTimeoutsRef.current.clear();
+      templateTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
+      templateTimeoutsRef.current.clear();
+      tokenWalkTimeoutsRef.forEach((timeout) => window.clearTimeout(timeout));
+      tokenWalkTimeoutsRef.clear();
     };
   }, [applySnapshot, isAuthenticated, isReady]);
 
@@ -720,66 +808,101 @@ export function useBattleMapState(isAuthenticated: boolean) {
     }));
   };
 
-  const moveOwnedToken = async (tokenId: string, x: number, y: number) => {
-    return enqueueMutation(async () => {
-      const previousState = sharedStateRef.current;
-      const previousVersion = versionRef.current;
-      const optimisticToken = previousState.tokens.find((token) => token.id === tokenId);
-      if (!optimisticToken) {
-        return;
-      }
+  // Legge sempre sharedStateRef.current al momento dell'esecuzione (non un valore catturato in
+  // precedenza), cosicché due chiamate consecutive in coda vedano ciascuna l'esito ottimistico
+  // della precedente invece di partire entrambe dalla stessa posizione di partenza obsoleta.
+  const performOwnedMove = async (tokenId: string, x: number, y: number, waypoints?: GridPosition[]) => {
+    const previousState = sharedStateRef.current;
+    const previousVersion = versionRef.current;
+    const optimisticToken = previousState.tokens.find((token) => token.id === tokenId);
+    if (!optimisticToken) {
+      return;
+    }
 
-      const hasInitiativeOrder = previousState.initiatives.length > 0;
-      const previousAxisUsage = previousState.movementAxisUsageByTokenId[tokenId] ?? {
-        horizontal: 0,
-        vertical: 0,
-      };
-      const nextAxisUsage = calculateMovementAxisUsage(previousAxisUsage, optimisticToken.position, { x, y });
-      const optimisticState = normalizeSharedState({
-        ...previousState,
-        tokens: applyVehicleAwareUpdates(
-          previousState.tokens.map((token) =>
-            token.id === tokenId ? { ...token, position: { x, y } } : token,
-          ),
+    const path = waypoints && waypoints.length > 0 ? waypoints : [optimisticToken.position, { x, y }];
+    const destination = path[path.length - 1];
+    const hasInitiativeOrder = previousState.initiatives.length > 0;
+    const usedCells = previousState.movementUsedByTokenId[tokenId] ?? 0;
+    const previousDiagonalParity = previousState.diagonalParityByTokenId[tokenId] ?? 0;
+    const { cells: moveDistance, nextDiagonalParity } = pathCost(path, {
+      rule: previousState.diagonalRule,
+      diagonalParity: previousDiagonalParity,
+    });
+    const optimisticState = normalizeSharedState({
+      ...previousState,
+      tokens: applyVehicleAwareUpdates(
+        previousState.tokens.map((token) =>
+          token.id === tokenId ? { ...token, position: destination } : token,
         ),
-        movementUsedByTokenId: hasInitiativeOrder
-          ? {
-              ...previousState.movementUsedByTokenId,
-              [tokenId]: movementUsedFromAxisUsage(nextAxisUsage),
-            }
-          : previousState.movementUsedByTokenId,
-        movementAxisUsageByTokenId: hasInitiativeOrder
-          ? {
-              ...previousState.movementAxisUsageByTokenId,
-              [tokenId]: nextAxisUsage,
-            }
-          : previousState.movementAxisUsageByTokenId,
-        dashUsedByTokenId: previousState.dashUsedByTokenId,
-      });
-      setOptimisticState(optimisticState);
+      ),
+      movementUsedByTokenId: hasInitiativeOrder
+        ? {
+            ...previousState.movementUsedByTokenId,
+            [tokenId]: usedCells + moveDistance,
+          }
+        : previousState.movementUsedByTokenId,
+      diagonalParityByTokenId: hasInitiativeOrder
+        ? {
+            ...previousState.diagonalParityByTokenId,
+            [tokenId]: nextDiagonalParity,
+          }
+        : previousState.diagonalParityByTokenId,
+      dashUsedByTokenId: previousState.dashUsedByTokenId,
+    });
+    setOptimisticState(optimisticState);
 
-      try {
-        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-          '/battle-map/move',
-          {
-            method: 'POST',
-            body: JSON.stringify({ tokenId, x, y }),
-          },
-        );
+    try {
+      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+        '/battle-map/move',
+        {
+          method: 'POST',
+          body: JSON.stringify(
+            waypoints && waypoints.length > 0 ? { tokenId, waypoints } : { tokenId, x, y },
+          ),
+        },
+      );
+      applySnapshot(payload.state, payload.version);
+      // Un movimento accettato chiude il rifiuto precedente: l'avviso descrive l'ultimo tentativo,
+      // non resta appeso sopra una mossa andata a buon fine.
+      setMovementNotice(null);
+    } catch (error) {
+      console.error(error);
+      const payload =
+        error instanceof Error && 'payload' in error
+          ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+          : undefined;
+
+      if (payload?.state && typeof payload.version === 'number') {
         applySnapshot(payload.state, payload.version);
-      } catch (error) {
-        console.error(error);
-        const payload =
-          error instanceof Error && 'payload' in error
-            ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
-            : undefined;
-
-        if (payload?.state && typeof payload.version === 'number') {
-          applySnapshot(payload.state, payload.version);
-        } else {
-          applySnapshot(previousState, previousVersion);
-        }
+      } else {
+        applySnapshot(previousState, previousVersion);
       }
+
+      setMovementNotice({
+        id: crypto.randomUUID(),
+        message: error instanceof Error ? error.message : 'Movimento rifiutato dal server.',
+      });
+    }
+  };
+
+  const moveOwnedToken = async (tokenId: string, x: number, y: number, waypoints?: GridPosition[]) => {
+    return enqueueMutation(() => performOwnedMove(tokenId, x, y, waypoints));
+  };
+
+  // Il movimento da tastiera deve leggere la posizione corrente al momento dell'esecuzione in
+  // coda, non quella catturata dal render al momento della pressione del tasto: altrimenti
+  // pressioni rapide consecutive calcolano tutte la destinazione dalla stessa posizione di
+  // partenza obsoleta invece che dall'ultima posizione ottimistica.
+  const moveOwnedTokenBy = async (tokenId: string, deltaX: number, deltaY: number) => {
+    return enqueueMutation(() => {
+      const currentToken = sharedStateRef.current.tokens.find((token) => token.id === tokenId);
+      if (!currentToken) {
+        return Promise.resolve();
+      }
+
+      const x = Math.max(0, currentToken.position.x + deltaX);
+      const y = Math.max(0, currentToken.position.y + deltaY);
+      return performOwnedMove(tokenId, x, y);
     });
   };
 
@@ -820,8 +943,8 @@ export function useBattleMapState(isAuthenticated: boolean) {
         movementUsedByTokenId: Object.fromEntries(
           Object.entries(current.movementUsedByTokenId).filter(([currentTokenId]) => currentTokenId !== tokenId),
         ),
-        movementAxisUsageByTokenId: Object.fromEntries(
-          Object.entries(current.movementAxisUsageByTokenId).filter(([currentTokenId]) => currentTokenId !== tokenId),
+        diagonalParityByTokenId: Object.fromEntries(
+          Object.entries(current.diagonalParityByTokenId).filter(([currentTokenId]) => currentTokenId !== tokenId),
         ),
         dashUsedByTokenId: Object.fromEntries(
           Object.entries(current.dashUsedByTokenId).filter(([currentTokenId]) => currentTokenId !== tokenId),
@@ -852,8 +975,8 @@ export function useBattleMapState(isAuthenticated: boolean) {
         movementUsedByTokenId: Object.fromEntries(
           Object.entries(current.movementUsedByTokenId).filter(([tokenId]) => !tokenIdSet.has(tokenId)),
         ),
-        movementAxisUsageByTokenId: Object.fromEntries(
-          Object.entries(current.movementAxisUsageByTokenId).filter(([tokenId]) => !tokenIdSet.has(tokenId)),
+        diagonalParityByTokenId: Object.fromEntries(
+          Object.entries(current.diagonalParityByTokenId).filter(([tokenId]) => !tokenIdSet.has(tokenId)),
         ),
         dashUsedByTokenId: Object.fromEntries(
           Object.entries(current.dashUsedByTokenId).filter(([tokenId]) => !tokenIdSet.has(tokenId)),
@@ -885,7 +1008,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
         initiatives: nextEntries,
         activeTurnTokenId: current.activeTurnTokenId ?? nextEntries[0]?.tokenId ?? null,
         movementUsedByTokenId: current.movementUsedByTokenId,
-        movementAxisUsageByTokenId: current.movementAxisUsageByTokenId,
+        diagonalParityByTokenId: current.diagonalParityByTokenId,
         dashUsedByTokenId: current.dashUsedByTokenId,
         extraMovementByTokenId: current.extraMovementByTokenId,
       };
@@ -921,7 +1044,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
         initiatives: nextEntries,
         activeTurnTokenId: current.activeTurnTokenId ?? nextEntries[0]?.tokenId ?? null,
         movementUsedByTokenId: current.movementUsedByTokenId,
-        movementAxisUsageByTokenId: current.movementAxisUsageByTokenId,
+        diagonalParityByTokenId: current.diagonalParityByTokenId,
         dashUsedByTokenId: current.dashUsedByTokenId,
         extraMovementByTokenId: current.extraMovementByTokenId,
       };
@@ -973,7 +1096,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
       activeTurnTokenId: null,
       roundNumber: 1,
       movementUsedByTokenId: {},
-      movementAxisUsageByTokenId: {},
+      diagonalParityByTokenId: {},
       dashUsedByTokenId: {},
       extraMovementByTokenId: {},
     }));
@@ -1005,7 +1128,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
           ? Math.max(1, current.roundNumber + (direction === 'next' ? 1 : -1))
           : current.roundNumber,
         movementUsedByTokenId: wrappedRound ? {} : current.movementUsedByTokenId,
-        movementAxisUsageByTokenId: wrappedRound ? {} : current.movementAxisUsageByTokenId,
+        diagonalParityByTokenId: wrappedRound ? {} : current.diagonalParityByTokenId,
         dashUsedByTokenId: wrappedRound ? {} : current.dashUsedByTokenId,
         extraMovementByTokenId: wrappedRound ? {} : current.extraMovementByTokenId,
       };
@@ -1172,6 +1295,64 @@ export function useBattleMapState(isAuthenticated: boolean) {
     });
   };
 
+  const updateBattleMapSettings = async (
+    updates: Partial<{ diagonalRule: DiagonalRule; measurementUnit: MeasurementUnit }>,
+  ) => {
+    return enqueueMutation(async () => {
+      const previousState = sharedStateRef.current;
+      const previousVersion = versionRef.current;
+      setOptimisticState(normalizeSharedState({
+        ...previousState,
+        ...updates,
+      }));
+
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/settings',
+          {
+            method: 'POST',
+            body: JSON.stringify(updates),
+          },
+        );
+        applySnapshot(payload.state, payload.version);
+        return { ok: true as const };
+      } catch (error) {
+        console.error(error);
+        applySnapshot(previousState, previousVersion);
+        return { ok: false as const, message: error instanceof Error ? error.message : 'Impostazioni non valide.' };
+      }
+    });
+  };
+
+  const sendPing = async (position: GridPosition) => {
+    try {
+      await requestJson('/battle-map/ping', {
+        method: 'POST',
+        body: JSON.stringify({ position }),
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const sendTemplateEvent = async (event: {
+    id: string;
+    phase: 'update' | 'end';
+    shape: TemplateShape;
+    origin: GridPosition;
+    target: GridPosition;
+    color: string;
+  }) => {
+    try {
+      await requestJson('/battle-map/template', {
+        method: 'POST',
+        body: JSON.stringify(event),
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const startCombat = async () => {
     return enqueueMutation(async () => {
       const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
@@ -1212,6 +1393,8 @@ export function useBattleMapState(isAuthenticated: boolean) {
     });
   };
 
+  const clearMovementNotice = () => setMovementNotice(null);
+
   const state: BattleMapState = {
     ...sharedState,
     zoom,
@@ -1226,6 +1409,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     moveToken,
     moveTokens,
     moveOwnedToken,
+    moveOwnedTokenBy,
     useDashAction,
     updateOwnedToken,
     addOwnedExtraMovement,
@@ -1247,6 +1431,14 @@ export function useBattleMapState(isAuthenticated: boolean) {
     addLightSource,
     removeLightSource,
     setSharedNotes,
+    updateBattleMapSettings,
+    ephemeralPings,
+    ephemeralTemplates,
+    tokenWalkEvents,
+    movementNotice,
+    clearMovementNotice,
+    sendPing,
+    sendTemplateEvent,
     startCombat,
     resetZoom,
     undoLastAction,

@@ -638,6 +638,11 @@ button {
   color: #d8b4a1;
 }
 
+.action-card__meta--error {
+  color: #ff9d9d;
+  font-weight: 600;
+}
+
 .action-card__buttons {
   display: grid;
   gap: 0.55rem;
@@ -1637,6 +1642,249 @@ button {
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--aura-color) 38%, transparent));
 }
 
+.board-tool-controls {
+  position: absolute;
+  left: 0.9rem;
+  bottom: 0.9rem;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.board-tool-button {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 173, 128, 0.26);
+  border-radius: 12px;
+  background: rgba(32, 10, 13, 0.88);
+  color: #ffe7d7;
+  font-size: 1.1rem;
+  line-height: 1;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(12px);
+}
+
+.board-tool-button[aria-pressed="true"] {
+  border-color: rgba(255, 196, 151, 0.9);
+  background: rgba(140, 46, 40, 0.92);
+}
+
+.board-tool-button--exit {
+  color: #ffb3b3;
+}
+
+.board-tool-controls__rule {
+  margin-left: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 10px;
+  background: rgba(18, 7, 9, 0.82);
+  color: #f2cfbc;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+/* La riga dei suggerimenti sta sopra la barra degli strumenti e resta nel flusso della mappa:
+   e' l'unico posto in cui blocco, budget e rifiuti del server sono testo leggibile, quindi non
+   deve mai essere nascosta ai lettori di schermo. */
+.board-hint-bar {
+  position: absolute;
+  left: 0.9rem;
+  right: 0.9rem;
+  bottom: 3.6rem;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+
+.board-hint {
+  margin: 0;
+  max-width: min(46rem, 100%);
+  padding: 0.3rem 0.65rem;
+  border-radius: 10px;
+  background: rgba(18, 7, 9, 0.86);
+  color: #f2cfbc;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  backdrop-filter: blur(10px);
+}
+
+.board-hint:empty {
+  display: none;
+}
+
+.board-hint--rejected {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(255, 128, 128, 0.55);
+  background: rgba(78, 16, 18, 0.94);
+  color: #ffdede;
+  font-weight: 600;
+  pointer-events: auto;
+}
+
+.board-hint__dismiss {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.15rem 0.3rem;
+  cursor: pointer;
+}
+
+.board-path-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.board-path-layer__line {
+  fill: none;
+  stroke-width: 3;
+  stroke-dasharray: 8 6;
+}
+
+.board-path-layer__line--ruler {
+  stroke: rgba(120, 210, 255, 0.85);
+}
+
+.board-path-layer__line--plan {
+  stroke: rgba(130, 227, 130, 0.9);
+}
+
+.board-path-layer__line--warning {
+  stroke: rgba(255, 92, 92, 0.92);
+}
+
+.board-path-layer__waypoint--ruler {
+  fill: rgba(120, 210, 255, 0.95);
+}
+
+.board-path-layer__waypoint--plan {
+  fill: rgba(130, 227, 130, 0.95);
+}
+
+.board-path-layer__waypoint--warning {
+  fill: rgba(255, 92, 92, 0.95);
+}
+
+.board-path-layer__label {
+  fill: #ffe7d7;
+  font-size: 13px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: rgba(18, 7, 9, 0.85);
+  stroke-width: 3px;
+}
+
+.board-path-layer__label--segment {
+  font-size: 11px;
+  font-weight: 600;
+  fill: #ffd9bd;
+}
+
+.board-path-layer__label--secondary {
+  font-size: 11px;
+  font-weight: 500;
+  fill: #d8b4a1;
+}
+
+.board-template-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.board-template-layer__shape {
+  fill: color-mix(in srgb, var(--template-color) 26%, transparent);
+  stroke: var(--template-color);
+  stroke-width: 2;
+}
+
+.board-template-layer__shape--line {
+  stroke: var(--template-color);
+  fill: none;
+  stroke-opacity: 0.45;
+}
+
+/* Il centro della sagoma resta leggibile sopra qualunque colore di riempimento: bianco con un
+   contorno scuro, quindi indipendente dal colore della sagoma stessa. */
+.board-template-layer__origin-cell {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+  paint-order: stroke;
+}
+
+.board-template-layer__origin-tick {
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-width: 2;
+}
+
+.board-template-layer__origin-dot {
+  fill: #ffffff;
+  stroke: rgba(12, 4, 6, 0.8);
+  stroke-width: 1.5;
+}
+
+.board-template-layer__label {
+  fill: #ffe7d7;
+  font-size: 13px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: rgba(18, 7, 9, 0.85);
+  stroke-width: 3px;
+}
+
+.board-ping {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  pointer-events: none;
+  transform-origin: center;
+}
+
+.board-ping__marker {
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  margin-top: -11px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 196, 82, 0.95);
+  box-shadow: 0 0 0 6px rgba(255, 196, 82, 0.28);
+  animation: board-ping-pulse 1.1s ease-out infinite;
+}
+
+.board-ping__label {
+  margin-top: 6px;
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  background: rgba(18, 7, 9, 0.85);
+  color: #ffe7d7;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+@keyframes board-ping-pulse {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
 .board-light-source {
   position: absolute;
   z-index: 4;
@@ -1654,7 +1902,7 @@ button {
 
 .token {
   position: absolute;
-  z-index: 2;
+  z-index: 8;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1666,7 +1914,7 @@ button {
   user-select: none;
   touch-action: none;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
-  transition: box-shadow 120ms ease, border-color 120ms ease, filter 120ms ease;
+  transition: transform 220ms var(--ease-out-quart), box-shadow 120ms ease, border-color 120ms ease, filter 120ms ease;
   background:
     linear-gradient(rgba(12, 4, 6, 0.1), rgba(12, 4, 6, 0.1)),
     var(--token-image),
@@ -1685,7 +1933,9 @@ button {
 
 .token--dragging {
   filter: brightness(1.08);
-  z-index: 2;
+  z-index: 9;
+  /* Segue il pointer senza ritardo: la transizione sul transform vale solo a trascinamento concluso. */
+  transition: box-shadow 120ms ease, border-color 120ms ease, filter 120ms ease;
 }
 
 .token--ghost {

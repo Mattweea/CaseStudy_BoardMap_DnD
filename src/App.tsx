@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AuthScreen } from './components/AuthScreen';
 import { Board } from './components/Board';
 import { CharacterSheetWindow } from './components/character-sheet/CharacterSheetWindow';
@@ -19,7 +19,7 @@ import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
 import { characterSheetApi } from './utils/characterSheetApi';
 import type { CharacterSheetRosterEntry, PublicPortraitEntry } from './utils/characterSheetApi';
-import type { CombatAnnouncement, DiceRollLog, UnitToken } from './types';
+import type { CombatAnnouncement, DiceRollLog, GridPosition, TokenMovementBudget, UnitToken } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
 
 const FULLSCREEN_TRANSITION_MS = 260;
@@ -31,7 +31,7 @@ const COMBAT_ANNOUNCEMENT_STORAGE_KEY = 'dnd-battle-map:last-combat-announcement
 const MANUAL_PDF_PATH =
   'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
 
-type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'notes' | 'dice' | 'initiative' | 'characters' | 'legend';
+type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'movement' | 'notes' | 'dice' | 'initiative' | 'characters' | 'legend';
 type WorkspaceTabId = 'chat' | 'initiative' | 'characters' | 'legend';
 
 const KEYBOARD_MOVEMENTS: Record<string, { dx: number; dy: number }> = {
@@ -154,6 +154,7 @@ function App() {
     clearInitiatives,
     moveTokens,
     moveOwnedToken,
+    moveOwnedTokenBy,
     addOwnedExtraMovement,
     addLightSource,
     reorderInitiatives,
@@ -164,6 +165,7 @@ function App() {
     setBoardBackgroundHidden,
     setBoardFullyLit,
     setSharedNotes,
+    updateBattleMapSettings,
     startCombat,
     setInitiative,
     setInitiatives,
@@ -175,6 +177,13 @@ function App() {
     sessionStatus,
     suspendSession,
     resumeLastSession,
+    ephemeralPings,
+    ephemeralTemplates,
+    tokenWalkEvents,
+    movementNotice,
+    clearMovementNotice,
+    sendPing,
+    sendTemplateEvent,
   } = useBattleMapState(Boolean(user));
   const [selectedTokenIds, setSelectedTokenIds] = useState<string[]>(
     state.tokens[0] ? [state.tokens[0].id] : [],
@@ -199,6 +208,8 @@ function App() {
   const [pendingObstaclePlacement, setPendingObstaclePlacement] = useState<PendingObstaclePlacement | null>(null);
   const [isLightPlacementActive, setIsLightPlacementActive] = useState(false);
   const [lightRadiusCells, setLightRadiusCells] = useState(12);
+  const [measurementUnitDraft, setMeasurementUnitDraft] = useState({ label: state.measurementUnit.label, cellsValue: String(state.measurementUnit.cellsValue) });
+  const [measurementUnitError, setMeasurementUnitError] = useState<string | null>(null);
   const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null);
   const [combatAnnouncement, setCombatAnnouncement] = useState<CombatAnnouncement | null>(null);
   const [isCombatAnnouncementOpen, setIsCombatAnnouncementOpen] = useState(false);
@@ -244,6 +255,9 @@ function App() {
     });
     return () => window.cancelAnimationFrame(frameId);
   }, [state.diceLogs, workspaceTab]);
+  useEffect(() => {
+    setMeasurementUnitDraft({ label: state.measurementUnit.label, cellsValue: String(state.measurementUnit.cellsValue) });
+  }, [state.measurementUnit.label, state.measurementUnit.cellsValue]);
   const canManageBattleMap = user?.role === 'master';
   const hasUnsavedNotes = draftNotes !== state.sharedNotes;
   const sessionCharacter = findCharacterProfileByKey(user?.characterKey);
@@ -268,6 +282,65 @@ function App() {
   const dashUsed = sessionToken ? state.dashUsedByTokenId[sessionToken.id] === true : false;
   const extraMovement = sessionToken ? state.extraMovementByTokenId[sessionToken.id] ?? 0 : 0;
   const hasInitiativeOrder = state.initiatives.length > 0;
+  const movementBudgetByTokenId = useMemo(() => {
+    const budgets: Record<string, TokenMovementBudget> = {};
+    if (!hasInitiativeOrder) {
+      return budgets;
+    }
+
+    state.tokens.forEach((token) => {
+      if (typeof token.movementCells !== 'number') {
+        return;
+      }
+
+      const hasDashed = state.dashUsedByTokenId[token.id] === true;
+      const extra = state.extraMovementByTokenId[token.id] ?? 0;
+      budgets[token.id] = {
+        usedCells: state.movementUsedByTokenId[token.id] ?? 0,
+        totalCells: token.movementCells * (hasDashed ? 2 : 1) + extra,
+        diagonalParity: state.diagonalParityByTokenId[token.id] ?? 0,
+      };
+    });
+
+    return budgets;
+  }, [
+    hasInitiativeOrder,
+    state.tokens,
+    state.dashUsedByTokenId,
+    state.extraMovementByTokenId,
+    state.movementUsedByTokenId,
+    state.diagonalParityByTokenId,
+  ]);
+  // La mappa a schermo intero e quella normale muovono i token allo stesso modo: un solo
+  // gestore, così le due copie non possono divergere.
+  const handleBoardMoveTokens = (
+    moves: Array<{ tokenId: string; x: number; y: number }>,
+    anchorWaypoints?: GridPosition[],
+  ) => {
+    const isSinglePath = moves.length === 1 && anchorWaypoints !== undefined && anchorWaypoints.length > 1;
+
+    // Anche un movimento singolo del Master passa dalla rotta autorevole: il ruolo resta esente
+    // da budget e ostacoli, ma così il server ne trasmette la camminata come per chiunque altro.
+    // I movimenti di gruppo restano un commit dello stato condiviso.
+    if (canManageBattleMap) {
+      if (isSinglePath) {
+        void moveOwnedToken(moves[0].tokenId, moves[0].x, moves[0].y, anchorWaypoints);
+        return;
+      }
+
+      moveTokens(moves);
+      return;
+    }
+
+    if (
+      sessionToken &&
+      moves.length === 1 &&
+      (moves[0].tokenId === sessionToken.id || moves[0].tokenId === sessionVehicle?.id)
+    ) {
+      void moveOwnedToken(moves[0].tokenId, moves[0].x, moves[0].y, anchorWaypoints);
+    }
+  };
+
   const isPlayersTurn = Boolean(sessionToken && state.activeTurnTokenId === sessionToken.id);
   const activeTurnToken =
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
@@ -496,11 +569,7 @@ function App() {
       return;
     }
 
-    void moveOwnedToken(
-      sessionToken.id,
-      sessionToken.position.x + deltaX,
-      sessionToken.position.y + deltaY,
-    );
+    void moveOwnedTokenBy(sessionToken.id, deltaX, deltaY);
   }
 
   useEffect(() => {
@@ -1108,6 +1177,78 @@ function App() {
             </div>
           </section>
         ) : null;
+      case 'movement':
+        return canManageBattleMap ? (
+          <section key="movement" className="sidebar__section">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Regole</p>
+                <h2>Movimento e misura</h2>
+              </div>
+            </div>
+            <div className="action-card">
+              <div className="action-card__block">
+                <p className="action-card__label">Regola delle diagonali</p>
+                <div className="action-card__buttons">
+                  <button
+                    type="button"
+                    className={state.diagonalRule === 'standard' ? 'primary-button' : 'secondary-button'}
+                    aria-pressed={state.diagonalRule === 'standard'}
+                    onClick={() => void updateBattleMapSettings({ diagonalRule: 'standard' })}
+                  >
+                    Standard
+                  </button>
+                  <button
+                    type="button"
+                    className={state.diagonalRule === 'alternating' ? 'primary-button' : 'secondary-button'}
+                    aria-pressed={state.diagonalRule === 'alternating'}
+                    onClick={() => void updateBattleMapSettings({ diagonalRule: 'alternating' })}
+                  >
+                    Variante 5-10-5
+                  </button>
+                </div>
+              </div>
+
+              <div className="action-card__block">
+                <p className="action-card__label">Unità di misura</p>
+                <label className="inline-field">
+                  Etichetta
+                  <input
+                    type="text"
+                    value={measurementUnitDraft.label}
+                    onChange={(event) => setMeasurementUnitDraft((current) => ({ ...current, label: event.target.value }))}
+                  />
+                </label>
+                <label className="inline-field">
+                  Per casella
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={measurementUnitDraft.cellsValue}
+                    onChange={(event) => setMeasurementUnitDraft((current) => ({ ...current, cellsValue: event.target.value }))}
+                  />
+                </label>
+                <div className="action-card__buttons">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={async () => {
+                      const cellsValue = Number(measurementUnitDraft.cellsValue);
+                      const result = await updateBattleMapSettings({
+                        measurementUnit: { label: measurementUnitDraft.label, cellsValue },
+                      });
+                      setMeasurementUnitError(result.ok ? null : result.message ?? 'Valore non valido.');
+                    }}
+                  >
+                    Applica unità
+                  </button>
+                </div>
+                {measurementUnitError ? <p className="action-card__meta action-card__meta--error">{measurementUnitError}</p> : null}
+              </div>
+            </div>
+          </section>
+        ) : null;
       case 'initiative':
         return (
           <InitiativePanel
@@ -1297,6 +1438,7 @@ function App() {
               {renderSidebarSection('session')}
               {canManageBattleMap ? renderSidebarSection('actions') : null}
               {canManageBattleMap ? renderSidebarSection('lighting') : null}
+              {canManageBattleMap ? renderSidebarSection('movement') : null}
             </div>
             <div className="workspace-tabs" role="tablist" aria-label="Pannello sessione">
               {([
@@ -1338,17 +1480,7 @@ function App() {
           onOpenManual={() => setIsManualModalOpen(true)}
           onOpenElementsListModal={() => setIsElementsListModalOpen(true)}
           onOpenEditTokenModal={openEditTokenModal}
-          onMoveTokens={(moves) => {
-            if (canManageBattleMap) {
-              moveTokens(moves);
-            } else if (
-              sessionToken &&
-              moves.length === 1 &&
-              (moves[0].tokenId === sessionToken.id || moves[0].tokenId === sessionVehicle?.id)
-            ) {
-              void moveOwnedToken(moves[0].tokenId, moves[0].x, moves[0].y);
-            }
-          }}
+          onMoveTokens={handleBoardMoveTokens}
           onSelectionChange={setSelectedTokenIds}
           onZoomChange={setZoom}
           obstaclePlacement={
@@ -1377,6 +1509,16 @@ function App() {
                 }
               : null
           }
+          diagonalRule={state.diagonalRule}
+          measurementUnit={state.measurementUnit}
+          movementBudgetByTokenId={movementBudgetByTokenId}
+          onDrawTemplate={(event) => void sendTemplateEvent(event)}
+          onPlacePing={(position) => void sendPing(position)}
+          ephemeralPings={ephemeralPings}
+          ephemeralTemplates={ephemeralTemplates}
+          tokenWalkEvents={tokenWalkEvents}
+          movementNotice={movementNotice}
+          onDismissMovementNotice={clearMovementNotice}
         />
       </main>
 
@@ -1411,17 +1553,7 @@ function App() {
             onOpenManual={() => setIsManualModalOpen(true)}
             onOpenElementsListModal={() => setIsElementsListModalOpen(true)}
             onOpenEditTokenModal={openEditTokenModal}
-            onMoveTokens={(moves) => {
-              if (canManageBattleMap) {
-                moveTokens(moves);
-              } else if (
-                sessionToken &&
-                moves.length === 1 &&
-                (moves[0].tokenId === sessionToken.id || moves[0].tokenId === sessionVehicle?.id)
-              ) {
-                void moveOwnedToken(moves[0].tokenId, moves[0].x, moves[0].y);
-              }
-            }}
+            onMoveTokens={handleBoardMoveTokens}
             onSelectionChange={setSelectedTokenIds}
             onZoomChange={setZoom}
             obstaclePlacement={
@@ -1450,6 +1582,16 @@ function App() {
                   }
                 : null
             }
+            diagonalRule={state.diagonalRule}
+            measurementUnit={state.measurementUnit}
+            movementBudgetByTokenId={movementBudgetByTokenId}
+            onDrawTemplate={(event) => void sendTemplateEvent(event)}
+            onPlacePing={(position) => void sendPing(position)}
+            ephemeralPings={ephemeralPings}
+            ephemeralTemplates={ephemeralTemplates}
+            tokenWalkEvents={tokenWalkEvents}
+            movementNotice={movementNotice}
+            onDismissMovementNotice={clearMovementNotice}
           />
         </div>
       ) : null}

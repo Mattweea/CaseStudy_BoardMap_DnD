@@ -2,7 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { BOARD_CONFIG } from '../constants/board';
-import type { GridPosition, LightSource, UnitToken } from '../types';
+import type {
+  DiagonalParity,
+  DiagonalRule,
+  EphemeralPing,
+  EphemeralTemplate,
+  GridPosition,
+  LightSource,
+  MeasurementUnit,
+  MovementNotice,
+  TemplateShape,
+  TokenMovementBudget,
+  TokenWalkEvent,
+  UnitToken,
+} from '../types';
 import {
   boardPixelSize,
   clampZoom,
@@ -11,7 +24,31 @@ import {
   viewportPointToWorldCell,
 } from '../utils/board';
 import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
+import { cellsToUnit, pathCost } from '../../shared/grid-movement';
 import { Token } from './Token';
+
+function formatNumber(value: number): string {
+  return value % 1 === 0 ? String(value) : value.toFixed(1);
+}
+
+const FEET_PER_METER = 3.28084;
+
+// I piedi sono una conversione dei metri misurati, non un secondo righello con una scala propria:
+// il valore per casella scelto dal Master resta l'unica misura di riferimento, e la colonna in
+// piedi lo segue invece di contraddirlo.
+function formatRulerMeasurement(cells: number, unit: MeasurementUnit): string {
+  const converted = cellsToUnit(cells, unit.cellsValue);
+  const cellsLabel = `${cells} casell${cells === 1 ? 'a' : 'e'}`;
+  if (converted === null) {
+    return cellsLabel;
+  }
+
+  const isMetric = unit.label.trim().toLowerCase() === 'm';
+  const measurement = isMetric
+    ? `${formatNumber(converted)}m | ${formatNumber(converted * FEET_PER_METER)}ft`
+    : `${formatNumber(converted)} ${unit.label}`;
+  return `${cellsLabel} (${measurement})`;
+}
 
 interface BoardProps {
   tokens: UnitToken[];
@@ -41,7 +78,7 @@ interface BoardProps {
   onOpenElementsListModal: () => void;
   onOpenEditTokenModal: (tokenId: string) => void;
   onToggleFullscreen: () => void;
-  onMoveTokens: (moves: Array<{ tokenId: string; x: number; y: number }>) => void;
+  onMoveTokens: (moves: Array<{ tokenId: string; x: number; y: number }>, anchorWaypoints?: GridPosition[]) => void;
   onSelectionChange: (tokenIds: string[]) => void;
   onZoomChange: (zoom: number) => void;
   obstaclePlacement?: {
@@ -51,7 +88,36 @@ interface BoardProps {
     onConfirm: () => void;
     onCancel: () => void;
   } | null;
+  diagonalRule: DiagonalRule;
+  measurementUnit: MeasurementUnit;
+  movementBudgetByTokenId?: Record<string, TokenMovementBudget>;
+  onDrawTemplate?: (event: {
+    id: string;
+    phase: 'update' | 'end';
+    shape: TemplateShape;
+    origin: GridPosition;
+    target: GridPosition;
+    color: string;
+  }) => void;
+  onPlacePing?: (position: GridPosition) => void;
+  ephemeralPings?: EphemeralPing[];
+  ephemeralTemplates?: EphemeralTemplate[];
+  tokenWalkEvents?: TokenWalkEvent[];
+  movementNotice?: MovementNotice | null;
+  onDismissMovementNotice?: () => void;
 }
+
+const TEMPLATE_COLORS: Record<TemplateShape, string> = {
+  circle: '#ff8a3d',
+  cone: '#ffb84d',
+  line: '#ff5d73',
+};
+
+type MapTool = 'ruler' | 'ping' | 'template-circle' | 'template-cone' | 'template-line';
+
+// Un solo ritmo per l'animazione di cammino, uguale per chi muove il token e per chiunque lo
+// osservi altrove: lo stesso movimento fisico deve apparire identico a tutti.
+const WALK_PACE = { msPerCell: 180, minDuration: 300, maxDuration: 2500 };
 
 const INITIAL_CAMERA = { x: 0, y: 0 };
 const BOARD_GUTTER = 30;
@@ -226,13 +292,32 @@ type PendingTokenInteraction = {
   additive: boolean;
 };
 
-type DragInteraction = {
-  mode: 'drag';
-  pointerId: number;
-  anchorTokenId: string;
-  hoverCell: GridPosition;
+// Unica modalità di movimento, identica per Master e Player: il token resta fermo alla posizione
+// di partenza (elemento 0 di waypoints) e il percorso misurato segue il puntatore finché non si
+// conferma.
+//
+// Il click ha un solo significato, aggiungere un waypoint: quello sul token apre la
+// pianificazione, quelli successivi spezzano il percorso. La destinazione non si clicca, è la
+// casella sotto il puntatore nel momento in cui si preme `Spazio`, che è l'unico gesto di
+// conferma. Nessun rilascio del pointer conferma un movimento. `Backspace` toglie l'ultimo
+// waypoint, `Esc` annulla senza inviare nulla.
+type PlanInteraction = {
+  mode: 'plan';
+  tokenId: string;
+  waypoints: GridPosition[];
+  hoverCell: GridPosition | null;
   grabOffset: GridPosition;
   offsets: Array<{ tokenId: string; deltaX: number; deltaY: number }>;
+};
+
+type TemplateDrawInteraction = {
+  mode: 'template-draw';
+  pointerId: number;
+  templateId: string;
+  shape: TemplateShape;
+  color: string;
+  origin: GridPosition;
+  hoverCell: GridPosition;
 };
 
 type SelectBoxInteraction = {
@@ -254,9 +339,96 @@ type ObstaclePaintInteraction = {
 type InteractionState =
   | PanInteraction
   | PendingTokenInteraction
-  | DragInteraction
+  | PlanInteraction
   | SelectBoxInteraction
-  | ObstaclePaintInteraction;
+  | ObstaclePaintInteraction
+  | TemplateDrawInteraction;
+
+// Stesso footprint AABB usato da findBlockedMovement lato server, riprodotto qui solo per
+// l'avviso ottimistico durante il trascinamento: il server resta l'unica autorità sull'esito.
+function isMovementBlockingToken(token: UnitToken): boolean {
+  return token.blocksMovement === true;
+}
+
+function footprintsOverlap(
+  position: GridPosition,
+  footprint: { width: number; height: number },
+  other: UnitToken,
+): boolean {
+  const otherFootprint = getTokenFootprint(other);
+  return !(
+    position.x + footprint.width - 1 < other.position.x ||
+    other.position.x + otherFootprint.width - 1 < position.x ||
+    position.y + footprint.height - 1 < other.position.y ||
+    other.position.y + otherFootprint.height - 1 < position.y
+  );
+}
+
+function isSegmentBlocked(
+  allTokens: UnitToken[],
+  movingTokenId: string,
+  footprint: { width: number; height: number },
+  from: GridPosition,
+  to: GridPosition,
+): boolean {
+  const stepX = Math.sign(to.x - from.x);
+  const stepY = Math.sign(to.y - from.y);
+  const steps = Math.max(Math.abs(to.x - from.x), Math.abs(to.y - from.y));
+  let x = from.x;
+  let y = from.y;
+
+  for (let index = 0; index < steps; index += 1) {
+    if (x !== to.x) x += stepX;
+    if (y !== to.y) y += stepY;
+
+    const blocked = allTokens.some(
+      (candidate) =>
+        candidate.id !== movingTokenId &&
+        isMovementBlockingToken(candidate) &&
+        footprintsOverlap({ x, y }, footprint, candidate),
+    );
+    if (blocked) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// Il costo di ogni singolo segmento, non solo il totale: con la variante 5-10-5 due segmenti
+// identici possono costare diverso a seconda di quante diagonali li precedono, quindi l'alternanza
+// va portata avanti di segmento in segmento esattamente come fa il server.
+function segmentCosts(
+  waypoints: GridPosition[],
+  rule: DiagonalRule,
+  startParity: DiagonalParity,
+): number[] {
+  const costs: number[] = [];
+  let parity = startParity;
+
+  for (let index = 0; index < waypoints.length - 1; index += 1) {
+    const result = pathCost([waypoints[index], waypoints[index + 1]], { rule, diagonalParity: parity });
+    costs.push(result.cells);
+    parity = result.nextDiagonalParity;
+  }
+
+  return costs;
+}
+
+function isPathBlocked(
+  allTokens: UnitToken[],
+  movingTokenId: string,
+  footprint: { width: number; height: number },
+  waypoints: GridPosition[],
+): boolean {
+  for (let index = 0; index < waypoints.length - 1; index += 1) {
+    if (isSegmentBlocked(allTokens, movingTokenId, footprint, waypoints[index], waypoints[index + 1])) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 export function Board({
   tokens,
@@ -282,11 +454,92 @@ export function Board({
   onSelectionChange,
   onZoomChange,
   obstaclePlacement = null,
+  diagonalRule,
+  measurementUnit,
+  movementBudgetByTokenId = {},
+  onDrawTemplate,
+  onPlacePing,
+  ephemeralPings = [],
+  tokenWalkEvents = [],
+  ephemeralTemplates = [],
+  movementNotice = null,
+  onDismissMovementNotice,
 }: BoardProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [interaction, setInteraction] = useState<InteractionState | null>(null);
   const [lightPreviewCell, setLightPreviewCell] = useState<GridPosition | null>(null);
+  const [activeTool, setActiveTool] = useState<MapTool | null>(null);
+  const [rulerWaypoints, setRulerWaypoints] = useState<GridPosition[]>([]);
+  const [rulerHoverCell, setRulerHoverCell] = useState<GridPosition | null>(null);
+  const isRulerActive = activeTool === 'ruler';
+  const isPingToolActive = activeTool === 'ping';
+  const activeTemplateShape: TemplateShape | null =
+    activeTool === 'template-circle' ? 'circle' : activeTool === 'template-cone' ? 'cone' : activeTool === 'template-line' ? 'line' : null;
+
+  const exitActiveTool = () => {
+    setActiveTool(null);
+    setRulerWaypoints([]);
+    setRulerHoverCell(null);
+  };
+
+  // Gli strumenti di mappa si raggiungono da tastiera come i pulsanti che li attivano: le
+  // scorciatoie valgono solo quando il fuoco non è in un campo di testo e non c'è già
+  // un'interazione in corso, perché quella ha le proprie regole di conferma e annullamento.
+  const TOOL_SHORTCUTS: Record<string, MapTool> = {
+    KeyR: 'ruler',
+    KeyP: 'ping',
+    KeyC: 'template-circle',
+    KeyO: 'template-cone',
+    KeyL: 'template-line',
+  };
+
+  useEffect(() => {
+    if (interaction) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && activeTool) {
+        event.preventDefault();
+        exitActiveTool();
+        return;
+      }
+
+      if (event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT')
+      ) {
+        return;
+      }
+
+      const shortcutTool = TOOL_SHORTCUTS[event.code];
+      if (!shortcutTool) {
+        return;
+      }
+
+      event.preventDefault();
+      if (activeTool === shortcutTool) {
+        exitActiveTool();
+        return;
+      }
+
+      setRulerWaypoints([]);
+      setRulerHoverCell(null);
+      setActiveTool(shortcutTool);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTool, interaction]);
   const [camera, setCamera] = useState<GridPosition>(INITIAL_CAMERA);
   const [viewportCells, setViewportCells] = useState<{ columns: number; rows: number }>({
     columns: BOARD_CONFIG.minVisibleColumns,
@@ -418,21 +671,29 @@ export function Board({
     );
   }, [focusRequest, tokens, viewportCells.columns, viewportCells.rows]);
 
-  const draggedPositions = useMemo(() => {
-    if (interaction?.mode !== 'drag') {
+  const planInteraction = interaction?.mode === 'plan' ? interaction : null;
+  // Durante la pianificazione il pezzo resta disegnato alla posizione di partenza: la destinazione
+  // la mostrano il percorso e l'evidenziazione, non lo spostamento del pezzo, così si vede da dove
+  // si è partiti. Queste posizioni servono solo a sapere in anticipo se il percorso finirebbe
+  // sopra un'altra creatura.
+  const planEndCell = planInteraction
+    ? planInteraction.hoverCell ?? planInteraction.waypoints[planInteraction.waypoints.length - 1]
+    : null;
+  const planDestinations = useMemo(() => {
+    if (!planInteraction || !planEndCell) {
       return new Map<string, GridPosition>();
     }
 
     return new Map(
-      interaction.offsets.map((offset) => [
+      planInteraction.offsets.map((offset) => [
         offset.tokenId,
         {
-          x: interaction.hoverCell.x + offset.deltaX,
-          y: interaction.hoverCell.y + offset.deltaY,
+          x: planEndCell.x + offset.deltaX,
+          y: planEndCell.y + offset.deltaY,
         },
       ]),
     );
-  }, [interaction]);
+  }, [planInteraction, planEndCell]);
   const auraCircles = useMemo(
     () =>
       tokens.flatMap((token) => {
@@ -444,7 +705,7 @@ export function Board({
           return [];
         }
 
-        const position = draggedPositions.get(token.id) ?? token.position;
+        const position = token.position;
         const footprint = getTokenFootprint(token);
         return token.auras.flatMap((aura) => aura.isVisible ? [{
           id: `${token.id}-${aura.id}`,
@@ -454,7 +715,7 @@ export function Board({
           r: Math.max(0, Math.floor(aura.radiusCells)) * BOARD_CONFIG.cellSize * zoom,
         }] : []);
       }),
-    [camera.x, camera.y, draggedPositions, tokens, zoom],
+    [camera.x, camera.y, tokens, zoom],
   );
   const visibleTokenMaskRects = useMemo(() => {
     if (!effectiveVision) {
@@ -462,7 +723,7 @@ export function Board({
     }
 
     return tokens.filter((token) => token.type === 'player').map((token) => {
-      const position = draggedPositions.get(token.id) ?? token.position;
+      const position = token.position;
       const footprint = getTokenFootprint(token);
 
       return {
@@ -473,16 +734,16 @@ export function Board({
         height: footprint.height * BOARD_CONFIG.cellSize * zoom,
       };
     });
-  }, [camera.x, camera.y, draggedPositions, effectiveVision, tokens, zoom]);
+  }, [camera.x, camera.y, effectiveVision, tokens, zoom]);
 
-  const hasInvalidDragOverlap = useMemo(() => {
-    if (interaction?.mode !== 'drag') {
+  const hasInvalidPlanOverlap = useMemo(() => {
+    if (planDestinations.size === 0) {
       return false;
     }
 
     const simulatedTokens = tokens.map((token) => {
-      const draggedPosition = draggedPositions.get(token.id);
-      return draggedPosition ? { ...token, position: draggedPosition } : token;
+      const plannedPosition = planDestinations.get(token.id);
+      return plannedPosition ? { ...token, position: plannedPosition } : token;
     });
 
     const visibleCreatures = simulatedTokens.filter(
@@ -501,21 +762,299 @@ export function Board({
     }
 
     return false;
-  }, [draggedPositions, interaction, tokens]);
+  }, [planDestinations, tokens]);
+
+  const rulerPath = rulerWaypoints.length === 0 ? null : rulerHoverCell ? [...rulerWaypoints, rulerHoverCell] : rulerWaypoints;
+  const rulerPathCost = useMemo(() => {
+    if (!rulerPath) {
+      return null;
+    }
+    return pathCost(rulerPath, { rule: diagonalRule, diagonalParity: 0 });
+  }, [rulerPath, diagonalRule]);
+
+  const planTargetToken = planInteraction ? tokens.find((token) => token.id === planInteraction.tokenId) ?? null : null;
+  const planPath = planInteraction
+    ? planInteraction.hoverCell
+      ? [...planInteraction.waypoints, planInteraction.hoverCell]
+      : planInteraction.waypoints
+    : null;
+  const planBudget = planTargetToken ? movementBudgetByTokenId[planTargetToken.id] ?? null : null;
+  const planPathCost = useMemo(() => {
+    if (!planPath) {
+      return null;
+    }
+    return pathCost(planPath, { rule: diagonalRule, diagonalParity: planBudget?.diagonalParity ?? 0 });
+  }, [planPath, diagonalRule, planBudget]);
+  const planIsBlocked = useMemo(() => {
+    if (!planPath || !planTargetToken) {
+      return false;
+    }
+    return isPathBlocked(tokens, planTargetToken.id, getTokenFootprint(planTargetToken), planPath);
+  }, [planPath, planTargetToken, tokens]);
+  const planExceedsBudget =
+    planBudget?.totalCells != null && planPathCost ? planBudget.usedCells + planPathCost.cells > planBudget.totalCells : false;
+
+  // Tutto quel che va detto a parole sul gesto in corso passa di qui: il percorso disegnato usa
+  // colore e icone, che da soli non raggiungono chi non li vede. La stessa riga fa da live region
+  // per blocco, budget e destinazione occupata.
+  const planHintText = planInteraction
+    ? 'Spazio muove il token dove punti · Click aggiunge un waypoint · Backspace toglie l’ultimo · Esc annulla'
+    : null;
+  const planWarningText = !planInteraction
+    ? null
+    : planIsBlocked
+      ? 'Percorso bloccato: un segmento attraversa un ostacolo.'
+      : planExceedsBudget
+        ? 'Fuori budget: il percorso supera il movimento rimasto in questo turno.'
+        : hasInvalidPlanOverlap
+          ? 'Destinazione occupata da un’altra creatura.'
+          : null;
+  const planMeasureText =
+    planPathCost && planPath && planPath.length > 1
+      ? `Percorso ${formatRulerMeasurement(planPathCost.cells, measurementUnit)}${
+          planBudget?.totalCells != null
+            ? `, residuo ${formatRulerMeasurement(
+                Math.max(0, planBudget.totalCells - planBudget.usedCells - planPathCost.cells),
+                measurementUnit,
+              )}`
+            : ''
+        }`
+      : null;
+  const toolHintText = isRulerActive
+    ? 'Righello: ogni click aggiunge un waypoint, Esc chiude la misura.'
+    : isPingToolActive
+      ? 'Ping: un click segnala il punto a tutti i partecipanti.'
+      : activeTemplateShape
+        ? 'Sagoma: trascina dall’origine verso la direzione, rilascia per farla sparire.'
+        : null;
+  const hasSelectedMovableToken = selectedTokenIds.some(
+    (tokenId) => canManageTokens || movableTokenIdSet.has(tokenId),
+  );
+  const boardHintText = planInteraction
+    ? [planMeasureText, planWarningText, planHintText].filter(Boolean).join(' — ')
+    : toolHintText ??
+      (hasSelectedMovableToken
+        ? 'Clicca un token che puoi muovere per pianificarne il movimento.'
+        : null);
+
+  // L'animazione di cammino è puramente visiva: segue i passi unitari del percorso a velocità
+  // costante e sovrascrive la posizione mostrata finché non termina. Parte sempre dall'evento
+  // token-walk, cioè da un movimento già accettato, mai dalla richiesta. Più token possono
+  // camminare insieme (il proprio più quelli mossi da altri partecipanti), quindi le animazioni
+  // vivono in un dizionario per tokenId dentro un ref, aggiornato da un unico loop rAF
+  // permanente: le posizioni interpolate restano in stato solo per pilotare il render.
+  const walkAnimationsRef = useRef<Record<string, { points: GridPosition[]; startedAt: number; duration: number }>>({});
+  const [walkAnimatedPositions, setWalkAnimatedPositions] = useState<Record<string, GridPosition>>({});
+  // Il binario resta visibile finché il token non arriva a destinazione, non solo durante la
+  // pianificazione: per questo vive separato da planPath, con la stessa durata dell'animazione.
+  const [walkTrackPaths, setWalkTrackPaths] = useState<Record<string, GridPosition[]>>({});
+  const processedTokenWalkEventIdsRef = useRef<Set<string>>(new Set());
+
+  const walkPathPoints = (waypoints: GridPosition[]): GridPosition[] => {
+    const cost = pathCost(waypoints, { rule: diagonalRule });
+    return [waypoints[0], ...cost.steps.map((step) => ({ x: step.x, y: step.y }))];
+  };
+
+  const startWalkAnimation = (
+    tokenId: string,
+    points: GridPosition[],
+    { msPerCell, minDuration, maxDuration }: { msPerCell: number; minDuration: number; maxDuration: number },
+  ) => {
+    if (points.length < 2) {
+      return;
+    }
+    walkAnimationsRef.current = {
+      ...walkAnimationsRef.current,
+      [tokenId]: {
+        points,
+        startedAt: performance.now(),
+        duration: Math.min(maxDuration, Math.max(minDuration, (points.length - 1) * msPerCell)),
+      },
+    };
+    setWalkTrackPaths((current) => ({ ...current, [tokenId]: points }));
+  };
+
+  useEffect(() => {
+    let frameId: number;
+    const step = () => {
+      const animations = walkAnimationsRef.current;
+      const tokenIds = Object.keys(animations);
+
+      if (tokenIds.length > 0) {
+        const now = performance.now();
+        const nextPositions: Record<string, GridPosition> = {};
+        const stillRunning: typeof animations = {};
+        const finishedTokenIds: string[] = [];
+
+        for (const tokenId of tokenIds) {
+          const animation = animations[tokenId];
+          const t = Math.min(1, (now - animation.startedAt) / animation.duration);
+          const segments = animation.points.length - 1;
+          const scaled = t * segments;
+          const index = Math.min(Math.max(segments - 1, 0), Math.floor(scaled));
+          const localT = segments === 0 ? 1 : scaled - index;
+          const from = animation.points[index];
+          const to = animation.points[index + 1] ?? from;
+          nextPositions[tokenId] = {
+            x: from.x + (to.x - from.x) * localT,
+            y: from.y + (to.y - from.y) * localT,
+          };
+
+          if (t < 1) {
+            stillRunning[tokenId] = animation;
+          } else {
+            finishedTokenIds.push(tokenId);
+          }
+        }
+
+        walkAnimationsRef.current = stillRunning;
+        setWalkAnimatedPositions(nextPositions);
+        if (finishedTokenIds.length > 0) {
+          setWalkTrackPaths((current) => {
+            const next = { ...current };
+            finishedTokenIds.forEach((tokenId) => delete next[tokenId]);
+            return next;
+          });
+        }
+      }
+
+      frameId = requestAnimationFrame(step);
+    };
+
+    frameId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frameId);
+  }, []);
+
+  // L'animazione parte solo dall'evento token-walk, che il server trasmette dopo aver accettato
+  // il movimento — anche a chi lo ha richiesto. Anticiparla in locale farebbe camminare il token
+  // per intero anche quando la mossa viene poi rifiutata, e il ritorno indietro sembrerebbe un
+  // errore invece di un rifiuto.
+  useEffect(() => {
+    for (const event of tokenWalkEvents) {
+      if (processedTokenWalkEventIdsRef.current.has(event.id)) {
+        continue;
+      }
+      processedTokenWalkEventIdsRef.current.add(event.id);
+      startWalkAnimation(event.tokenId, walkPathPoints(event.waypoints), WALK_PACE);
+    }
+  }, [tokenWalkEvents]);
+
+  const confirmPlan = (plan: PlanInteraction) => {
+    // La destinazione e' la casella sotto il puntatore, non un waypoint da cliccare.
+    const path = plan.hoverCell ? [...plan.waypoints, plan.hoverCell] : plan.waypoints;
+    if (path.length < 2) {
+      // Spazio premuto senza aver ancora scelto una casella diversa dalla partenza: la
+      // pianificazione resta aperta invece di chiudersi senza spiegazione.
+      return;
+    }
+
+    const destination = path[path.length - 1];
+    onMoveTokens(
+      plan.offsets.length > 0
+        ? plan.offsets.map((offset) => ({
+            tokenId: offset.tokenId,
+            x: destination.x + offset.deltaX,
+            y: destination.y + offset.deltaY,
+          }))
+        : [{ tokenId: plan.tokenId, x: destination.x, y: destination.y }],
+      path,
+    );
+    setInteraction(null);
+  };
+
+  const addPlanWaypoint = (plan: PlanInteraction, event: ReactPointerEvent<Element>) => {
+    if (event.button !== 0 && event.button !== 2) {
+      return;
+    }
+    if (!stageRef.current) {
+      return;
+    }
+
+    const cell = viewportPointToWorldCell(
+      event.clientX,
+      event.clientY,
+      stageRef.current.getBoundingClientRect(),
+      zoom,
+      camera,
+    );
+    const waypoint = { x: cell.x - plan.grabOffset.x, y: cell.y - plan.grabOffset.y };
+    const last = plan.waypoints[plan.waypoints.length - 1];
+    if (last && last.x === waypoint.x && last.y === waypoint.y) {
+      return;
+    }
+
+    setInteraction({ ...plan, waypoints: [...plan.waypoints, waypoint], hoverCell: waypoint });
+  };
+
+  useEffect(() => {
+    if (!planInteraction) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Spazio e Backspace sono tasti di scrittura: se il fuoco è in un campo di testo la
+      // pianificazione non deve intercettarli.
+      const target = event.target as HTMLElement | null;
+      const isTextEntry =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT');
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setInteraction(null);
+        return;
+      }
+
+      if (isTextEntry) {
+        return;
+      }
+
+      if (event.code === 'Backspace' && planInteraction.waypoints.length > 1) {
+        event.preventDefault();
+        setInteraction({ ...planInteraction, waypoints: planInteraction.waypoints.slice(0, -1) });
+        return;
+      }
+
+      if (event.code === 'Space') {
+        event.preventDefault();
+        confirmPlan(planInteraction);
+      }
+    };
+
+    // Il click destro aggiunge un waypoint, quindi il menu contestuale nativo va soppresso — ma
+    // solo sulla mappa: fuori di essa resta quello del browser.
+    const board = shellRef.current;
+    const blockContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    board?.addEventListener('contextmenu', blockContextMenu);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      board?.removeEventListener('contextmenu', blockContextMenu);
+    };
+  }, [planInteraction]);
+
 
   useEffect(() => {
     if (!interaction) {
       return undefined;
     }
 
-    const completeDrag = (dragInteraction: DragInteraction) => {
-      onMoveTokens(
-        dragInteraction.offsets.map((offset) => ({
-          tokenId: offset.tokenId,
-          x: dragInteraction.hoverCell.x + offset.deltaX,
-          y: dragInteraction.hoverCell.y + offset.deltaY,
-        })),
-      );
+    const completeTemplateDraw = (templateInteraction: TemplateDrawInteraction) => {
+      onDrawTemplate?.({
+        id: templateInteraction.templateId,
+        phase: 'end',
+        shape: templateInteraction.shape,
+        origin: templateInteraction.origin,
+        target: templateInteraction.hoverCell,
+        color: templateInteraction.color,
+      });
       setInteraction(null);
     };
 
@@ -611,40 +1150,12 @@ export function Board({
           return;
         }
 
-        const deltaX = event.clientX - interaction.startX;
-        const deltaY = event.clientY - interaction.startY;
-
-        if (Math.hypot(deltaX, deltaY) < DRAG_THRESHOLD) {
-          return;
-        }
-
-        const hoverCell = viewportPointToWorldCell(
-          event.clientX,
-          event.clientY,
-          stageRef.current.getBoundingClientRect(),
-          zoom,
-          camera,
-        );
-
-        setInteraction({
-          mode: 'drag',
-          pointerId: interaction.pointerId,
-          anchorTokenId: interaction.tokenId,
-          hoverCell: {
-            x: hoverCell.x - interaction.grabOffset.x,
-            y: hoverCell.y - interaction.grabOffset.y,
-          },
-          grabOffset: interaction.grabOffset,
-          offsets: interaction.offsets,
-        });
+        // Un token che si puo' muovere entra in pianificazione gia' al pointerdown, quindi qui
+        // resta solo la selezione: trascinare non muove nulla e non conferma nulla.
         return;
       }
 
-      if (interaction.mode === 'drag') {
-        if (event.pointerId !== interaction.pointerId) {
-          return;
-        }
-
+      if (interaction.mode === 'plan') {
         const hoverCell = viewportPointToWorldCell(
           event.clientX,
           event.clientY,
@@ -659,6 +1170,35 @@ export function Board({
             x: hoverCell.x - interaction.grabOffset.x,
             y: hoverCell.y - interaction.grabOffset.y,
           },
+        });
+        return;
+      }
+
+      if (interaction.mode === 'template-draw') {
+        if (event.pointerId !== interaction.pointerId) {
+          return;
+        }
+
+        const hoverCell = viewportPointToWorldCell(
+          event.clientX,
+          event.clientY,
+          stageRef.current.getBoundingClientRect(),
+          zoom,
+          camera,
+        );
+
+        if (hoverCell.x === interaction.hoverCell.x && hoverCell.y === interaction.hoverCell.y) {
+          return;
+        }
+
+        setInteraction({ ...interaction, hoverCell });
+        onDrawTemplate?.({
+          id: interaction.templateId,
+          phase: 'update',
+          shape: interaction.shape,
+          origin: interaction.origin,
+          target: hoverCell,
+          color: interaction.color,
         });
         return;
       }
@@ -700,25 +1240,29 @@ export function Board({
               ? selectedTokenIds.filter((tokenId) => tokenId !== interaction.tokenId)
               : [...selectedTokenIds, interaction.tokenId],
           );
-        } else {
-          onSelectionChange(
-            interaction.selectGroupOnClick
-              ? interaction.selection
-              : selectedTokenIds.includes(interaction.tokenId)
-              ? selectedTokenIds.filter((tokenId) => tokenId !== interaction.tokenId)
-              : [interaction.tokenId],
-          );
+          setInteraction(null);
+          return;
         }
+
+        onSelectionChange(
+          interaction.selectGroupOnClick ? interaction.selection : [interaction.tokenId],
+        );
         setInteraction(null);
         return;
       }
 
-      if (interaction.mode === 'drag') {
+      if (interaction.mode === 'plan') {
+        // Il rilascio del pointer non conferma: la conferma e' solo Spazio, cosi il click resta
+        // un gesto con un unico significato, aggiungere un waypoint.
+        return;
+      }
+
+      if (interaction.mode === 'template-draw') {
         if (event.pointerId !== interaction.pointerId) {
           return;
         }
 
-        completeDrag(interaction);
+        completeTemplateDraw(interaction);
         return;
       }
 
@@ -740,21 +1284,119 @@ export function Board({
       completeSelectionBox(interaction);
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (interaction.mode === 'pan' || interaction.mode === 'select-box') {
+          event.preventDefault();
+          setInteraction(null);
+          return;
+        }
+
+        if (interaction.mode === 'template-draw') {
+          event.preventDefault();
+          onDrawTemplate?.({
+            id: interaction.templateId,
+            phase: 'end',
+            shape: interaction.shape,
+            origin: interaction.origin,
+            target: interaction.hoverCell,
+            color: interaction.color,
+          });
+          setInteraction(null);
+          setActiveTool(null);
+        }
+      }
+    };
+
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', completeInteraction);
     window.addEventListener('pointercancel', completeInteraction);
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', completeInteraction);
       window.removeEventListener('pointercancel', completeInteraction);
+      window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [camera, interaction, obstaclePlacement, onMoveTokens, onSelectionChange, selectedTokenIds, tokens, zoom]);
+  }, [camera, interaction, obstaclePlacement, onDrawTemplate, onMoveTokens, onSelectionChange, selectedTokenIds, tokens, zoom]);
+
+  // Righello, ping e sagome sono indipendenti dai permessi sui token: quando uno di questi
+  // strumenti è attivo intercetta il click prima della selezione o del trascinamento normale,
+  // sullo stesso modello già usato da lightPlacement.
+  const handleMapToolPointerDown = (event: ReactPointerEvent<HTMLElement>, cell: GridPosition): boolean => {
+    if (isRulerActive) {
+      if (event.button !== 0) {
+        return true;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setRulerWaypoints((current) => [...current, cell]);
+      return true;
+    }
+
+    if (isPingToolActive) {
+      if (event.button !== 0) {
+        return true;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      onPlacePing?.(cell);
+      exitActiveTool();
+      return true;
+    }
+
+    if (activeTemplateShape) {
+      if (event.button !== 0) {
+        return true;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const templateId = crypto.randomUUID();
+      const color = TEMPLATE_COLORS[activeTemplateShape];
+      setInteraction({
+        mode: 'template-draw',
+        pointerId: event.pointerId,
+        templateId,
+        shape: activeTemplateShape,
+        color,
+        origin: cell,
+        hoverCell: cell,
+      });
+      onDrawTemplate?.({ id: templateId, phase: 'update', shape: activeTemplateShape, origin: cell, target: cell, color });
+      return true;
+    }
+
+    return false;
+  };
 
   const handlePiecePointerDown = (
     event: ReactPointerEvent<HTMLButtonElement>,
     token: UnitToken,
   ) => {
+    // Mentre si pianifica, il pointer sulla mappa appartiene al percorso: lasciar passare il
+    // trascinamento della visuale sostituirebbe l'interazione e butterebbe via i waypoint scelti.
+    // I pulsanti di zoom restano comunque raggiungibili fuori dalla mappa.
+    if (interaction?.mode === 'plan') {
+      event.preventDefault();
+      event.stopPropagation();
+      addPlanWaypoint(interaction, event);
+      return;
+    }
+
+    if ((isRulerActive || isPingToolActive || activeTemplateShape) && stageRef.current) {
+      const cell = viewportPointToWorldCell(
+        event.clientX,
+        event.clientY,
+        stageRef.current.getBoundingClientRect(),
+        zoom,
+        camera,
+      );
+      if (handleMapToolPointerDown(event, cell)) {
+        return;
+      }
+    }
+
     if (lightPlacement && stageRef.current) {
       if (event.button !== 0) {
         return;
@@ -835,28 +1477,44 @@ export function Board({
       zoom,
       camera,
     );
+    const offsets = selection
+      .map((tokenId) => tokens.find((item) => item.id === tokenId))
+      .filter((item): item is UnitToken => Boolean(item))
+      .map((item) => ({
+        tokenId: item.id,
+        deltaX: item.position.x - anchor.x,
+        deltaY: item.position.y - anchor.y,
+      }));
 
+    if (additive) {
+      // Shift serve a comporre una selezione, non a muoverla: resta una selezione e basta.
+      setInteraction({
+        mode: 'pending-token',
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        tokenId: token.id,
+        selection,
+        selectGroupOnClick: false,
+        grabOffset: { x: pointerCell.x - anchor.x, y: pointerCell.y - anchor.y },
+        offsets,
+        additive,
+      });
+      return;
+    }
+
+    // Il click su un token che si puo' muovere lo seleziona e apre subito la pianificazione: da
+    // qui in poi basta puntare la casella e premere Spazio, senza un ultimo click sulla
+    // destinazione. Lo scostamento di presa tiene conto di dove si e' cliccato dentro un token
+    // grande, cosi il pezzo non salta quando il percorso parte.
+    onSelectionChange(selection);
     setInteraction({
-      mode: 'pending-token',
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
+      mode: 'plan',
       tokenId: token.id,
-      selection,
-      selectGroupOnClick: false,
-      grabOffset: {
-        x: pointerCell.x - token.position.x,
-        y: pointerCell.y - token.position.y,
-      },
-      offsets: selection
-        .map((tokenId) => tokens.find((item) => item.id === tokenId))
-        .filter((item): item is UnitToken => Boolean(item))
-        .map((item) => ({
-          tokenId: item.id,
-          deltaX: item.position.x - anchor.x,
-          deltaY: item.position.y - anchor.y,
-        })),
-      additive,
+      waypoints: [anchor],
+      hoverCell: null,
+      grabOffset: { x: pointerCell.x - anchor.x, y: pointerCell.y - anchor.y },
+      offsets,
     });
   };
 
@@ -864,6 +1522,29 @@ export function Board({
     event: ReactPointerEvent<HTMLButtonElement>,
     cluster: ObstacleCluster,
   ) => {
+    // Mentre si pianifica, il pointer sulla mappa appartiene al percorso: lasciar passare il
+    // trascinamento della visuale sostituirebbe l'interazione e butterebbe via i waypoint scelti.
+    // I pulsanti di zoom restano comunque raggiungibili fuori dalla mappa.
+    if (interaction?.mode === 'plan') {
+      event.preventDefault();
+      event.stopPropagation();
+      addPlanWaypoint(interaction, event);
+      return;
+    }
+
+    if ((isRulerActive || isPingToolActive || activeTemplateShape) && stageRef.current) {
+      const cell = viewportPointToWorldCell(
+        event.clientX,
+        event.clientY,
+        stageRef.current.getBoundingClientRect(),
+        zoom,
+        camera,
+      );
+      if (handleMapToolPointerDown(event, cell)) {
+        return;
+      }
+    }
+
     if (lightPlacement && stageRef.current) {
       if (event.button !== 0) {
         return;
@@ -930,31 +1611,72 @@ export function Board({
       camera,
     );
 
+    const grabOffset = {
+      x: pointerCell.x - anchorToken.position.x,
+      y: pointerCell.y - anchorToken.position.y,
+    };
+    const offsets = selection
+      .map((tokenId) => tokens.find((item) => item.id === tokenId))
+      .filter((item): item is UnitToken => Boolean(item))
+      .map((item) => ({
+        tokenId: item.id,
+        deltaX: item.position.x - anchorToken.position.x,
+        deltaY: item.position.y - anchorToken.position.y,
+      }));
+
+    if (additive) {
+      setInteraction({
+        mode: 'pending-token',
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        tokenId: anchorToken.id,
+        selection,
+        selectGroupOnClick: true,
+        grabOffset,
+        offsets,
+        additive,
+      });
+      return;
+    }
+
+    // Un cluster di ostacoli si sposta con lo stesso gesto di un token: click per aprire il
+    // percorso, Spazio per portarlo dove punta il cursore.
+    onSelectionChange(selection);
     setInteraction({
-      mode: 'pending-token',
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
+      mode: 'plan',
       tokenId: anchorToken.id,
-      selection,
-      selectGroupOnClick: true,
-      grabOffset: {
-        x: pointerCell.x - anchorToken.position.x,
-        y: pointerCell.y - anchorToken.position.y,
-      },
-      offsets: selection
-        .map((tokenId) => tokens.find((item) => item.id === tokenId))
-        .filter((item): item is UnitToken => Boolean(item))
-        .map((item) => ({
-          tokenId: item.id,
-          deltaX: item.position.x - anchorToken.position.x,
-          deltaY: item.position.y - anchorToken.position.y,
-        })),
-      additive,
+      waypoints: [anchorToken.position],
+      hoverCell: null,
+      grabOffset,
+      offsets,
     });
   };
 
   const handleBoardPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    // Mentre si pianifica, il pointer sulla mappa appartiene al percorso: lasciar passare il
+    // trascinamento della visuale sostituirebbe l'interazione e butterebbe via i waypoint scelti.
+    // I pulsanti di zoom restano comunque raggiungibili fuori dalla mappa.
+    if (interaction?.mode === 'plan') {
+      event.preventDefault();
+      event.stopPropagation();
+      addPlanWaypoint(interaction, event);
+      return;
+    }
+
+    if ((isRulerActive || isPingToolActive || activeTemplateShape) && stageRef.current) {
+      const cell = viewportPointToWorldCell(
+        event.clientX,
+        event.clientY,
+        stageRef.current.getBoundingClientRect(),
+        zoom,
+        camera,
+      );
+      if (handleMapToolPointerDown(event, cell)) {
+        return;
+      }
+    }
+
     if (lightPlacement && stageRef.current) {
       if (event.button !== 0) {
         return;
@@ -1024,7 +1746,24 @@ export function Board({
   };
 
   const handleBoardPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!lightPlacement || !stageRef.current) {
+    if (!stageRef.current) {
+      return;
+    }
+
+    if (isRulerActive) {
+      setRulerHoverCell(
+        viewportPointToWorldCell(
+          event.clientX,
+          event.clientY,
+          stageRef.current.getBoundingClientRect(),
+          zoom,
+          camera,
+        ),
+      );
+      return;
+    }
+
+    if (!lightPlacement) {
       return;
     }
 
@@ -1108,6 +1847,91 @@ export function Board({
             +
           </button>
         </div>
+        <div className="board-tool-controls" role="group" aria-label="Strumenti di mappa">
+          <button
+            type="button"
+            className="board-tool-button"
+            aria-pressed={isRulerActive}
+            onClick={() => (isRulerActive ? exitActiveTool() : setActiveTool('ruler'))}
+            title="Righello: misura una distanza senza spostare token (R)"
+            aria-label="Righello, misura una distanza senza spostare token. Scorciatoia R"
+          >
+            <span aria-hidden="true">📏</span>
+          </button>
+          <button
+            type="button"
+            className="board-tool-button"
+            aria-pressed={isPingToolActive}
+            onClick={() => (isPingToolActive ? exitActiveTool() : setActiveTool('ping'))}
+            title="Ping: segnala un punto della mappa a tutti (P)"
+            aria-label="Ping, segnala un punto della mappa a tutti. Scorciatoia P"
+          >
+            <span aria-hidden="true">📍</span>
+          </button>
+          <button
+            type="button"
+            className="board-tool-button"
+            aria-pressed={activeTemplateShape === 'circle'}
+            onClick={() => (activeTemplateShape === 'circle' ? exitActiveTool() : setActiveTool('template-circle'))}
+            title="Sagoma cerchio (C)"
+            aria-label="Sagoma cerchio. Scorciatoia C"
+          >
+            <span aria-hidden="true">⭕</span>
+          </button>
+          <button
+            type="button"
+            className="board-tool-button"
+            aria-pressed={activeTemplateShape === 'cone'}
+            onClick={() => (activeTemplateShape === 'cone' ? exitActiveTool() : setActiveTool('template-cone'))}
+            title="Sagoma cono (O)"
+            aria-label="Sagoma cono. Scorciatoia O"
+          >
+            <span aria-hidden="true">🔺</span>
+          </button>
+          <button
+            type="button"
+            className="board-tool-button"
+            aria-pressed={activeTemplateShape === 'line'}
+            onClick={() => (activeTemplateShape === 'line' ? exitActiveTool() : setActiveTool('template-line'))}
+            title="Sagoma linea (L)"
+            aria-label="Sagoma linea. Scorciatoia L"
+          >
+            <span aria-hidden="true">📐</span>
+          </button>
+          {activeTool ? (
+            <button
+              type="button"
+              className="board-tool-button board-tool-button--exit"
+              onClick={exitActiveTool}
+              title="Esci dallo strumento (Esc)"
+              aria-label="Esci dallo strumento attivo. Scorciatoia Esc"
+            >
+              <span aria-hidden="true">✕</span>
+            </button>
+          ) : null}
+          <span className="board-tool-controls__rule" title="Regola delle diagonali e unità di misura correnti">
+            {diagonalRule === 'alternating' ? '5-10-5' : 'Standard'} · 1 casella = {measurementUnit.cellsValue} {measurementUnit.label}
+          </span>
+        </div>
+        <div className="board-hint-bar">
+          <p className="board-hint" role="status" aria-live="polite">
+            {boardHintText ?? ''}
+          </p>
+          {movementNotice ? (
+            <p className="board-hint board-hint--rejected" role="alert">
+              <span aria-hidden="true">⛔ </span>
+              {movementNotice.message}
+              <button
+                type="button"
+                className="board-hint__dismiss"
+                onClick={() => onDismissMovementNotice?.()}
+                aria-label="Chiudi l'avviso di movimento rifiutato"
+              >
+                ✕
+              </button>
+            </p>
+          ) : null}
+        </div>
         <div className="board-corner" aria-hidden="true" />
         <div className="board-axis board-axis--top" aria-hidden="true">
           {topLabels.map((value, index) => (
@@ -1151,18 +1975,18 @@ export function Board({
             onPointerMove={handleBoardPointerMove}
             onPointerLeave={() => setLightPreviewCell(null)}
           >
-            {interaction?.mode === 'drag' ? (
+            {planInteraction && planEndCell ? (
               <div
-                className={`board-highlight ${hasInvalidDragOverlap ? 'board-highlight--invalid' : ''}`}
+                className={`board-highlight ${
+                  hasInvalidPlanOverlap || planIsBlocked || planExceedsBudget ? 'board-highlight--invalid' : ''
+                }`}
                 style={{
-                  width: getTokenFootprint(tokens.find((item) => item.id === interaction.anchorTokenId) ?? {
-                    size: 'medium',
-                  } as UnitToken).width * BOARD_CONFIG.cellSize * zoom,
-                  height: getTokenFootprint(tokens.find((item) => item.id === interaction.anchorTokenId) ?? {
-                    size: 'medium',
-                  } as UnitToken).height * BOARD_CONFIG.cellSize * zoom,
-                  transform: `translate(${(interaction.hoverCell.x - camera.x) * BOARD_CONFIG.cellSize * zoom}px, ${
-                    (interaction.hoverCell.y - camera.y) * BOARD_CONFIG.cellSize * zoom
+                  width: getTokenFootprint(planTargetToken ?? ({ size: 'medium' } as UnitToken)).width *
+                    BOARD_CONFIG.cellSize * zoom,
+                  height: getTokenFootprint(planTargetToken ?? ({ size: 'medium' } as UnitToken)).height *
+                    BOARD_CONFIG.cellSize * zoom,
+                  transform: `translate(${(planEndCell.x - camera.x) * BOARD_CONFIG.cellSize * zoom}px, ${
+                    (planEndCell.y - camera.y) * BOARD_CONFIG.cellSize * zoom
                   }px)`,
                 }}
               />
@@ -1295,7 +2119,9 @@ export function Board({
             ) : null}
 
             {orderedTokens.map((token) => {
-              const worldPosition = draggedPositions.get(token.id) ?? token.position;
+              const walkingPosition = walkAnimatedPositions[token.id];
+              const isWalking = walkingPosition !== undefined;
+              const worldPosition = isWalking ? walkingPosition : token.position;
               const footprint = getTokenFootprint(token);
               const isSelected = selectedTokenIds.includes(token.id);
 
@@ -1305,7 +2131,7 @@ export function Board({
                   token={token}
                   tokens={tokens}
                   isSelected={isSelected}
-                  isDragging={draggedPositions.has(token.id)}
+                  isDragging={isWalking}
                   isGhost={canManageTokens && token.isInvisible === true}
                   displayPosition={{
                     x: worldPosition.x - camera.x,
@@ -1324,7 +2150,7 @@ export function Board({
               const displayCells = cluster.tokenIds
                 .map((tokenId) => {
                   const token = tokens.find((item) => item.id === tokenId);
-                  const position = draggedPositions.get(tokenId) ?? token?.position;
+                  const position = token?.position;
                   return position ?? null;
                 })
                 .filter((cell): cell is GridPosition => Boolean(cell));
@@ -1431,6 +2257,255 @@ export function Board({
                 }}
               />
             ) : null}
+
+            {planPath || rulerPath ? (
+              <svg
+                className="board-path-layer"
+                width={width}
+                height={height}
+                viewBox={`0 0 ${width} ${height}`}
+                aria-hidden="true"
+              >
+                {(() => {
+                  const path = (planPath ?? rulerPath) as GridPosition[];
+                  const cost = planPath ? planPathCost : rulerPathCost;
+                  const points = path.map((cell) => ({
+                    x: (cell.x - camera.x + 0.5) * BOARD_CONFIG.cellSize * zoom,
+                    y: (cell.y - camera.y + 0.5) * BOARD_CONFIG.cellSize * zoom,
+                  }));
+                  const isWarning = planPath ? planIsBlocked || planExceedsBudget : false;
+                  const tip = points[points.length - 1];
+                  const residualCells =
+                    planPath && planBudget?.totalCells != null && cost
+                      ? Math.max(0, planBudget.totalCells - planBudget.usedCells - cost.cells)
+                      : null;
+
+                  const variantClass = planPath ? 'board-path-layer__line--plan' : 'board-path-layer__line--ruler';
+                  // Il costo di ogni segmento sta accanto al segmento stesso: su un percorso
+                  // spezzato il solo totale non dice quale tratto è costato quanto.
+                  const perSegment =
+                    points.length > 2
+                      ? segmentCosts(path, diagonalRule, planPath ? planBudget?.diagonalParity ?? 0 : 0)
+                      : [];
+
+                  return (
+                    <>
+                      <polyline
+                        points={points.map((point) => `${point.x},${point.y}`).join(' ')}
+                        className={`board-path-layer__line ${isWarning ? 'board-path-layer__line--warning' : variantClass}`}
+                      />
+                      {points.map((point, index) => (
+                        <circle
+                          key={`path-point-${index}`}
+                          cx={point.x}
+                          cy={point.y}
+                          r={5}
+                          className={`board-path-layer__waypoint ${isWarning ? 'board-path-layer__waypoint--warning' : planPath ? 'board-path-layer__waypoint--plan' : 'board-path-layer__waypoint--ruler'}`}
+                        />
+                      ))}
+                      {perSegment.map((segmentCells, index) => (
+                        <text
+                          key={`path-segment-${index}`}
+                          x={(points[index].x + points[index + 1].x) / 2}
+                          y={(points[index].y + points[index + 1].y) / 2 - 6}
+                          textAnchor="middle"
+                          className="board-path-layer__label board-path-layer__label--segment"
+                        >
+                          {segmentCells}
+                        </text>
+                      ))}
+                      {tip && cost ? (
+                        <>
+                          <text x={tip.x} y={tip.y - 16} textAnchor="middle" className="board-path-layer__label">
+                            {planIsBlocked
+                              ? '⛔ Percorso bloccato'
+                              : planExceedsBudget
+                                ? '⚠️ Fuori budget'
+                                : formatRulerMeasurement(cost.cells, measurementUnit)}
+                          </text>
+                          {residualCells !== null && !isWarning ? (
+                            <text x={tip.x} y={tip.y - 34} textAnchor="middle" className="board-path-layer__label board-path-layer__label--secondary">
+                              residuo {formatRulerMeasurement(residualCells, measurementUnit)}
+                            </text>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </>
+                  );
+                })()}
+              </svg>
+            ) : null}
+
+            {Object.keys(walkTrackPaths).length > 0 ? (
+              <svg
+                className="board-path-layer"
+                width={width}
+                height={height}
+                viewBox={`0 0 ${width} ${height}`}
+                aria-hidden="true"
+              >
+                {Object.entries(walkTrackPaths).map(([tokenId, track]) => {
+                  const points = track.map((cell) => ({
+                    x: (cell.x - camera.x + 0.5) * BOARD_CONFIG.cellSize * zoom,
+                    y: (cell.y - camera.y + 0.5) * BOARD_CONFIG.cellSize * zoom,
+                  }));
+
+                  return (
+                    <g key={`walk-track-${tokenId}`}>
+                      <polyline
+                        points={points.map((point) => `${point.x},${point.y}`).join(' ')}
+                        className="board-path-layer__line board-path-layer__line--plan"
+                      />
+                      {points.map((point, index) => (
+                        <circle
+                          key={`walk-track-${tokenId}-${index}`}
+                          cx={point.x}
+                          cy={point.y}
+                          r={4}
+                          className="board-path-layer__waypoint board-path-layer__waypoint--plan"
+                        />
+                      ))}
+                    </g>
+                  );
+                })}
+              </svg>
+            ) : null}
+
+            {ephemeralTemplates.length > 0 ? (
+              <svg
+                className="board-template-layer"
+                width={width}
+                height={height}
+                viewBox={`0 0 ${width} ${height}`}
+                aria-hidden="true"
+              >
+                {ephemeralTemplates.map((template) => {
+                  const originPx = {
+                    x: (template.origin.x - camera.x + 0.5) * BOARD_CONFIG.cellSize * zoom,
+                    y: (template.origin.y - camera.y + 0.5) * BOARD_CONFIG.cellSize * zoom,
+                  };
+                  const sizeCells = pathCost([template.origin, template.target], { rule: diagonalRule }).cells;
+                  const sizePx = Math.max(1, sizeCells) * BOARD_CONFIG.cellSize * zoom;
+                  const angle = Math.atan2(template.target.y - template.origin.y, template.target.x - template.origin.x);
+                  const labelPoint = {
+                    x: originPx.x + Math.cos(angle) * sizePx,
+                    y: originPx.y + Math.sin(angle) * sizePx,
+                  };
+                  const label = (
+                    <text
+                      key={`${template.id}-label`}
+                      x={labelPoint.x}
+                      y={labelPoint.y - 10}
+                      textAnchor="middle"
+                      className="board-template-layer__label"
+                    >
+                      {formatRulerMeasurement(sizeCells, measurementUnit)}
+                    </text>
+                  );
+                  // Il centro della sagoma e' segnato sempre, per tutte e tre le forme: e' il
+                  // punto da cui si misura ogni effetto, e su un cerchio ampio o su un cono
+                  // riempito di colore non si distingue dal resto dell'area.
+                  const cellPx = BOARD_CONFIG.cellSize * zoom;
+                  const originMarker = (
+                    <g key={`${template.id}-origin`}>
+                      <rect
+                        x={originPx.x - cellPx / 2}
+                        y={originPx.y - cellPx / 2}
+                        width={cellPx}
+                        height={cellPx}
+                        className="board-template-layer__origin-cell"
+                      />
+                      <line
+                        x1={originPx.x - cellPx * 0.3}
+                        y1={originPx.y}
+                        x2={originPx.x + cellPx * 0.3}
+                        y2={originPx.y}
+                        className="board-template-layer__origin-tick"
+                      />
+                      <line
+                        x1={originPx.x}
+                        y1={originPx.y - cellPx * 0.3}
+                        x2={originPx.x}
+                        y2={originPx.y + cellPx * 0.3}
+                        className="board-template-layer__origin-tick"
+                      />
+                      <circle
+                        cx={originPx.x}
+                        cy={originPx.y}
+                        r={Math.max(3, cellPx * 0.11)}
+                        className="board-template-layer__origin-dot"
+                      />
+                    </g>
+                  );
+
+                  if (template.shape === 'circle') {
+                    return (
+                      <g key={template.id}>
+                        <circle
+                          cx={originPx.x}
+                          cy={originPx.y}
+                          r={sizePx}
+                          className="board-template-layer__shape"
+                          style={{ '--template-color': template.color } as CSSProperties}
+                        />
+                        {originMarker}
+                        {label}
+                      </g>
+                    );
+                  }
+
+                  if (template.shape === 'line') {
+                    const endPx = { x: originPx.x + Math.cos(angle) * sizePx, y: originPx.y + Math.sin(angle) * sizePx };
+                    return (
+                      <g key={template.id}>
+                        <line
+                          x1={originPx.x}
+                          y1={originPx.y}
+                          x2={endPx.x}
+                          y2={endPx.y}
+                          strokeWidth={BOARD_CONFIG.cellSize * zoom}
+                          className="board-template-layer__shape board-template-layer__shape--line"
+                          style={{ '--template-color': template.color } as CSSProperties}
+                        />
+                        {originMarker}
+                        {label}
+                      </g>
+                    );
+                  }
+
+                  const leftAngle = angle - Math.PI / 4;
+                  const rightAngle = angle + Math.PI / 4;
+                  const leftPoint = { x: originPx.x + Math.cos(leftAngle) * sizePx, y: originPx.y + Math.sin(leftAngle) * sizePx };
+                  const rightPoint = { x: originPx.x + Math.cos(rightAngle) * sizePx, y: originPx.y + Math.sin(rightAngle) * sizePx };
+                  return (
+                    <g key={template.id}>
+                      <polygon
+                        points={`${originPx.x},${originPx.y} ${leftPoint.x},${leftPoint.y} ${rightPoint.x},${rightPoint.y}`}
+                        className="board-template-layer__shape"
+                        style={{ '--template-color': template.color } as CSSProperties}
+                      />
+                      {originMarker}
+                      {label}
+                    </g>
+                  );
+                })}
+              </svg>
+            ) : null}
+
+            {ephemeralPings.map((ping) => (
+              <div
+                key={ping.id}
+                className="board-ping"
+                style={{
+                  transform: `translate(${(ping.position.x - camera.x + 0.5) * BOARD_CONFIG.cellSize * zoom}px, ${
+                    (ping.position.y - camera.y + 0.5) * BOARD_CONFIG.cellSize * zoom
+                  }px)`,
+                }}
+              >
+                <span className="board-ping__marker" aria-hidden="true" />
+                <span className="board-ping__label">{ping.authorName}</span>
+              </div>
+            ))}
           </div>
         </div>
       </div>

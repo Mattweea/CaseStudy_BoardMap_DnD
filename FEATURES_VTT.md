@@ -331,25 +331,54 @@ database/
 
 ### P0.7 — Token del giocatore, movimento e misura
 
+**Perché conta:** muovere un token è, dopo il tiro di dado, il gesto più frequente del combattimento, ed è quello su cui il tavolo discute di più. Oggi il movimento parte e arriva senza che nessuno veda quanto costa, e il costo che il server calcola non è quello che le regole 5e prevedono: tre caselle a destra seguite da tre in basso vengono contate come tre, non come sei. La feature rende il costo visibile prima della conferma e corretto dopo di essa.
+
+**Il difetto attuale del conteggio.** Il server accumula separatamente lo spostamento orizzontale e quello verticale del turno e spende il massimo dei due (`movementUsedFromAxisUsage` in `server/index.mjs`), mentre `gridDistance` misura una singola mossa come `max(|dx|, |dy|)`. Su una mossa diagonale pulita le due formule coincidono con la regola PHB, ma su un percorso spezzato il massimo per asse regala movimento: un personaggio con 6 caselle di velocità può percorrerne 12 a forma di L pagandone 6. Il conteggio per asse va sostituito da un costo per segmento, sommato lungo il percorso effettivamente compiuto.
+
+**Decisioni confermate:**
+
+- **Regola delle diagonali:** due opzioni scelte dal Master per la partita — **standard PHB**, dove ogni passo diagonale costa una casella, e **variante DMG 5-10-5**, dove i passi diagonali costano alternativamente una e due caselle. Il contatore dell'alternanza è per turno e per token, si azzera quando il turno ricomincia e non attraversa i round. La distanza euclidea resta fuori.
+- **Righello:** uno strumento di misura indipendente, che non muove nulla e che qualunque partecipante può usare su qualunque punto della mappa, **più** la misura mostrata durante il trascinamento di un token che si ha il diritto di muovere. Le due interazioni condividono lo stesso calcolo del costo e la stessa resa grafica del percorso; il trascinamento aggiunge la conferma del movimento.
+- **Sagome:** cerchio, cono e linea sono **effimere e condivise**. Mentre un partecipante le disegna, gli altri le vedono comparire in tempo reale via SSE; al rilascio o con `Esc` scompaiono per tutti. Non sono entità della scena, non hanno persistenza né CRUD: quel modello appartiene a P0.9.
+- **Ping:** effimero e visibile a tutti, senza alcun controllo sulla visuale altrui. Nessun partecipante, Master compreso, può spostare la camera di un altro.
+- **Validazione:** il client invia i waypoint del percorso e il server ricalcola tutto — costo segmento per segmento con la regola della partita, ostacoli su ogni segmento, budget residuo del turno. Il costo proposto dal client non viene mai creduto.
+- **Niente pathfinding:** il server non propone rotte che aggirano gli ostacoli. Il percorso lo sceglie chi muove, con i waypoint.
+
+**Unità di misura e confine con P0.9.** La scena come entità non esiste ancora: oggi la mappa è uno sfondo fissato nel CSS e non ha dimensioni, scala né unità dichiarate. P0.7 introduce quindi nello stato condiviso della partita, non in una scena, due sole impostazioni del Master: la regola delle diagonali e l'unità di misura, cioè l'etichetta (`m` o `ft`) e quanto vale una casella (`1,5` e `5` i valori tipici). P0.9, quando creerà le scene, sposterà queste impostazioni al livello della scena senza cambiarne il significato.
+
+**Confine con P0.8.** P0.7 non tocca iniziativa, turno attivo e round: li legge per sapere di chi è il turno e quanto budget resta, esattamente come fa oggi. Reazioni, movimento diviso attorno a un'azione, terreno difficile e movimento verticale restano fuori.
+
 **Players**
 
-- [ ] Selezionare, localizzare e muovere solo i token controllati dal proprio utente, da mouse e tastiera.
-- [ ] Aggiungere righello e percorso visibile con distanza in caselle e unità della scena prima di confermare il movimento.
-- [ ] Calcolare il costo segmento per segmento, comprese diagonali e cambi di direzione; scegliere esplicitamente la regola per le diagonali della partita.
-- [ ] Mostrare portata e sagome di base per cerchio, cono e linea.
-- [ ] Permettere un ping sulla mappa, visibile agli altri partecipanti, per indicare un punto senza descriverne le coordinate.
+- [x] Selezionare e muovere soltanto i token controllati dal proprio utente, da mouse e da tastiera, mantenendo le interazioni già disponibili.
+- [x] Localizzare un proprio token con un comando esplicito che centra la visuale su di esso, senza spostare la visuale di nessun altro. Già disponibile come pulsante «Localizza» nelle tab Personaggi e Turni; P0.7 lo conserva e non introduce alcun modo di spostare la visuale altrui.
+- [x] Misurare una distanza con lo strumento righello in qualsiasi momento, anche fuori dal proprio turno e senza muovere alcun token: il percorso appare con il costo in caselle e nell'unità della partita.
+- [x] Aggiungere waypoint al righello per misurare un percorso spezzato, vedendo il costo di ogni tratto e il totale aggiornarsi a ogni movimento del puntatore.
+- [x] Vedere, mentre pianifica lo spostamento di un proprio token, lo stesso percorso misurato con il costo e il budget residuo del turno, e riconoscere prima di confermare se la destinazione è fuori budget, oltre un ostacolo o occupata.
+- [x] Confermare il movimento con `Spazio` e annullarlo con `Esc` senza che il token si sposti.
+- [x] Mostrare una sagoma di cerchio, cono o linea con origine e orientamento scelti sulla mappa, leggendo la sua misura nell'unità della partita; la sagoma è visibile agli altri partecipanti mentre viene disegnata e scompare al rilascio.
+- [x] Lasciare un ping sulla mappa, visibile a tutti i partecipanti per pochi secondi e riconducibile al suo autore, per indicare un punto senza descriverne le coordinate.
 
 **Master**
 
-- [ ] Posizionare e spostare i token della scena e impostare la regola delle diagonali per la partita.
+- [x] Posizionare e spostare qualunque token, continuando a non essere soggetto a budget e ostacoli, e vedere comunque la misura del percorso durante la pianificazione.
+- [x] Scegliere per la partita la regola delle diagonali fra standard PHB e variante 5-10-5, e l'unità di misura con il valore di una casella; la scelta è visibile ai partecipanti e si applica subito a righello, sagome e validazione.
+- [x] Usare righello, sagome e ping con le stesse interazioni dei Player.
 
 **Sistema**
 
-- [ ] Validare sul server controllo del token, percorso, ostacoli e budget di movimento del turno.
+- [x] Sostituire il conteggio per asse con un costo di percorso: ogni segmento è una sequenza di passi ortogonali e diagonali, il costo è la loro somma secondo la regola scelta, e il totale del turno è la somma dei percorsi compiuti. Il risultato coincide con quello di prima sui percorsi in linea retta o interamente diagonali, e lo corregge sui percorsi spezzati.
+- [x] Implementare il costo del percorso in un modulo condiviso fra client e server (`shared/grid-movement.mjs`), così che la misura mostrata prima della conferma e quella addebitata dopo non possano divergere.
+- [x] Accettare dal client i waypoint di un movimento e ricalcolare sul server costo, ostacoli su ogni segmento, sovrapposizione con altre creature e budget residuo; rifiutare con un motivo comprensibile e non applicare alcuno spostamento parziale.
+- [x] Mantenere il contatore dell'alternanza 5-10-5 come stato di turno del token, azzerarlo agli stessi punti in cui si azzera il movimento usato e includerlo nello stato distribuito via SSE.
+- [x] Conservare nello stato condiviso della partita la regola delle diagonali e l'unità di misura, consentirne la modifica al solo Master e distribuirle a tutti i client.
+- [x] Distribuire via SSE le sagome in corso di disegno e i ping come eventi effimeri, senza scriverli nello stato persistente e senza che un client disconnesso li ritrovi alla riconnessione.
+- [x] Verificare sul server l'autore di ping e sagome come utente autenticato, e applicare alle sagome le stesse regole di visibilità dei token: una sagoma non rivela informazioni che il destinatario non potrebbe già vedere.
+- [x] Mantenere l'annullamento per utente già in uso per il movimento degli adventurer, adattandolo al nuovo costo di percorso senza permettere di annullare l'azione di un altro.
 
-**Stato attuale:** i player possono muovere i propri token, ma non hanno un righello o un percorso misurato. Il costo usa il massimo tra spostamenti orizzontali e verticali accumulati: tre caselle a destra e poi tre in basso possono costare tre caselle invece di sei.
+**Stato attuale:** completato e archiviato come change `p0-7-token-movement-and-measurement`. Il costo del movimento è un percorso per segmenti calcolato da `shared/grid-movement.mjs` sia lato client sia lato server, con regola delle diagonali (standard o 5-10-5, alternanza per turno e per token) e unità di misura come impostazioni di partita riservate al Master. Un'unica modalità di pianificazione, identica per Master e Player: cliccare un token che si può muovere lo seleziona e apre subito il percorso, che resta fermo al punto di partenza; ogni click successivo (sinistro o destro) aggiunge un waypoint, `Backspace` toglie l'ultimo, `Spazio` conferma verso la casella sotto il puntatore ed `Esc` annulla senza inviare nulla. Una riga di suggerimento sopra la toolbar descrive a parole i gesti disponibili e fa da regione live per gli avvisi di percorso bloccato, budget insufficiente o destinazione occupata. Il server ignora qualunque costo dichiarato dal client, ricalcola tutto sull'intero percorso e, se rifiuta, il motivo raggiunge il richiedente come avviso a schermo (`MovementNotice`, ruolo `alert`), non solo la console. Un movimento accettato — del Master compreso, anche per un solo token — è trasmesso via evento SSE `token-walk` a ogni client connesso, che lo anima alla stessa andatura mentre il binario resta visibile fino a fine corsa; l'animazione parte solo dall'evento, mai in anticipo, così un rifiuto non sembra un movimento che torna indietro. Il righello resta uno strumento separato e indipendente dal turno. Sagome (cerchio, cono, linea) e ping sono eventi SSE effimeri filtrati con la stessa visibilità dei token, mai scritti nello stato condiviso. Gli strumenti di mappa hanno pulsanti in barra e scorciatoie da tastiera (`R` `P` `C` `O` `L`), inerti durante la digitazione e mentre un'interazione è in corso.
 
-**Accettazione:** un player misura un percorso spezzato, vede il costo prima del movimento, muove il proprio token e tutti osservano la stessa posizione. Un movimento fuori budget o attraverso un ostacolo viene rifiutato.
+**Accettazione:** con la regola standard, un Player misura col righello un percorso di tre caselle a destra e tre in basso e legge `6` caselle con l'unità della partita; passando alla variante 5-10-5, un percorso di tre passi diagonali passa da `3` a `4`. Pianificando lo stesso percorso sul proprio token si vede lo stesso costo e il budget residuo, e a conferma con `Spazio` il server addebita esattamente quel costo mentre il token cammina animato fino alla destinazione; `Esc` lascia il token dov'era senza inviare nulla. Un movimento che supera il budget o attraversa un ostacolo viene rifiutato con il motivo, senza spostamento parziale, anche se il client dichiara un costo inferiore, e il rifiuto compare come avviso sullo schermo di chi ha tentato la mossa. Un secondo client vede il cono disegnato dal Master mentre lo disegna e lo vede sparire al rilascio, e vede la stessa camminata animata quando un Player conferma un movimento; vede il ping per pochi secondi e non subisce alcuno spostamento della propria visuale. Dopo un riavvio del server non resta traccia di sagome e ping, mentre regola delle diagonali e unità restano quelle scelte dal Master finché la partita è in memoria: la loro persistenza segue P0.11.
 
 ### P0.8 — Turni, HP e condizioni durante il combattimento
 

@@ -1,0 +1,247 @@
+## Purpose
+
+Rendere il costo di un movimento visibile prima della conferma e corretto secondo le regole 5e dopo di essa, e dare al tavolo gli strumenti effimeri con cui si decide un movimento — righello, sagome di area e ping — senza che nessuno di essi possa alterare lo stato autorevole della partita.
+
+## ADDED Requirements
+
+### Requirement: Costo di percorso per segmento
+
+Il costo di uno spostamento SHALL essere la somma dei costi dei singoli passi che compongono il percorso, non il massimo dello spostamento accumulato per asse. Un passo SHALL essere il movimento di una casella in una delle otto direzioni adiacenti; un segmento fra due punti SHALL essere decomposto nei passi diagonali necessari a coprire la differenza minore fra i due assi, seguiti dai passi ortogonali residui. Il costo del turno SHALL essere la somma dei costi dei percorsi compiuti nel turno.
+
+Il costo SHALL essere calcolato da un modulo condiviso fra client e server, così che il valore mostrato prima della conferma e quello addebitato dopo siano prodotti dalla stessa funzione con gli stessi ingressi.
+
+#### Scenario: Percorso spezzato
+
+- **WHEN** un token con la regola standard percorre tre caselle verso destra e poi tre verso il basso
+- **THEN** il costo è di sei caselle, non di tre
+
+#### Scenario: Percorso diagonale puro
+
+- **WHEN** un token con la regola standard percorre tre passi diagonali
+- **THEN** il costo è di tre caselle, identico a quello addebitato prima di questa capability
+
+#### Scenario: Accumulo nel turno
+
+- **WHEN** un token compie nel proprio turno due spostamenti distinti da due e tre caselle
+- **THEN** il movimento usato del turno risulta di cinque caselle
+
+### Requirement: Regola delle diagonali scelta dal Master
+
+La partita SHALL avere una regola delle diagonali con due soli valori: `standard`, in cui ogni passo diagonale costa una casella, e `alternating`, la variante 5-10-5, in cui i passi diagonali costano alternativamente una e due caselle. Il valore predefinito SHALL essere `standard`.
+
+Il solo Master SHALL poter cambiare la regola; una richiesta di modifica da parte di un Adventurer SHALL essere rifiutata senza alcun effetto sullo stato. Il valore corrente SHALL essere distribuito a ogni partecipante autenticato e SHALL applicarsi immediatamente al righello, alla misura del trascinamento e alla validazione del movimento.
+
+Con la regola `alternating`, l'alternanza SHALL essere contata per token e per turno: il primo passo diagonale del turno costa una casella, il secondo due, e così via. Il contatore SHALL essere azzerato negli stessi punti in cui è azzerato il movimento usato del turno e SHALL NOT attraversare il cambio di round.
+
+#### Scenario: Variante 5-10-5 su tre diagonali
+
+- **WHEN** la regola è `alternating` e un token compie tre passi diagonali nel proprio turno
+- **THEN** il costo è di quattro caselle
+
+#### Scenario: Alternanza attraverso due spostamenti dello stesso turno
+
+- **WHEN** con la regola `alternating` un token compie un passo diagonale, si ferma, e poi ne compie un secondo nello stesso turno
+- **THEN** il secondo passo costa due caselle, perché l'alternanza prosegue invece di ricominciare
+
+#### Scenario: Modifica riservata al Master
+
+- **WHEN** un Adventurer richiede di cambiare la regola delle diagonali
+- **THEN** la richiesta è rifiutata, la regola resta quella corrente e nessun altro partecipante osserva un cambiamento
+
+### Requirement: Unità di misura della partita
+
+La partita SHALL avere un'unità di misura composta da un'etichetta e dal valore di una casella espresso in quell'unità. Il valore predefinito SHALL essere `1,5` con etichetta `m`. Il solo Master SHALL poter cambiare l'unità, e il valore per casella SHALL essere un numero positivo; un valore non positivo o non interpretabile come numero SHALL essere rifiutato senza modificare lo stato.
+
+Ogni distanza mostrata all'utente — righello, misura del percorso pianificato, raggio e lunghezza delle sagome — SHALL essere espressa sia in caselle sia nell'unità della partita. Qualunque ulteriore unità mostrata accanto SHALL essere una conversione del valore appena misurato, mai una scala indipendente: l'unità scelta dal Master resta l'unico riferimento.
+
+#### Scenario: Unità affiancata coerente con quella della partita
+
+- **WHEN** il Master imposta una casella a `3 m` e il righello misura due caselle
+- **THEN** l'eventuale misura affiancata in un'altra unità corrisponde a sei metri, non al valore che si otterrebbe con una scala per casella diversa da quella impostata
+
+#### Scenario: Conversione della distanza
+
+- **WHEN** l'unità è `1,5 m` per casella e il righello misura sei caselle
+- **THEN** la misura mostrata è di sei caselle e nove metri
+
+#### Scenario: Valore per casella non valido
+
+- **WHEN** il Master invia un valore per casella pari a zero o negativo
+- **THEN** la richiesta è rifiutata e l'unità corrente resta invariata
+
+### Requirement: Righello indipendente dal movimento
+
+Ogni partecipante autenticato SHALL poter misurare una distanza fra due punti qualsiasi della mappa con uno strumento righello, in qualunque momento, anche fuori dal proprio turno e anche a partire da token che non controlla. Il righello SHALL NOT spostare alcun token, SHALL NOT consumare budget di movimento e SHALL NOT modificare lo stato condiviso della partita.
+
+Il righello SHALL accettare waypoint: ogni waypoint aggiunge un segmento al percorso, e la misura SHALL mostrare il costo di ogni segmento accanto al segmento stesso e il totale sulla punta del percorso, aggiornati mentre il puntatore si muove. Il righello SHALL chiudersi con `Esc` o con un comando esplicito di uscita, lasciando la mappa nello stato in cui era.
+
+#### Scenario: Misura fuori turno
+
+- **WHEN** un Adventurer usa il righello mentre è attivo il turno di un altro partecipante
+- **THEN** la misura è mostrata e nessun token si sposta, né alcun budget di movimento cambia
+
+#### Scenario: Percorso con waypoint
+
+- **WHEN** un partecipante aggiunge due waypoint al righello
+- **THEN** il percorso mostra tre segmenti con il costo di ciascuno e il totale del percorso
+
+### Requirement: Pianificazione del movimento, uguale per ogni ruolo
+
+La pianificazione di un movimento SHALL essere la stessa per il Master e per gli Adventurer: nessun ruolo SHALL disporre di un modo di muovere un token che non mostri il percorso misurato.
+
+Durante la pianificazione il token SHALL restare disegnato nella posizione di partenza e il percorso SHALL mostrare il costo di ogni segmento, il costo totale e, quando un ordine di iniziativa è attivo, il budget residuo del turno. Il percorso SHALL accettare waypoint con le stesse interazioni del righello.
+
+Il click SHALL avere un solo significato durante un movimento: aggiungere un punto al percorso. Il click su un token che si ha il diritto di muovere SHALL selezionarlo e aprire la pianificazione; ogni click successivo sulla mappa SHALL aggiungere un waypoint che spezza il percorso.
+
+La destinazione SHALL NOT richiedere un click: SHALL essere la casella indicata dal puntatore nel momento della conferma. La conferma SHALL essere un comando di tastiera esplicito e SHALL NOT essere il rilascio di un pointer, così che nessun gesto di puntamento possa muovere un token da solo.
+
+Un comando esplicito SHALL rimuovere l'ultimo waypoint senza annullare l'intero percorso, e `Esc` SHALL annullare l'intera pianificazione.
+
+L'interfaccia SHALL dichiarare in ogni momento, in forma testuale, quali gesti confermano, annullano e modificano il percorso in corso.
+
+Prima della conferma l'interfaccia SHALL segnalare se la destinazione è fuori budget, se un segmento attraversa un ostacolo che blocca il movimento per quel token e se la destinazione è occupata da un'altra creatura. `Esc` SHALL annullare lasciando il token nella posizione di partenza e senza inviare alcuna richiesta al server.
+
+#### Scenario: Stesso gesto per Master e Adventurer
+
+- **WHEN** il Master e un Adventurer muovono ciascuno un token che hanno il diritto di muovere
+- **THEN** entrambi vedono il percorso misurato con lo stesso costo per segmento e lo stesso totale, e confermano con lo stesso gesto
+
+#### Scenario: Movimento diretto senza click sulla destinazione
+
+- **WHEN** un partecipante fa click sul proprio token, porta il puntatore sulla casella che gli interessa e dà il comando di conferma
+- **THEN** il token si sposta su quella casella, senza che sia stato necessario cliccarla
+
+#### Scenario: Percorso spezzato con un solo waypoint
+
+- **WHEN** un partecipante fa click sul proprio token, fa click su una casella intermedia, porta il puntatore sulla casella finale e dà il comando di conferma
+- **THEN** il token percorre entrambi i segmenti e il costo addebitato è quello dell'intero percorso spezzato
+
+#### Scenario: Il rilascio del pointer non muove nulla
+
+- **WHEN** un partecipante preme su un token che ha il diritto di muovere, sposta il puntatore su un'altra casella e rilascia
+- **THEN** nessuna richiesta di movimento è inviata, il token resta nella posizione di partenza e la pianificazione resta aperta
+
+#### Scenario: Annullamento con Esc
+
+- **WHEN** un partecipante pianifica il movimento di un proprio token, aggiunge un waypoint e preme `Esc`
+- **THEN** il token resta nella posizione di partenza, nessuna richiesta di movimento è inviata e il budget del turno non cambia
+
+#### Scenario: Avviso di budget insufficiente prima della conferma
+
+- **WHEN** un Adventurer pianifica un percorso oltre il budget residuo del turno durante un ordine di iniziativa
+- **THEN** l'interfaccia segnala la condizione prima della conferma, in forma testuale e non con il solo colore
+
+### Requirement: Motivo di un movimento rifiutato
+
+Quando il server rifiuta un movimento, il partecipante che lo ha richiesto SHALL vederne il motivo, distinguendo almeno il budget insufficiente, l'ostacolo che blocca e la destinazione occupata. Il motivo SHALL restare visibile finché non viene chiuso, SHALL essere annunciato come avviso a chi usa una tecnologia assistiva e SHALL NOT essere scritto nello stato condiviso della partita: riguarda solo il client che ha inviato la richiesta.
+
+#### Scenario: Rifiuto per budget
+
+- **WHEN** un Adventurer conferma un percorso che supera il budget residuo e il server lo rifiuta
+- **THEN** il token torna nella posizione di partenza e il partecipante legge che il movimento residuo non è sufficiente
+
+### Requirement: Camminata condivisa di un movimento accettato
+
+Dopo che un movimento è stato accettato, il percorso compiuto SHALL essere trasmesso ai partecipanti che già vedono quel token, così che ogni client mostri il token percorrere il tragitto invece di comparire direttamente a destinazione.
+
+La camminata SHALL partire dall'accettazione del movimento, non dalla sua richiesta: un movimento rifiutato SHALL NOT produrre alcuna animazione, nemmeno sul client che lo ha richiesto. La trasmissione SHALL seguire le stesse regole di visibilità applicate allo stato della partita, SHALL NOT essere persistita, SHALL NOT modificare la versione dello stato e SHALL NOT comparire in alcuno snapshot.
+
+#### Scenario: Movimento rifiutato senza animazione
+
+- **WHEN** un Adventurer conferma un percorso che il server rifiuta
+- **THEN** il token non percorre alcun tragitto e resta nella posizione di partenza
+
+#### Scenario: Camminata vista da un altro client
+
+- **WHEN** un partecipante muove un token lungo un percorso spezzato e la mossa è accettata
+- **THEN** gli altri partecipanti che vedono quel token lo osservano percorrere lo stesso tragitto, e lo stato della partita non ne conserva traccia
+
+### Requirement: Validazione server del percorso completo
+
+La richiesta di movimento di un Adventurer SHALL trasmettere i waypoint del percorso, nell'ordine in cui sono stati scelti. Il server SHALL ricalcolare integralmente il costo del percorso con la regola delle diagonali corrente, SHALL verificare per ogni segmento gli ostacoli che bloccano il movimento e la sovrapposizione con altre creature, e SHALL verificare il budget residuo del turno. Il server SHALL ignorare qualunque costo, distanza o esito proposto dal client.
+
+Una richiesta rifiutata SHALL lasciare il token nella posizione di partenza, SHALL NOT consumare budget e SHALL restituire un motivo comprensibile che distingue almeno il budget insufficiente, l'ostacolo che blocca e la destinazione occupata. Il server SHALL NOT applicare uno spostamento parziale lungo un percorso rifiutato.
+
+Il server SHALL NOT calcolare un percorso al posto del richiedente: se il percorso trasmesso attraversa un ostacolo, la richiesta è rifiutata invece di essere corretta con una rotta alternativa.
+
+#### Scenario: Costo dichiarato dal client ignorato
+
+- **WHEN** un client invia un percorso dichiarando un costo inferiore a quello reale
+- **THEN** il server addebita il costo che ha ricalcolato e rifiuta la richiesta se quel costo supera il budget residuo
+
+#### Scenario: Ostacolo su un segmento intermedio
+
+- **WHEN** un percorso ha la destinazione libera ma un segmento intermedio attraversa un ostacolo che blocca il movimento
+- **THEN** la richiesta è rifiutata con il motivo dell'ostacolo e il token resta nella posizione di partenza
+
+#### Scenario: Assenza di pathfinding automatico
+
+- **WHEN** un percorso attraversa un ostacolo che potrebbe essere aggirato
+- **THEN** il server rifiuta la richiesta e non propone né applica una rotta alternativa
+
+#### Scenario: Movimento del Master
+
+- **WHEN** il Master muove un token lungo un percorso che supererebbe il budget o attraverserebbe un ostacolo
+- **THEN** il movimento è applicato, come già previsto per il ruolo, e la misura resta mostrata durante la pianificazione
+
+### Requirement: Annullamento di un movimento con costo di percorso
+
+L'annullamento di un movimento da parte del suo autore SHALL riportare il token nella posizione precedente e SHALL ripristinare il movimento usato del turno e lo stato dell'alternanza diagonale ai valori che avevano prima di quel movimento. Un partecipante SHALL NOT poter annullare il movimento di un altro.
+
+#### Scenario: Ripristino dell'alternanza
+
+- **WHEN** con la regola `alternating` un Adventurer annulla il proprio ultimo movimento
+- **THEN** posizione, movimento usato e stato dell'alternanza tornano esattamente a quelli precedenti a quel movimento
+
+### Requirement: Sagome effimere condivise
+
+Ogni partecipante autenticato SHALL poter mostrare sulla mappa una sagoma di tipo cerchio, cono o linea, scegliendone origine, orientamento e dimensione, e SHALL leggerne la misura in caselle e nell'unità della partita. Il centro della sagoma — la casella da cui è originata — SHALL essere sempre evidenziato, per tutti e tre i tipi, in modo distinguibile dal riempimento dell'area. Mentre la sagoma è in corso di disegno, gli altri partecipanti autorizzati SHALL vederla comparire e cambiare in tempo reale.
+
+La sagoma SHALL scomparire per tutti al rilascio o alla pressione di `Esc`. Una sagoma SHALL NOT essere scritta nello stato persistente della partita, SHALL NOT sopravvivere a un riavvio del server e SHALL NOT essere ritrovata da un client che si riconnette dopo la sua scomparsa. Una sagoma SHALL NOT modificare token, movimento, iniziativa o log dei tiri.
+
+La distribuzione di una sagoma SHALL seguire le stesse regole di visibilità applicate allo stato della partita: una sagoma SHALL NOT rivelare a un destinatario una posizione o un elemento che quel destinatario non potrebbe già osservare.
+
+#### Scenario: Centro sempre visibile
+
+- **WHEN** un partecipante disegna un cerchio ampio o un cono
+- **THEN** la casella di origine resta riconoscibile dentro l'area riempita, senza doverla dedurre dalla forma
+
+#### Scenario: Sagoma vista da un altro client
+
+- **WHEN** il Master disegna un cono con origine sul proprio token
+- **THEN** gli altri partecipanti autorizzati lo vedono mentre viene disegnato e lo vedono scomparire al rilascio
+
+#### Scenario: Nessuna traccia dopo la riconnessione
+
+- **WHEN** un partecipante si riconnette dopo che una sagoma è scomparsa
+- **THEN** non riceve alcuna sagoma e lo stato della partita non ne contiene traccia
+
+### Requirement: Ping effimero senza controllo della visuale
+
+Ogni partecipante autenticato SHALL poter lasciare un ping su un punto della mappa. Il ping SHALL essere visibile a tutti i partecipanti autorizzati per una durata breve e fissa, SHALL essere riconducibile al suo autore e SHALL scomparire da sé.
+
+Il ping SHALL NOT spostare la visuale di alcun partecipante, incluso il Master: nessun ruolo SHALL disporre di un modo per centrare la camera di un altro partecipante. Il ping SHALL NOT essere persistito, SHALL NOT modificare lo stato della partita, e il suo autore SHALL essere l'utente autenticato della richiesta, mai un identificatore proposto dal client.
+
+#### Scenario: Ping visibile a tutti
+
+- **WHEN** un Adventurer lascia un ping sulla mappa
+- **THEN** tutti i partecipanti autorizzati lo vedono comparire e scomparire, con l'indicazione del suo autore
+
+#### Scenario: La visuale altrui non si sposta
+
+- **WHEN** il Master lascia un ping mentre un Player guarda un'altra area della mappa
+- **THEN** la visuale del Player resta dov'era
+
+#### Scenario: Autore non falsificabile
+
+- **WHEN** un client invia un ping dichiarando un autore diverso dall'utente della propria sessione
+- **THEN** il ping è attribuito all'utente autenticato e l'attribuzione proposta dal client è ignorata
+
+### Requirement: Compatibilità degli snapshot esistenti
+
+Uno snapshot della partita salvato prima di questa capability SHALL caricarsi senza errori: la regola delle diagonali SHALL assumere il valore `standard`, l'unità SHALL assumere `1,5` con etichetta `m` e lo stato dell'alternanza diagonale SHALL essere assente o azzerato. Il movimento già consumato nel turno in corso SHALL essere conservato come numero di caselle usate, senza che il turno risulti invalidato o che il budget residuo diventi negativo.
+
+#### Scenario: Snapshot privo dei nuovi campi
+
+- **WHEN** il server carica uno snapshot salvato prima di questa capability, con un turno in corso e movimento già consumato
+- **THEN** lo stato si installa con i valori predefiniti, il movimento consumato resta quello registrato e il partecipante può continuare a muovere entro il budget residuo

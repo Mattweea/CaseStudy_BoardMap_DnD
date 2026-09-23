@@ -19,6 +19,7 @@ import { registerCharacterSheetRoutes } from './character-sheet-routes.mjs';
 import { CharacterSheetService } from './character-sheet-service.mjs';
 import { rollCharacterSheetTarget } from './character-sheet-roll-resolver.mjs';
 import { PortraitStorage } from './portrait-storage.mjs';
+import { isValidCellsValue, pathCost } from '../shared/grid-movement.mjs';
 
 const app = Fastify({
   logger: true,
@@ -55,7 +56,9 @@ const initialSharedState = {
   activeTurnTokenId: null,
   roundNumber: 1,
   movementUsedByTokenId: {},
-  movementAxisUsageByTokenId: {},
+  diagonalParityByTokenId: {},
+  diagonalRule: 'standard',
+  measurementUnit: { label: 'm', cellsValue: 1.5 },
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
   isBoardBackgroundHidden: false,
@@ -63,6 +66,8 @@ const initialSharedState = {
   sharedNotes: '',
   lightSources: [],
 };
+
+const MAX_MOVEMENT_WAYPOINTS = 40;
 
 let battleMapState = normalizeSharedState(initialSharedState);
 let battleMapVersion = 1;
@@ -334,6 +339,62 @@ function normalizeSharedState(parsed) {
       })
     : [];
 
+  const rawMovementUsed =
+    parsed?.movementUsedByTokenId && typeof parsed.movementUsedByTokenId === 'object'
+      ? Object.fromEntries(
+          Object.entries(parsed.movementUsedByTokenId).filter(
+            ([tokenId, used]) =>
+              tokens.some((token) => token.id === tokenId) &&
+              typeof used === 'number' &&
+              used >= 0,
+          ),
+        )
+      : {};
+  // Compatibilità: uno snapshot pre-P0.7 porta il conteggio per asse invece del costo di percorso.
+  // Si converte con la vecchia regola (`max(horizontal, vertical)`) solo quando il token non ha già
+  // un movimento usato registrato, poi il campo viene scartato: nessun personaggio si ritrova a metà
+  // turno con più movimento speso di quanto ne avesse speso prima del riavvio.
+  const legacyAxisUsageEntries =
+    parsed?.movementAxisUsageByTokenId && typeof parsed.movementAxisUsageByTokenId === 'object'
+      ? Object.entries(parsed.movementAxisUsageByTokenId).flatMap(([tokenId, usage]) => {
+          if (
+            rawMovementUsed[tokenId] !== undefined ||
+            !tokens.some((token) => token.id === tokenId) ||
+            !usage ||
+            typeof usage !== 'object' ||
+            typeof usage.horizontal !== 'number' ||
+            typeof usage.vertical !== 'number' ||
+            usage.horizontal < 0 ||
+            usage.vertical < 0
+          ) {
+            return [];
+          }
+
+          return [[tokenId, Math.max(usage.horizontal, usage.vertical)]];
+        })
+      : [];
+  const movementUsedByTokenId = { ...rawMovementUsed, ...Object.fromEntries(legacyAxisUsageEntries) };
+
+  const diagonalParityByTokenId =
+    parsed?.diagonalParityByTokenId && typeof parsed.diagonalParityByTokenId === 'object'
+      ? Object.fromEntries(
+          Object.entries(parsed.diagonalParityByTokenId).filter(
+            ([tokenId, parity]) =>
+              tokens.some((token) => token.id === tokenId) && (parity === 0 || parity === 1),
+          ),
+        )
+      : {};
+
+  const diagonalRule = parsed?.diagonalRule === 'alternating' ? 'alternating' : 'standard';
+  const measurementUnit =
+    parsed?.measurementUnit &&
+    typeof parsed.measurementUnit === 'object' &&
+    typeof parsed.measurementUnit.label === 'string' &&
+    parsed.measurementUnit.label.trim() !== '' &&
+    isValidCellsValue(parsed.measurementUnit.cellsValue)
+      ? { label: parsed.measurementUnit.label, cellsValue: parsed.measurementUnit.cellsValue }
+      : { label: 'm', cellsValue: 1.5 };
+
   return {
     tokens: applyVehicleAwareUpdates(tokens),
     diceLogs: Array.isArray(parsed?.diceLogs)
@@ -382,37 +443,10 @@ function normalizeSharedState(parsed) {
     activeTurnTokenId:
       typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null,
     roundNumber: typeof parsed?.roundNumber === 'number' && parsed.roundNumber > 0 ? parsed.roundNumber : 1,
-    movementUsedByTokenId:
-      parsed?.movementUsedByTokenId && typeof parsed.movementUsedByTokenId === 'object'
-        ? Object.fromEntries(
-            Object.entries(parsed.movementUsedByTokenId).filter(
-              ([tokenId, used]) =>
-                tokens.some((token) => token.id === tokenId) &&
-                typeof used === 'number' &&
-                used >= 0,
-            ),
-          )
-        : {},
-    movementAxisUsageByTokenId:
-      parsed?.movementAxisUsageByTokenId && typeof parsed.movementAxisUsageByTokenId === 'object'
-        ? Object.fromEntries(
-            Object.entries(parsed.movementAxisUsageByTokenId).flatMap(([tokenId, usage]) => {
-              if (
-                !tokens.some((token) => token.id === tokenId) ||
-                !usage ||
-                typeof usage !== 'object' ||
-                typeof usage.horizontal !== 'number' ||
-                typeof usage.vertical !== 'number' ||
-                usage.horizontal < 0 ||
-                usage.vertical < 0
-              ) {
-                return [];
-              }
-
-              return [[tokenId, { horizontal: usage.horizontal, vertical: usage.vertical }]];
-            }),
-          )
-        : {},
+    movementUsedByTokenId,
+    diagonalParityByTokenId,
+    diagonalRule,
+    measurementUnit,
     dashUsedByTokenId:
       parsed?.dashUsedByTokenId && typeof parsed.dashUsedByTokenId === 'object'
         ? Object.fromEntries(
@@ -582,15 +616,15 @@ function findBlockedMovement(tokens, movingToken, from, to) {
   return null;
 }
 
-function calculateMovementAxisUsage(previousUsage, from, to) {
-  return {
-    horizontal: (previousUsage?.horizontal ?? 0) + Math.abs(to.x - from.x),
-    vertical: (previousUsage?.vertical ?? 0) + Math.abs(to.y - from.y),
-  };
-}
-
-function movementUsedFromAxisUsage(usage) {
-  return Math.max(usage?.horizontal ?? 0, usage?.vertical ?? 0);
+function isValidWaypoint(point) {
+  return (
+    Boolean(point) &&
+    typeof point === 'object' &&
+    Number.isInteger(point.x) &&
+    Number.isInteger(point.y) &&
+    point.x >= 0 &&
+    point.y >= 0
+  );
 }
 
 function firstAvailablePositionToRight(tokens, footprint, start) {
@@ -651,6 +685,10 @@ function findUserControlledVehicle(user) {
   );
 }
 
+function isTokenVisibleToUser(token, user) {
+  return !user || user.role === 'master' || token.isInvisible !== true || token.ownerUserId === user.id;
+}
+
 function sanitizeStateForUser(state, user) {
   const canSeeRoll = (log) => user?.role === 'master' || log.visibility === 'public' || log.authorUserId === user?.id;
   const visibleDiceLogs = state.diceLogs.filter(canSeeRoll);
@@ -661,9 +699,7 @@ function sanitizeStateForUser(state, user) {
     return { ...state, diceLogs: visibleDiceLogs, latestDicePreview: visiblePreview };
   }
 
-  const visibleTokens = state.tokens.filter(
-    (token) => token.isInvisible !== true || token.ownerUserId === user.id,
-  );
+  const visibleTokens = state.tokens.filter((token) => isTokenVisibleToUser(token, user));
   const visibleTokenIds = new Set(visibleTokens.map((token) => token.id));
   const visibleInitiatives = state.initiatives.filter((entry) => visibleTokenIds.has(entry.tokenId));
   const visibleDicePreview =
@@ -793,6 +829,94 @@ function broadcastCharacterSheetEvent(event, sheet) {
   broadcastSheetEvent(streamClients, event, sheet, characterSheetPolicy);
 }
 
+const TEMPLATE_SHAPES = new Set(['circle', 'cone', 'line']);
+
+// Sagome e ping sono eventi SSE nominati sullo stesso stream dello snapshot: mai scritti in
+// battleMapState, mai versionati, mai inclusi in uno snapshot o in una persistenza. Una
+// riconnessione dopo la loro scomparsa non ne trova traccia perché non esistono al di fuori di
+// questa trasmissione una tantum.
+function broadcastEphemeralEvent(type, payload, { filterByOriginToken = null } = {}) {
+  const event = { type, ...payload };
+  streamClients.forEach((client) => {
+    if (filterByOriginToken && !isTokenVisibleToUser(filterByOriginToken, client.user)) {
+      return;
+    }
+    try {
+      client.write(`event: ${type}\ndata: ${JSON.stringify(event)}\n\n`);
+    } catch {
+      streamClients.delete(client);
+    }
+  });
+}
+
+// Trasmette il percorso di un movimento appena accettato così ogni client (non solo chi lo ha
+// mosso) possa riprodurre la stessa camminata animata invece di vedere solo la posizione finale.
+// Puramente presentazionale: non tocca battleMapState, la versione o lo snapshot.
+function broadcastTokenWalk(token, waypoints) {
+  broadcastEphemeralEvent('token-walk', { tokenId: token.id, waypoints }, { filterByOriginToken: token });
+}
+
+function sendPing(user, position) {
+  if (!isValidWaypoint(position)) {
+    return { status: 400, message: 'Posizione del ping non valida.' };
+  }
+
+  broadcastEphemeralEvent('ephemeral-ping', {
+    id: randomUUID(),
+    position,
+    authorUserId: user.id,
+    authorName: user.displayName,
+  });
+  return { status: 200 };
+}
+
+function sendTemplateEvent(user, body) {
+  const id = typeof body?.id === 'string' ? body.id.trim() : '';
+  const phase = body?.phase === 'end' ? 'end' : body?.phase === 'update' ? 'update' : null;
+  if (!id || id.length > 64 || !phase) {
+    return { status: 400, message: 'Payload sagoma non valido.' };
+  }
+
+  if (phase === 'end') {
+    broadcastEphemeralEvent('ephemeral-template-end', { id });
+    return { status: 200 };
+  }
+
+  const shape = body?.shape;
+  const color = body?.color;
+  if (
+    !TEMPLATE_SHAPES.has(shape) ||
+    !isValidWaypoint(body?.origin) ||
+    !isValidWaypoint(body?.target) ||
+    typeof color !== 'string' ||
+    color.trim() === '' ||
+    color.length > 32
+  ) {
+    return { status: 400, message: 'Payload sagoma non valido.' };
+  }
+
+  // La sagoma è trasmessa a chi già potrebbe vedere la sua origine: se un'altra creatura invisibile
+  // occupa quella casella, il filtro riusa la stessa sanitizzazione dello stato per non rivelarla.
+  const originToken = battleMapState.tokens.find(
+    (token) => token.position.x === body.origin.x && token.position.y === body.origin.y,
+  ) ?? null;
+
+  broadcastEphemeralEvent(
+    'ephemeral-template',
+    {
+      id,
+      shape,
+      origin: body.origin,
+      target: body.target,
+      color,
+      authorUserId: user.id,
+      authorName: user.displayName,
+    },
+    { filterByOriginToken: originToken },
+  );
+  return { status: 200 };
+}
+
 function projectCharacterSheetToToken(ownerUserId, updates) {
   const tokenIndex = battleMapState.tokens.findIndex(
     (token) => token.ownerUserId === ownerUserId && token.type === 'player' && token.isFamiliar !== true,
@@ -908,6 +1032,32 @@ function clearBattleMapDiceLogs(user) {
   });
 }
 
+function updateBattleMapSettings(updates) {
+  const nextDiagonalRule =
+    updates?.diagonalRule === 'standard' || updates?.diagonalRule === 'alternating'
+      ? updates.diagonalRule
+      : battleMapState.diagonalRule;
+
+  let nextMeasurementUnit = battleMapState.measurementUnit;
+  if (updates?.measurementUnit !== undefined) {
+    const label = updates.measurementUnit?.label;
+    const cellsValue = updates.measurementUnit?.cellsValue;
+    if (typeof label !== 'string' || label.trim() === '' || !isValidCellsValue(cellsValue)) {
+      return { status: 400, message: 'Unità di misura non valida.' };
+    }
+    nextMeasurementUnit = { label, cellsValue };
+  }
+
+  return commitBattleMapState(
+    {
+      ...battleMapState,
+      diagonalRule: nextDiagonalRule,
+      measurementUnit: nextMeasurementUnit,
+    },
+    { recordMasterUndo: true, validate: false },
+  );
+}
+
 function applyRoundWrapState(nextState, direction) {
   const initiativesLength = nextState.initiatives.length;
   if (initiativesLength === 0) {
@@ -915,7 +1065,7 @@ function applyRoundWrapState(nextState, direction) {
       ...nextState,
       roundNumber: 1,
       movementUsedByTokenId: {},
-      movementAxisUsageByTokenId: {},
+      diagonalParityByTokenId: {},
       dashUsedByTokenId: {},
       extraMovementByTokenId: {},
     };
@@ -934,20 +1084,35 @@ function applyRoundWrapState(nextState, direction) {
         ...nextState,
         roundNumber: Math.max(1, nextState.roundNumber + (direction === 'next' ? 1 : -1)),
         movementUsedByTokenId: {},
-        movementAxisUsageByTokenId: {},
+        diagonalParityByTokenId: {},
         dashUsedByTokenId: {},
         extraMovementByTokenId: {},
       }
     : nextState;
 }
 
-function moveOwnedToken(user, tokenId, x, y) {
+function moveOwnedToken(user, tokenId, waypoints) {
   const tokenIndex = battleMapState.tokens.findIndex((token) => token.id === tokenId);
   if (tokenIndex === -1) {
     return { status: 404, message: 'Token non trovato.' };
   }
 
   const token = battleMapState.tokens[tokenIndex];
+
+  if (
+    !Array.isArray(waypoints) ||
+    waypoints.length < 2 ||
+    waypoints.length > MAX_MOVEMENT_WAYPOINTS ||
+    !waypoints.every(isValidWaypoint)
+  ) {
+    return { status: 400, message: 'Percorso non valido.' };
+  }
+
+  if (waypoints[0].x !== token.position.x || waypoints[0].y !== token.position.y) {
+    return { status: 400, message: 'Il percorso deve partire dalla posizione corrente del token.' };
+  }
+
+  const destination = waypoints[waypoints.length - 1];
   const controlledVehicle = findUserControlledVehicle(user);
   const isOwnedPlayer = token.ownerUserId === user.id && token.type === 'player';
   const isControlledVehicle = token.type === 'vehicle' && controlledVehicle?.id === token.id;
@@ -966,15 +1131,14 @@ function moveOwnedToken(user, tokenId, x, y) {
   const movementSourceId = movementSourceToken?.id ?? tokenId;
   const movementCells = typeof movementSourceToken?.movementCells === 'number' ? movementSourceToken.movementCells : 0;
   const extraMovement = battleMapState.extraMovementByTokenId[movementSourceId] ?? 0;
-  const previousAxisUsage = battleMapState.movementAxisUsageByTokenId[movementSourceId] ?? {
-    horizontal: 0,
-    vertical: 0,
-  };
-  const usedCells = movementUsedFromAxisUsage(previousAxisUsage);
+  const usedCells = battleMapState.movementUsedByTokenId[movementSourceId] ?? 0;
+  const previousDiagonalParity = battleMapState.diagonalParityByTokenId[movementSourceId] ?? 0;
   const hasDashed = battleMapState.dashUsedByTokenId[movementSourceId] === true;
   const movementBudget = movementCells * (hasDashed ? 2 : 1) + extraMovement;
-  const nextAxisUsage = calculateMovementAxisUsage(previousAxisUsage, token.position, { x, y });
-  const moveDistance = movementUsedFromAxisUsage(nextAxisUsage) - usedCells;
+  const { cells: moveDistance, nextDiagonalParity } = pathCost(waypoints, {
+    rule: battleMapState.diagonalRule,
+    diagonalParity: previousDiagonalParity,
+  });
 
   if (hasInitiativeOrder && user.role !== 'master' && usedCells + moveDistance > movementBudget) {
     return {
@@ -985,19 +1149,26 @@ function moveOwnedToken(user, tokenId, x, y) {
   }
 
   if (!canTokenIgnoreObstacles(token, user)) {
-    const blockingObstacle = findBlockedMovement(battleMapState.tokens, token, token.position, { x, y });
-    if (blockingObstacle) {
-      return {
-        status: 400,
-        message: `${blockingObstacle.name} blocca il movimento.`,
-        snapshot: nextSnapshot(),
-      };
+    for (let index = 0; index < waypoints.length - 1; index += 1) {
+      const blockingObstacle = findBlockedMovement(
+        battleMapState.tokens,
+        token,
+        waypoints[index],
+        waypoints[index + 1],
+      );
+      if (blockingObstacle) {
+        return {
+          status: 400,
+          message: `${blockingObstacle.name} blocca il movimento.`,
+          snapshot: nextSnapshot(),
+        };
+      }
     }
   }
 
   const nextTokens = applyVehicleAwareUpdates(
     battleMapState.tokens.map((currentToken) =>
-      currentToken.id === tokenId ? { ...currentToken, position: { x, y } } : currentToken,
+      currentToken.id === tokenId ? { ...currentToken, position: destination } : currentToken,
     ),
   );
 
@@ -1007,15 +1178,15 @@ function moveOwnedToken(user, tokenId, x, y) {
     movementUsedByTokenId: hasInitiativeOrder
       ? {
           ...battleMapState.movementUsedByTokenId,
-          [movementSourceId]: movementUsedFromAxisUsage(nextAxisUsage),
+          [movementSourceId]: usedCells + moveDistance,
         }
       : battleMapState.movementUsedByTokenId,
-    movementAxisUsageByTokenId: hasInitiativeOrder
+    diagonalParityByTokenId: hasInitiativeOrder
       ? {
-          ...battleMapState.movementAxisUsageByTokenId,
-          [movementSourceId]: nextAxisUsage,
+          ...battleMapState.diagonalParityByTokenId,
+          [movementSourceId]: nextDiagonalParity,
         }
-      : battleMapState.movementAxisUsageByTokenId,
+      : battleMapState.diagonalParityByTokenId,
     dashUsedByTokenId: battleMapState.dashUsedByTokenId,
   });
   const validationError = validateSharedState(nextState);
@@ -1027,7 +1198,9 @@ function moveOwnedToken(user, tokenId, x, y) {
   }
 
   if (user.role === 'master') {
-    return commitBattleMapState(nextState, { recordMasterUndo: true, validate: false });
+    const result = commitBattleMapState(nextState, { recordMasterUndo: true, validate: false });
+    broadcastTokenWalk(token, waypoints);
+    return result;
   }
 
   battleMapState = nextState;
@@ -1038,11 +1211,12 @@ function moveOwnedToken(user, tokenId, x, y) {
       previousPosition: token.position,
       movementSourceId,
       previousMovementUsed: usedCells,
-      previousMovementAxisUsage: previousAxisUsage,
+      previousDiagonalParity,
     });
   }
   bumpBattleMapVersion();
   broadcastSnapshot();
+  broadcastTokenWalk(token, waypoints);
   return { status: 200, snapshot: nextSnapshot() };
 }
 
@@ -1256,9 +1430,9 @@ function undoLastAction(user) {
         ...battleMapState.movementUsedByTokenId,
         [action.movementSourceId]: action.previousMovementUsed,
       },
-      movementAxisUsageByTokenId: {
-        ...battleMapState.movementAxisUsageByTokenId,
-        [action.movementSourceId]: action.previousMovementAxisUsage,
+      diagonalParityByTokenId: {
+        ...battleMapState.diagonalParityByTokenId,
+        [action.movementSourceId]: action.previousDiagonalParity,
       },
     });
   }
@@ -1724,16 +1898,28 @@ app.post('/api/battle-map/move', async (request, reply) => {
 
   const body = request.body ?? {};
   const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
-  const x = typeof body.x === 'number' ? body.x : null;
-  const y = typeof body.y === 'number' ? body.y : null;
-
-  if (!tokenId || x === null || y === null) {
+  if (!tokenId) {
     reply.code(400);
     return { message: 'Payload movimento non valido.' };
   }
 
-  const result = moveOwnedToken(user, tokenId, x, y);
-  if (result.status !== 200) {
+  let waypoints;
+  if (Array.isArray(body.waypoints)) {
+    waypoints = body.waypoints;
+  } else if (typeof body.x === 'number' && typeof body.y === 'number') {
+    const currentToken = battleMapState.tokens.find((candidate) => candidate.id === tokenId);
+    if (!currentToken) {
+      reply.code(404);
+      return { message: 'Token non trovato.' };
+    }
+    waypoints = [currentToken.position, { x: body.x, y: body.y }];
+  } else {
+    reply.code(400);
+    return { message: 'Payload movimento non valido.' };
+  }
+
+  const result = moveOwnedToken(user, tokenId, waypoints);
+  if (result.status && result.status !== 200) {
     reply.code(result.status);
     return {
       message: result.message,
@@ -1742,6 +1928,55 @@ app.post('/api/battle-map/move', async (request, reply) => {
   }
 
   return nextSnapshot(user);
+});
+
+app.post('/api/battle-map/settings', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const result = updateBattleMapSettings(request.body ?? {});
+  if (result.status && result.status !== 200) {
+    reply.code(result.status);
+    return {
+      message: result.message,
+      ...nextSnapshot(user),
+    };
+  }
+
+  return result;
+});
+
+app.post('/api/battle-map/ping', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const body = request.body ?? {};
+  const result = sendPing(user, body.position);
+  if (result.status !== 200) {
+    reply.code(result.status);
+    return { message: result.message };
+  }
+
+  return { ok: true };
+});
+
+app.post('/api/battle-map/template', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const result = sendTemplateEvent(user, request.body ?? {});
+  if (result.status !== 200) {
+    reply.code(result.status);
+    return { message: result.message };
+  }
+
+  return { ok: true };
 });
 
 app.post('/api/battle-map/dash', async (request, reply) => {
@@ -1783,7 +2018,7 @@ app.post('/api/battle-map/token-update', async (request, reply) => {
   }
 
   const result = updateOwnedToken(user, tokenId, body.updates);
-  if (result.status !== 200) {
+  if (result.status && result.status !== 200) {
     reply.code(result.status);
     return {
       message: result.message,
@@ -1809,7 +2044,7 @@ app.post('/api/battle-map/extra-movement', async (request, reply) => {
   }
 
   const result = addExtraMovement(user, tokenId, amount);
-  if (result.status !== 200) {
+  if (result.status && result.status !== 200) {
     reply.code(result.status);
     return {
       message: result.message,
@@ -1943,7 +2178,34 @@ async function start() {
   process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
 }
 
-start().catch((error) => {
-  app.log.error(error);
-  process.exit(1);
-});
+const isTestEnvironment = process.env.BATTLE_MAP_TEST_MODE === '1';
+
+if (!isTestEnvironment) {
+  start().catch((error) => {
+    app.log.error(error);
+    process.exit(1);
+  });
+}
+
+// Surface exposed only so integration tests can exercise the real Fastify routes with
+// app.inject: a fake user repository plus a real session, without opening the SQLite
+// database or binding a port. Production code never imports this export.
+export const __testing = {
+  app,
+  setUserRepository: (repository) => {
+    userRepository = repository;
+  },
+  createSession: (user) => {
+    const sessionId = randomBytes(24).toString('hex');
+    sessionStore.set(sessionId, { userId: user.id, expiresAt: Date.now() + SESSION_TTL_MS });
+    return sessionId;
+  },
+  setBattleMapState: (state) => {
+    battleMapState = normalizeSharedState(state);
+    battleMapVersion = 1;
+  },
+  getBattleMapState: () => battleMapState,
+  getBattleMapVersion: () => battleMapVersion,
+  applyRoundWrapState,
+  streamClients,
+};
