@@ -6,9 +6,19 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageAssets = resolve(projectRoot, 'node_modules/@3d-dice/dice-box-threejs/public');
 const destination = resolve(projectRoot, 'public/dice-box');
 const texturesDestination = resolve(destination, 'textures');
+// Il rotolamento realistico e' una raffica fitta di impatti distinti, non un drone: servono
+// abbastanza campioni diversi perche' la ripetizione non diventi udibile su un tiro lungo.
 const soundAssets = [
+  'sounds/dicehit/dicehit_plastic1.mp3',
+  'sounds/dicehit/dicehit_plastic3.mp3',
+  'sounds/dicehit/dicehit_plastic5.mp3',
+  'sounds/dicehit/dicehit_plastic7.mp3',
   'sounds/dicehit/dicehit_plastic8.mp3',
   'sounds/dicehit/dicehit_plastic11.mp3',
+  'sounds/dicehit/dicehit_plastic13.mp3',
+  'sounds/dicehit/dicehit_plastic15.mp3',
+  'sounds/surfaces/surface_felt2.mp3',
+  'sounds/surfaces/surface_felt5.mp3',
   'sounds/surfaces/surface_felt7.mp3',
 ];
 

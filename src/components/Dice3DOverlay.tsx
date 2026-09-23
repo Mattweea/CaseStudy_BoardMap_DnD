@@ -7,7 +7,7 @@ import {
   isDicePresentationSkipInput,
 } from '../../shared/dice-3d-presentation.mjs';
 import type { DicePresentation } from '../../shared/dice-3d-presentation.mjs';
-import { DiceRollAudioController } from '../../shared/dice-roll-audio.mjs';
+import { DiceRollAudioController, diceLookStill } from '../../shared/dice-roll-audio.mjs';
 import type { DiceRollLog } from '../types';
 import type DiceBox from '@3d-dice/dice-box-threejs';
 
@@ -57,6 +57,7 @@ export function Dice3DOverlay({
   const runRef = useRef<(log: DiceRollLog) => Promise<void>>(async () => undefined);
   const queueRef = useRef<DicePresentationQueue | null>(null);
   const audioControllerRef = useRef<DiceRollAudioController | null>(null);
+  const stillnessFrameRef = useRef<number | null>(null);
 
   if (!audioControllerRef.current) {
     audioControllerRef.current = new DiceRollAudioController({
@@ -70,15 +71,42 @@ export function Dice3DOverlay({
   soundEnabledRef.current = soundEnabled;
   userActivatedRef.current = hasUserActivated;
 
+  const stopStillnessWatch = useCallback(() => {
+    if (stillnessFrameRef.current === null) return;
+    cancelAnimationFrame(stillnessFrameRef.current);
+    stillnessFrameRef.current = null;
+  }, []);
+
+  // Il suono deve seguire l'occhio: chiude appena i corpi smettono di muoversi, senza aspettare
+  // che Cannon li dichiari addormentati quasi un secondo dopo. Finche' non si e' visto almeno un
+  // fotogramma in movimento non si chiude nulla, altrimenti dadi ancora fermi in scena
+  // spegnerebbero la raffica prima che parta.
+  const watchForStillness = useCallback((renderer: DiceBox) => {
+    stopStillnessWatch();
+    let sawMotion = false;
+    const tick = () => {
+      stillnessFrameRef.current = null;
+      const still = diceLookStill(renderer.diceList);
+      if (!still) sawMotion = true;
+      else if (sawMotion) {
+        audioControllerRef.current?.settle();
+        return;
+      }
+      stillnessFrameRef.current = requestAnimationFrame(tick);
+    };
+    stillnessFrameRef.current = requestAnimationFrame(tick);
+  }, [stopStillnessWatch]);
+
   const interruptCurrentPresentation = useCallback(() => {
     abortCurrentRef.current?.();
+    stopStillnessWatch();
     audioControllerRef.current?.stop();
     try {
       rendererRef.current?.clearDice();
     } catch {
       // Il risultato autorevole è già disponibile nel log numerico.
     }
-  }, []);
+  }, [stopStillnessWatch]);
 
   if (!queueRef.current) {
     queueRef.current = new DicePresentationQueue({
@@ -168,12 +196,19 @@ export function Dice3DOverlay({
       audioControllerRef.current?.start({
         soundEnabled: soundEnabledRef.current,
         userActivated: userActivatedRef.current,
+        diceCount: result.presentation.visualDice.length,
       });
+      watchForStillness(renderer);
 
       await Promise.race([
         renderer.roll(result.presentation.notation),
         abortPromise,
       ]);
+
+      // Rete di sicurezza: se il polling dei corpi non ha potuto chiudere la raffica (diceList
+      // assente o forma inattesa), almeno qui i dadi sono certamente fermi.
+      stopStillnessWatch();
+      audioControllerRef.current?.settle();
 
       if (!aborted) {
         setIsSettled(true);
@@ -188,6 +223,7 @@ export function Dice3DOverlay({
       throw error;
     } finally {
       abortCurrentRef.current = null;
+      stopStillnessWatch();
       audioControllerRef.current?.stop();
       try {
         rendererRef.current?.clearDice();
@@ -229,8 +265,13 @@ export function Dice3DOverlay({
   }, [animationEnabled, interruptCurrentPresentation]);
 
   useEffect(() => {
-    if (!soundEnabled) audioControllerRef.current?.stop();
-  }, [soundEnabled]);
+    if (!soundEnabled) {
+      audioControllerRef.current?.stop();
+      return;
+    }
+    // Il primo impatto arriverebbe in ritardo se i campioni non fossero gia' in cache.
+    if (hasUserActivated) audioControllerRef.current?.prime();
+  }, [hasUserActivated, soundEnabled]);
 
   useEffect(() => {
     if (!presentation) return undefined;
