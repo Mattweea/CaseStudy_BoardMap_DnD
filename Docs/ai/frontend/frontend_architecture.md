@@ -26,6 +26,7 @@ Do not add a shared game field only to React state. A shared field requires the 
 ## Server authority and optimistic updates
 
 - The server is authoritative for authentication, permissions, valid shared state, and persistence.
+- Shared authoritative rolls include optional per-die metadata for newer snapshots. The client normalizer preserves a wholly valid list, drops a malformed list as a unit, and keeps legacy aggregate-only logs readable; it never invents ids or dispositions for old results.
 - Optimistic client updates may improve responsiveness, but failures must restore or apply the authoritative snapshot returned by the server.
 - Mutations are serialized by the shared-state hook to avoid racing local writes.
 - Full master state commits include `baseVersion`; HTTP `409` means the client must accept the returned snapshot before retrying.
@@ -38,6 +39,7 @@ Do not add a shared game field only to React state. A shared field requires the 
 - Keep permission-based controls out of the DOM when the user cannot invoke them, while still enforcing permissions server-side.
 - Pass stable identifiers such as token IDs through UI actions; resolve mutable token data from current state.
 - Avoid changing the very large shared `App`, `Board`, or `ElementModals` surfaces for a local concern unless their shared contract is the actual root cause.
+- `src/utils/dice.ts` is only the browser adapter for local dice uses: it supplies Web Crypto entropy to the dependency-free shared engine and preserves its current UI-facing API. It is not an authority for shared roll results and must not import Node runtime code.
 
 ## Error and loading behavior
 

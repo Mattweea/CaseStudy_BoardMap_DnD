@@ -36,8 +36,11 @@ Master actions use full snapshot undo. Adventurer movement, dash, owned-token up
 ## Dice
 
 - The client sends only a roll request: formula, visibility, and mode. The Fastify server validates it, generates individual results, calculates the total, and supplies author and timestamp from the authenticated session.
+- Every authoritative roll uses the dependency-free `shared/dice-engine.mjs` entry point. Runtime adapters supply cryptographic unsigned 32-bit entropy; the engine uses rejection sampling so the modulo operation cannot favor any face. Deterministic sources are test-only and no seed belongs in an API request, shared state, or log.
 - Supported formulas use 1–20 dice with d4/d6/d8/d10/d12/d20/d100 and a modifier between -1000 and +1000.
 - Advantage/disadvantage are valid only for `1d20`, roll two d20s, and keep the higher/lower result.
+- New logs carry additive per-die detail: an id unique within the roll, sides, value, logical group, and `kept`/`discarded`/`unresolved` disposition. Normal dice are `kept`; advantage/disadvantage selects exactly one die (the first on a tie); the two independent d20s of a character-sheet target remain `unresolved` because the reader chooses which applies. A d100 remains one logical die from 1 to 100.
+- The logical result is authoritative and independent of presentation. A future 3D renderer may consume the detail, including expanding a logical d100 visually, but animation cannot choose or change the result.
 - Public rolls are delivered to every authenticated participant. Secret rolls are delivered only to their author and the master through HTTP state and SSE sanitization.
 - Accepted logs are prepended and capped at 30; no secret formula, result, preview, or metadata may reach an unauthorized player.
 - The legacy client-log endpoint is rejected; callers must use the authoritative `/api/battle-map/rolls` endpoint.

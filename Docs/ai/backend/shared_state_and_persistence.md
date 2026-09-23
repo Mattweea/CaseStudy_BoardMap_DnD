@@ -19,6 +19,7 @@ Both client and server normalize incoming state because data can come from older
 - Clamp grid dimensions, light radii, and other bounded numbers.
 - Rebuild bidirectional vehicle/occupant relationships from canonical vehicle occupant lists.
 - Preserve backward compatibility intentionally when a legacy field is still supported.
+- `DiceRollLog.dice` is additive. A legacy log without it remains valid; when present, the list is retained only if every die has a unique non-empty id, supported sides, in-range integer value, non-empty group id, and valid disposition. One malformed entry removes the whole detail list without discarding or reconstructing the compatible aggregate log.
 
 Every new shared field requires coordinated defaults and validation on both sides. Saved snapshots without the new field must still load safely.
 

@@ -29,6 +29,7 @@ Ownership-aware endpoints must validate the current server token and user. New m
 ## API behavior
 
 - JSON mutation payloads are validated at the endpoint and again through normalization/domain validation where relevant.
+- `POST /api/battle-map/rolls` accepts only roll instructions. Results, per-die identities, and seeds supplied by a client are ignored; the authoritative resolver creates the complete aggregate and per-die result through the shared dice engine.
 - Invalid authentication returns `401`; insufficient authority returns `403`; invalid data or rule violations return `400`; stale versioned commits return `409`; missing resources return `404`.
 - Rejected state mutations should return the current sanitized snapshot when the client can use it to reconcile.
 - Full state replacement accepts `baseVersion` and rejects stale commits.
@@ -40,6 +41,7 @@ Ownership-aware endpoints must validate the current server token and user. New m
 - Every accepted map-state mutation increments `battleMapVersion` and broadcasts a separately sanitized snapshot to each connected user. Character-sheet events reuse the stream but are addressed only to the owner and master according to policy.
 - Disconnect cleanup must remove the client and its keepalive timer.
 - Never broadcast raw master state to all clients.
+- Per-die roll detail is part of its parent log rather than a separate event. The existing per-recipient snapshot sanitization therefore delivers the complete detail wherever that log is visible and delivers none of it where a secret log is hidden.
 
 ## CORS and origins
 

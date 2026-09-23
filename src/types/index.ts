@@ -1,3 +1,7 @@
+import type { RolledDie } from '../../shared/dice-engine.mjs';
+
+export type { DieDisposition, RolledDie } from '../../shared/dice-engine.mjs';
+
 export type TokenType = 'player' | 'enemy' | 'object' | 'vehicle';
 export type UserRole = 'master' | 'adventurer';
 export type CharacterKey =
@@ -199,6 +203,7 @@ export interface DiceRollLog {
   mode: RollMode;
   authorUserId: string;
   visibility: 'public' | 'secret';
+  dice?: RolledDie[];
   characterName?: string;
   actionLabel?: string;
   // true su un tiro di attacco quando uno dei due d20 raggiunge la soglia di critico, o su un

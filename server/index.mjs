@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { normalizeDiceLogDetail } from '../shared/dice-log-normalization.mjs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +19,8 @@ import { CharacterSheetRepository } from './character-sheet-repository.mjs';
 import { registerCharacterSheetRoutes } from './character-sheet-routes.mjs';
 import { CharacterSheetService } from './character-sheet-service.mjs';
 import { rollCharacterSheetTarget } from './character-sheet-roll-resolver.mjs';
+import { createAuthoritativeRoll } from './authoritative-roll.mjs';
+import { canUserSeeDiceLog, visibleDiceLogsForUser } from './dice-log-visibility.mjs';
 import { PortraitStorage } from './portrait-storage.mjs';
 
 const app = Fastify({
@@ -72,70 +75,6 @@ const streamClients = new Set();
 const masterUndoStack = [];
 const playerUndoStackByUserId = new Map();
 const MAX_UNDO_STEPS = 40;
-const SUPPORTED_DICE = new Set([4, 6, 8, 10, 12, 20, 100]);
-const MAX_DICE_COUNT = 20;
-const MAX_MODIFIER = 1000;
-
-function parseRollFormula(value) {
-  if (typeof value !== 'string') {
-    return { error: 'Inserisci una formula nel formato NdS, ad esempio 1d20+5.' };
-  }
-
-  const match = value.trim().match(/^(\d{1,2})d(4|6|8|10|12|20|100)([+-]\d{1,4})?$/i);
-  if (!match) {
-    return { error: 'Formula non valida. Usa NdS con modificatore opzionale (es. 2d6-1).' };
-  }
-
-  const count = Number(match[1]);
-  const sides = Number(match[2]);
-  const modifier = Number(match[3] ?? 0);
-  if (!SUPPORTED_DICE.has(sides) || count < 1 || count > MAX_DICE_COUNT || Math.abs(modifier) > MAX_MODIFIER) {
-    return { error: `Limiti: 1-${MAX_DICE_COUNT} dadi d4/d6/d8/d10/d12/d20/d100 e modificatore tra -${MAX_MODIFIER} e +${MAX_MODIFIER}.` };
-  }
-
-  return {
-    formula: `${count}d${sides}${modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : modifier}`,
-    count,
-    sides,
-    modifier,
-  };
-}
-
-function createAuthoritativeRoll(user, request) {
-  const parsed = parseRollFormula(request?.formula);
-  if (parsed.error) {
-    return parsed;
-  }
-
-  const visibility = request?.visibility === 'secret' ? 'secret' : request?.visibility === 'public' ? 'public' : null;
-  if (!visibility) {
-    return { error: 'Scegli se il tiro è pubblico o segreto.' };
-  }
-
-  const mode = request?.mode === 'advantage' || request?.mode === 'disadvantage' ? request.mode : 'normal';
-  if (mode !== 'normal' && (parsed.sides !== 20 || parsed.count !== 1)) {
-    return { error: 'Vantaggio e svantaggio sono disponibili solo per 1d20.' };
-  }
-  const rolls = Array.from({ length: mode === 'normal' ? parsed.count : 2 }, () => randomBytes(4).readUInt32BE(0) % parsed.sides + 1);
-  const keptRolls = mode === 'advantage' ? [Math.max(...rolls)] : mode === 'disadvantage' ? [Math.min(...rolls)] : rolls;
-  return {
-    log: {
-      id: randomUUID(),
-      label: parsed.formula,
-      formula: parsed.formula,
-      rollerName: user.displayName ?? user.username,
-      authorUserId: user.id,
-      timestamp: new Date().toISOString(),
-      rolls,
-      keptRolls,
-      total: keptRolls.reduce((sum, roll) => sum + roll, parsed.modifier),
-      modifier: parsed.modifier,
-      mode,
-      visibility,
-    },
-  };
-}
-
 function defaultVehicleColor(side) {
   return side === 'enemy' ? '#7f1d1d' : '#374151';
 }
@@ -340,10 +279,10 @@ function normalizeSharedState(parsed) {
       ? parsed.diceLogs.flatMap((log) => (log && typeof log === 'object' && typeof log.authorUserId === 'string' &&
           (log.visibility === 'public' || log.visibility === 'secret') && Array.isArray(log.rolls) &&
           typeof log.total === 'number'
-        ? [{
+        ? [normalizeDiceLogDetail({
           ...log,
           formula: log.formula ?? log.label,
-        }] : []))
+        })] : []))
       : [],
     latestDicePreview:
       parsed?.latestDicePreview &&
@@ -359,11 +298,11 @@ function normalizeSharedState(parsed) {
               typeof parsed.latestDicePreview.rollerUserId === 'string'
                 ? parsed.latestDicePreview.rollerUserId
                 : undefined,
-            log: {
+            log: normalizeDiceLogDetail({
               ...parsed.latestDicePreview.log,
               formula:
                 parsed.latestDicePreview.log.formula ?? parsed.latestDicePreview.log.label ?? '',
-            },
+            }),
           }
         : null,
     combatAnnouncement:
@@ -652,9 +591,8 @@ function findUserControlledVehicle(user) {
 }
 
 function sanitizeStateForUser(state, user) {
-  const canSeeRoll = (log) => user?.role === 'master' || log.visibility === 'public' || log.authorUserId === user?.id;
-  const visibleDiceLogs = state.diceLogs.filter(canSeeRoll);
-  const visiblePreview = state.latestDicePreview && canSeeRoll(state.latestDicePreview.log)
+  const visibleDiceLogs = visibleDiceLogsForUser(state.diceLogs, user);
+  const visiblePreview = state.latestDicePreview && canUserSeeDiceLog(state.latestDicePreview.log, user)
     ? state.latestDicePreview
     : null;
   if (!user || user.role === 'master') {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { normalizeDiceLogDetail } from '../../shared/dice-log-normalization.mjs';
 import { BOARD_CONFIG } from '../constants/board';
 import type {
   BattleMapSharedState,
@@ -261,7 +262,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
   return {
     tokens: applyVehicleAwareUpdates(tokens),
     diceLogs: Array.isArray(parsed?.diceLogs)
-      ? parsed.diceLogs.map((log) => ({
+      ? parsed.diceLogs.map((log) => normalizeDiceLogDetail({
           ...log,
           formula: log.formula ?? log.label,
         }))
@@ -280,11 +281,11 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
               typeof parsed.latestDicePreview.rollerUserId === 'string'
                 ? parsed.latestDicePreview.rollerUserId
                 : undefined,
-            log: {
+            log: normalizeDiceLogDetail({
               ...parsed.latestDicePreview.log,
               formula:
                 parsed.latestDicePreview.log.formula ?? parsed.latestDicePreview.log.label ?? '',
-            },
+            }),
           }
         : null,
     combatAnnouncement:
