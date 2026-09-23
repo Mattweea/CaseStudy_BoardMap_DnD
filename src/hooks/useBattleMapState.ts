@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { collectDiceDeliveries } from '../../shared/dice-3d-presentation.mjs';
+import { normalizeDiceLogDetail } from '../../shared/dice-log-normalization.mjs';
 import { BOARD_CONFIG } from '../constants/board';
 import type {
   BattleMapSharedState,
@@ -6,6 +8,7 @@ import type {
   BattleMapSessionStatus,
   BattleMapState,
   DiagonalRule,
+  DiceRollLog,
   DiceRollRequest,
   EphemeralPing,
   EphemeralTemplate,
@@ -261,7 +264,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
   return {
     tokens: applyVehicleAwareUpdates(tokens),
     diceLogs: Array.isArray(parsed?.diceLogs)
-      ? parsed.diceLogs.map((log) => ({
+      ? parsed.diceLogs.map((log) => normalizeDiceLogDetail({
           ...log,
           formula: log.formula ?? log.label,
         }))
@@ -280,11 +283,11 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
               typeof parsed.latestDicePreview.rollerUserId === 'string'
                 ? parsed.latestDicePreview.rollerUserId
                 : undefined,
-            log: {
+            log: normalizeDiceLogDetail({
               ...parsed.latestDicePreview.log,
               formula:
                 parsed.latestDicePreview.log.formula ?? parsed.latestDicePreview.log.label ?? '',
-            },
+            }),
           }
         : null,
     combatAnnouncement:
@@ -396,6 +399,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
   const [version, setVersion] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
+  const [diceRollDeliveries, setDiceRollDeliveries] = useState<DiceRollLog[]>([]);
   const [sessionStatus, setSessionStatus] = useState<BattleMapSessionStatus>({
     hasSnapshot: false,
     savedAt: null,
@@ -414,6 +418,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
   const [movementNotice, setMovementNotice] = useState<MovementNotice | null>(null);
   const pingTimeoutsRef = useRef(new Map<string, ReturnType<typeof window.setTimeout>>());
   const templateTimeoutsRef = useRef(new Map<string, ReturnType<typeof window.setTimeout>>());
+  const diceDeliverySeenIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     sharedStateRef.current = sharedState;
@@ -427,17 +432,31 @@ export function useBattleMapState(isAuthenticated: boolean) {
     window.localStorage.setItem(ZOOM_STORAGE_KEY, String(zoom));
   }, [zoom]);
 
-  const applySnapshot = useCallback((nextState: BattleMapSharedState, nextVersion: number) => {
+  const recordDiceSnapshot = useCallback((logs: DiceRollLog[], baseline: boolean) => {
+    const deliveries = collectDiceDeliveries(logs, diceDeliverySeenIdsRef.current, { baseline });
+    if (deliveries.length > 0) {
+      setDiceRollDeliveries((current) => [...current, ...deliveries].slice(-100));
+    }
+  }, []);
+
+  const applySnapshot = useCallback((
+    nextState: BattleMapSharedState,
+    nextVersion: number,
+    options: { diceBaseline?: boolean } = {},
+  ) => {
     const normalizedState = normalizeSharedState(nextState);
+    recordDiceSnapshot(normalizedState.diceLogs, options.diceBaseline === true);
     sharedStateRef.current = normalizedState;
     versionRef.current = nextVersion;
     setSharedState(normalizedState);
     setVersion(nextVersion);
-  }, []);
+  }, [recordDiceSnapshot]);
 
   useEffect(() => {
     if (!isAuthenticated) {
       setIsReady(false);
+      setDiceRollDeliveries([]);
+      diceDeliverySeenIdsRef.current.clear();
       setSessionStatus({
         hasSnapshot: false,
         savedAt: null,
@@ -460,6 +479,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
         }
 
         const nextState = normalizeSharedState(payload.state);
+        recordDiceSnapshot(nextState.diceLogs, true);
         sharedStateRef.current = nextState;
         versionRef.current = payload.version;
         setSharedState(nextState);
@@ -479,7 +499,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     return () => {
       isMounted = false;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, recordDiceSnapshot]);
 
   useEffect(() => {
     if (!isReady || !isAuthenticated) {
@@ -488,13 +508,20 @@ export function useBattleMapState(isAuthenticated: boolean) {
 
     // A same-origin SSE stream sends a snapshot only when the session state changes.
     const eventSource = new EventSource(EVENTS_URL, { withCredentials: true });
+    let awaitingConnectionBaseline = true;
+    eventSource.onopen = () => {
+      awaitingConnectionBaseline = true;
+    };
     eventSource.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data) as {
           state: BattleMapSharedState;
           version: number;
         };
-        applySnapshot(payload.state, payload.version);
+        applySnapshot(payload.state, payload.version, {
+          diceBaseline: awaitingConnectionBaseline,
+        });
+        awaitingConnectionBaseline = false;
       } catch (error) {
         console.error(error);
       }
@@ -1385,7 +1412,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
       method: 'POST',
     });
 
-    applySnapshot(payload.state, payload.version);
+    applySnapshot(payload.state, payload.version, { diceBaseline: true });
     setSessionStatus({
       hasSnapshot: true,
       savedAt: payload.savedAt,
@@ -1405,6 +1432,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     isReady,
     isMutating,
     state,
+    diceRollDeliveries,
     setZoom,
     moveToken,
     moveTokens,

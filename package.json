@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "assets:dice": "node tools/copy-dice-assets.mjs",
+    "prebuild": "npm run assets:dice",
     "dev": "vite",
     "dev:client": "vite",
     "dev:server": "node --watch server/index.mjs",
@@ -19,6 +21,7 @@
     "docs:check": "node tools/check-doc-routing.mjs"
   },
   "dependencies": {
+    "@3d-dice/dice-box-threejs": "0.0.12",
     "@fastify/multipart": "^8.3.1",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.10.0",

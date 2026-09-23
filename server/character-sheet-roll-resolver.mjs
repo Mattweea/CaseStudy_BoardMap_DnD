@@ -12,12 +12,14 @@
 // Il danno di un attacco è un bersaglio separato (`attack-damage:<id>`), tirato a richiesta dalla
 // scheda o dal log; il client dichiara se applicare il critico (dadi raddoppiati, modificatore
 // invariato), dedotto lato client dall'ultimo tiro di attacco visto per quel bersaglio.
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import { resolveDiceRoll } from '../shared/dice-engine.mjs';
 import {
   abilityModifier, computeAttackBonus, computeDamageModifier, computeInitiative,
   computeSavingThrowValue, computeSkillValue, computeToolBonus, parseWholeNumber, SKILL_ABILITY,
 } from '../shared/dnd-rules.mjs';
 import { CharacterSheetError } from './character-sheet-service.mjs';
+import { nextCryptoUint32 } from './dice-entropy.mjs';
 
 const ABILITY_LABELS = {
   strength: 'Forza', dexterity: 'Destrezza', constitution: 'Costituzione',
@@ -40,11 +42,6 @@ function makePlan(overrides) {
 function parseDiceText(value) {
   const match = typeof value === 'string' ? value.trim().match(/^(\d{1,2})d(4|6|8|10|12|20|100)$/i) : null;
   return match ? { count: Number(match[1]), sides: Number(match[2]) } : null;
-}
-
-function buildFormula(count, sides, modifier) {
-  const sign = modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : String(modifier);
-  return `${count}d${sides}${sign}`;
 }
 
 function resolveAbility(data, key) {
@@ -201,20 +198,14 @@ function resolveTargetPlan(data, target) {
   return null;
 }
 
-// Tiro grezzo di un gruppo di dadi identici: nessuna nozione di vantaggio/svantaggio qui, è il
-// chiamante a decidere se e quante volte invocarlo.
-function rollGroup(count, sides, modifier, rng) {
-  const rolls = Array.from({ length: count }, () => (rng() % sides) + 1);
-  return { rolls, modifier, total: rolls.reduce((sum, roll) => sum + roll, modifier), formula: buildFormula(count, sides, modifier) };
-}
-
 // Punto d'ingresso usato da `POST /api/battle-map/rolls` quando il payload porta `source` invece
 // di `formula`. Restituisce `{ error }` oppure `{ log }`. Un tiro 1d20 (bersaglio "dual") tira
 // sempre due dadi indipendenti; un tiro di danno raddoppia i dadi di ogni blocco quando il client
 // dichiara `critical: true`. Qualunque effetto collaterale (dadi vita, salvataggi contro morte)
 // passa da `service.applyPatch` prima che il log sia costruito: un rifiuto della patch interrompe
 // la richiesta senza aggiungere alcuna voce.
-export function rollCharacterSheetTarget(user, service, requestBody, { rng = () => randomBytes(4).readUInt32BE(0) } = {}) {
+export function rollCharacterSheetTarget(user, service, requestBody, options = {}) {
+  const nextUint32 = options.nextUint32 ?? options.rng ?? nextCryptoUint32;
   const source = requestBody?.source;
   const sheetId = source?.sheetId;
   const target = source?.target;
@@ -244,26 +235,40 @@ export function rollCharacterSheetTarget(user, service, requestBody, { rng = () 
 
   if (plan.isDamageRoll) {
     const critical = requestBody?.critical === true;
-    const rolledParts = plan.groups.map((group) => {
-      const roll = rollGroup(critical ? group.count * 2 : group.count, group.sides, group.modifier, rng);
-      return { label: group.label, formula: roll.formula, rolls: roll.rolls, keptRolls: roll.rolls, modifier: roll.modifier, total: roll.total, critical };
-    });
+    const resolved = resolveDiceRoll({
+      groups: plan.groups.map((group) => ({
+        ...group,
+        count: critical ? group.count * 2 : group.count,
+      })),
+    }, { nextUint32 });
+    const rolledParts = resolved.groups.map((group) => ({
+      label: group.label,
+      formula: group.formula,
+      rolls: group.rolls,
+      keptRolls: group.keptRolls,
+      modifier: group.modifier,
+      total: group.total,
+      critical,
+    }));
     const log = {
       ...baseLog,
       formula: rolledParts[0].formula, rolls: rolledParts[0].rolls, keptRolls: rolledParts[0].rolls,
-      total: rolledParts[0].total, modifier: rolledParts[0].modifier, critical,
+      total: rolledParts[0].total, modifier: rolledParts[0].modifier, critical, dice: resolved.dice,
     };
     if (rolledParts.length > 1) log.parts = rolledParts;
     return { log };
   }
 
-  // Bersaglio 1d20 (o dado vita): tira una volta, oppure due volte indipendenti quando `dual`.
-  const rollA = rollGroup(plan.group.count, plan.group.sides, plan.group.modifier, rng);
-  const rollB = plan.dual ? rollGroup(plan.group.count, plan.group.sides, plan.group.modifier, rng) : null;
+  // Bersaglio 1d20 (o dado vita): una risoluzione `unresolved` genera la coppia senza scegliere
+  // per il giocatore; i campi legacy continuano a rappresentare il primo risultato.
+  const resolved = resolveDiceRoll({
+    groups: [plan.group],
+    mode: plan.dual ? 'unresolved' : 'normal',
+  }, { nextUint32 });
 
   let critical;
   if (plan.isAttackRoll) {
-    critical = rollA.rolls[0] >= plan.critRange || (rollB && rollB.rolls[0] >= plan.critRange);
+    critical = resolved.rolls.some((roll) => roll >= plan.critRange);
   }
 
   let sideEffectOperations = null;
@@ -272,7 +277,7 @@ export function rollCharacterSheetTarget(user, service, requestBody, { rng = () 
   } else if (plan.sideEffect?.kind === 'death-save') {
     // Il primo dei due tiri (il "tiro normale") decide l'esito: il server non può sapere quale
     // dei due il giocatore intende tenere, e l'effetto collaterale deve restare singolo e certo.
-    const succeeded = rollA.total >= 10;
+    const succeeded = resolved.total >= 10;
     sideEffectOperations = [{
       op: 'set',
       path: succeeded ? 'character.deathSaves.successes' : 'character.deathSaves.failures',
@@ -289,8 +294,9 @@ export function rollCharacterSheetTarget(user, service, requestBody, { rng = () 
 
   const log = {
     ...baseLog,
-    formula: rollA.formula, rolls: rollB ? [rollA.rolls[0], rollB.rolls[0]] : rollA.rolls,
-    keptRolls: rollB ? [rollA.rolls[0]] : rollA.rolls, total: rollA.total, modifier: rollA.modifier,
+    formula: resolved.formula, rolls: resolved.rolls,
+    keptRolls: resolved.keptRolls, total: resolved.total, modifier: resolved.modifier,
+    dice: resolved.dice,
   };
   if (critical !== undefined) log.critical = critical;
   if (plan.savingThrow) log.savingThrow = plan.savingThrow;

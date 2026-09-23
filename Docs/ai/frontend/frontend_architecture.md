@@ -11,6 +11,7 @@ Define the stable React boundaries and client-state rules used by D&D Battle Map
 - `src/hooks/useAuthSession.ts` owns session discovery, login, logout, and authentication feedback.
 - `src/hooks/useBattleMapState.ts` owns the client copy of shared game state, SSE subscription, version tracking, optimistic mutations, mutation serialization, and local zoom.
 - `src/components/Board.tsx` owns board-space rendering and pointer interaction.
+- `src/components/Dice3DOverlay.tsx` owns the single client-local 3D dice scene, its FIFO presentation queue, capability fallback, and result rail. `App.tsx` points it at the currently active normal or fullscreen board host; individual `Board` instances do not own renderer instances.
 - Feature components receive state and actions through typed props; they must not create a second shared-state source.
 
 ## State ownership
@@ -18,14 +19,17 @@ Define the stable React boundaries and client-state rules used by D&D Battle Map
 Use three explicit state classes:
 
 1. Server-shared state is represented by `BattleMapSharedState`, delivered by HTTP/SSE, and mutated through `useBattleMapState` actions.
-2. Local persistent preference currently contains board zoom only and is stored in `localStorage`.
+2. Local persistent preferences contain board zoom and the versioned dice-presentation toggles (`animationEnabled`, `soundEnabled`) stored in `localStorage`; they never enter the shared snapshot.
 3. Ephemeral UI state belongs in the nearest component or in `App.tsx` when several sibling surfaces coordinate it.
+
+Dice animation deliveries are ephemeral client state derived inside `useBattleMapState` from already sanitized snapshots. The initial HTTP state and first snapshot of every SSE connection seed a local id baseline; subsequent unseen log ids are delivered once to the presentation queue. This feed must not enter `BattleMapSharedState`, persistence, undo, or authorization logic.
 
 Do not add a shared game field only to React state. A shared field requires the type, client normalizer, server normalizer, snapshot, sanitization, mutation path, and SSE payload to remain compatible.
 
 ## Server authority and optimistic updates
 
 - The server is authoritative for authentication, permissions, valid shared state, and persistence.
+- Shared authoritative rolls include optional per-die metadata for newer snapshots. The client normalizer preserves a wholly valid list, drops a malformed list as a unit, and keeps legacy aggregate-only logs readable; it never invents ids or dispositions for old results.
 - Optimistic client updates may improve responsiveness, but failures must restore or apply the authoritative snapshot returned by the server.
 - Mutations are serialized by the shared-state hook to avoid racing local writes.
 - Full master state commits include `baseVersion`; HTTP `409` means the client must accept the returned snapshot before retrying.
@@ -38,6 +42,10 @@ Do not add a shared game field only to React state. A shared field requires the 
 - Keep permission-based controls out of the DOM when the user cannot invoke them, while still enforcing permissions server-side.
 - Pass stable identifiers such as token IDs through UI actions; resolve mutable token data from current state.
 - Avoid changing the very large shared `App`, `Board`, or `ElementModals` surfaces for a local concern unless their shared contract is the actual root cause.
+- `src/utils/dice.ts` is only the browser adapter for local dice uses: it supplies Web Crypto entropy to the dependency-free shared engine and preserves its current UI-facing API. It is not an authority for shared roll results and must not import Node runtime code.
+- The 3D dice adapter consumes only valid `DiceRollLog.dice` values and forces the renderer faces. Renderer totals, physics and completion are decorative and must never mutate the authoritative log or delay a successful roll response.
+- `App` owns one local dice-preference snapshot shared by `DicePanel` and `Dice3DOverlay`. Disabling animation aborts the active presentation and discards pending presentations while retaining their deduplication; disabling sound stops only the local audio layer.
+- Dice audio is a cancellable browser adapter over selected local DiceBox samples. It remains gated until a trusted page interaction, never delays the renderer, and absorbs loading or playback failures without affecting the visual queue or log.
 
 ## Error and loading behavior
 

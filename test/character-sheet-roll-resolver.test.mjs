@@ -57,8 +57,8 @@ const owner = { id: 'player-1', role: 'adventurer', displayName: 'Vesuth' };
 const otherAdventurer = { id: 'player-2', role: 'adventurer', displayName: 'Thalendir' };
 const master = { id: 'master-1', role: 'master', displayName: 'Master' };
 
-// Uint32 values chosen so `(value % sides) + 1 === desired`, matching the resolver's own
-// `(rng() % sides) + 1` formula; a queue lets a test script an exact sequence of dice faces.
+// Small uint32 values chosen so the shared rejection sampler maps them to the desired faces;
+// a queue lets a test script an exact sequence without ever reaching the rejected tail.
 function queueRng(desiredFaces) {
   const values = [...desiredFaces];
   return () => {
@@ -134,6 +134,7 @@ test('every d20 target rolls two independent dice, not a pre-picked advantage/di
   assert.deepEqual(result.log.rolls, [5, 18]);
   assert.equal(result.log.total, 5 + 3); // first roll is canonical for the top-level total
   assert.equal(result.log.modifier, 3);
+  assert.deepEqual(result.log.dice.map((die) => die.disposition), ['unresolved', 'unresolved']);
 });
 
 test('hit dice stays a single roll (not a d20, no dual roll)', () => {
@@ -215,6 +216,10 @@ test('2.2 a critical damage roll with two active blocks doubles each block indep
   assert.equal(result.log.parts[0].rolls.length, 2); // 1d6 -> 2d6 worth of independent rolls
   assert.equal(result.log.parts[1].rolls.length, 2); // 1d4 -> 2d4 worth of independent rolls
   assert.ok(result.log.parts.every((part) => part.critical === true));
+  assert.equal(result.log.dice.length, 4);
+  assert.ok(result.log.dice.every((die) => die.disposition === 'kept'));
+  assert.equal(new Set(result.log.dice.slice(0, 2).map((die) => die.groupId)).size, 1);
+  assert.notEqual(result.log.dice[0].groupId, result.log.dice[2].groupId);
 });
 
 test('3.4 the log carries the character, the action and a source reference usable to roll damage again', () => {
@@ -255,6 +260,7 @@ test('4.1 an accepted hit dice roll decrements the pool through the same patch/v
   const { service, events } = harness();
   const result = rollCharacterSheetTarget(owner, service, { source: { sheetId: 'sheet-1', target: 'hit-dice' } }, { rng: queueRng([5]) });
   assert.equal(result.log.rolls[0], 5);
+  assert.equal(result.log.dice[0].value, 5);
   assert.equal(service.get(owner, 'sheet-1').data.character.hitDice.remaining, '2');
   assert.equal(events.at(-1).type, 'character-sheet-patch');
 });
@@ -280,6 +286,32 @@ test('4.3 a rejected side-effect patch aborts the request before any log entry i
   assert.ok(result.error);
   assert.equal(result.log, undefined);
   assert.equal(service.get(owner, 'sheet-1').data.character.hitDice.remaining, '3'); // unchanged
+});
+
+test('4.3 a concurrent same-path update makes the side effect stale and leaves no phantom log', () => {
+  const { service } = harness();
+  let raced = false;
+  const racingService = {
+    get: (...args) => {
+      const stale = service.get(...args);
+      if (!raced) {
+        raced = true;
+        service.applyPatch(owner, 'sheet-1', {
+          baseVersion: stale.version,
+          operations: [{ op: 'set', path: 'character.hitDice.remaining', value: '2' }],
+        });
+      }
+      return stale;
+    },
+    applyPatch: (...args) => service.applyPatch(...args),
+  };
+
+  const result = rollCharacterSheetTarget(owner, racingService, {
+    source: { sheetId: 'sheet-1', target: 'hit-dice' },
+  }, { rng: queueRng([5]) });
+  assert.ok(result.error);
+  assert.equal(result.log, undefined);
+  assert.equal(service.get(owner, 'sheet-1').data.character.hitDice.remaining, '2');
 });
 
 test('a master can roll on a sheet they do not own', () => {

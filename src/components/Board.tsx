@@ -105,6 +105,7 @@ interface BoardProps {
   tokenWalkEvents?: TokenWalkEvent[];
   movementNotice?: MovementNotice | null;
   onDismissMovementNotice?: () => void;
+  onPresentationHostChange?: (host: HTMLDivElement | null) => void;
 }
 
 const TEMPLATE_COLORS: Record<TemplateShape, string> = {
@@ -464,6 +465,7 @@ export function Board({
   ephemeralTemplates = [],
   movementNotice = null,
   onDismissMovementNotice,
+  onPresentationHostChange,
 }: BoardProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -611,6 +613,11 @@ export function Board({
         y: (visionCenter.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
       }
     : null;
+
+  useEffect(() => {
+    onPresentationHostChange?.(shellRef.current);
+    return () => onPresentationHostChange?.(null);
+  }, [onPresentationHostChange]);
 
   useEffect(() => {
     const node = shellRef.current;
