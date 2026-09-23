@@ -10,7 +10,7 @@ import { EditElementModal, ElementsListModal, NewElementModal } from './componen
 import { InitiativeRollModal } from './components/InitiativeRollModal';
 import { InitiativePanel } from './components/InitiativePanel';
 import { Modal } from './components/Modal';
-import { CHARACTER_PROFILES, findCharacterProfileByKey } from './constants/characters';
+import { CHARACTER_PROFILES, findCharacterProfileByKey, resolveCharacterPortrait } from './constants/characters';
 import { useAnimatedPresence } from './hooks/useAnimatedPresence';
 import { useAuthSession } from './hooks/useAuthSession';
 import { useBattleMapState } from './hooks/useBattleMapState';
@@ -18,7 +18,7 @@ import { getTokenFootprint } from './utils/board';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
 import { characterSheetApi } from './utils/characterSheetApi';
-import type { CharacterSheetRosterEntry } from './utils/characterSheetApi';
+import type { CharacterSheetRosterEntry, PublicPortraitEntry } from './utils/characterSheetApi';
 import type { CombatAnnouncement, DiceRollLog, UnitToken } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
 
@@ -204,6 +204,7 @@ function App() {
   const [isCombatAnnouncementOpen, setIsCombatAnnouncementOpen] = useState(false);
   const [draftNotes, setDraftNotes] = useState('');
   const [characterSheets, setCharacterSheets] = useState<CharacterSheetRosterEntry[]>([]);
+  const [publicPortraits, setPublicPortraits] = useState<PublicPortraitEntry[]>([]);
   const [openCharacterSheetId, setOpenCharacterSheetId] = useState<string | null>(null);
   const [boardFullscreenPhase, setBoardFullscreenPhase] = useState<
     'closed' | 'opening' | 'open' | 'closing'
@@ -217,6 +218,10 @@ function App() {
   const lastCombatAnnouncementIdRef = useRef<string | null>(null);
   const sessionFeedbackTimeoutRef = useRef<number | null>(null);
   const combatAnnouncementTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    void characterSheetApi.publicRoster().then(({ sheets }) => setPublicPortraits(sheets)).catch(console.error);
+  }, []);
 
   useEffect(() => {
     if (!user) { setCharacterSheets([]); setOpenCharacterSheetId(null); return; }
@@ -242,6 +247,7 @@ function App() {
   const canManageBattleMap = user?.role === 'master';
   const hasUnsavedNotes = draftNotes !== state.sharedNotes;
   const sessionCharacter = findCharacterProfileByKey(user?.characterKey);
+  const sessionSheet = characterSheets.find((sheet) => sheet.ownerUserId === user?.id) ?? null;
   const ownedTokens = state.tokens.filter((token) => token.ownerUserId === user?.id);
   const sessionToken =
     ownedTokens.find((token) => token.type === 'player' && token.isFamiliar !== true) ??
@@ -768,9 +774,9 @@ function App() {
               <h2>{user?.displayName}</h2>
             </div>
             <div className="session-panel__body">
-              {sessionCharacter?.imageUrl ? (
+              {sessionCharacter ? (
                 <img
-                  src={sessionCharacter.imageUrl}
+                  src={resolveCharacterPortrait(sessionCharacter, sessionSheet?.portraitUrl)}
                   alt={user?.displayName ?? 'Profilo'}
                   className="session-panel__avatar"
                 />
@@ -1149,7 +1155,7 @@ function App() {
               const sheet = characterSheets.find((entry) => entry.ownerUserId === profile.id);
               const canOpenSheet = Boolean(sheet && (user?.role === 'master' || user?.id === profile.id));
               return <article className="character-roster__entry" key={profile.key}>
-                <img src={sheet?.portraitUrl ?? profile.imageUrl} alt="" />
+                <img src={resolveCharacterPortrait(profile, sheet?.portraitUrl)} alt="" />
                 <strong>{profile.displayName}</strong>
                 <div className="character-roster__actions">
                   {token ? <button type="button" className="secondary-button secondary-button--tiny" onClick={() => locateToken(token.id)}>Localizza</button> : <span>Fuori scena</span>}
@@ -1222,7 +1228,16 @@ function App() {
   }
 
   if (!user) {
-    return <AuthScreen error={error} isLoading={isSubmitting} onLogin={login} />;
+    return (
+      <AuthScreen
+        error={error}
+        isLoading={isSubmitting}
+        onLogin={login}
+        portraitsByOwnerId={Object.fromEntries(
+          publicPortraits.filter((entry) => entry.portraitUrl).map((entry) => [entry.ownerUserId, entry.portraitUrl as string]),
+        )}
+      />
+    );
   }
 
   if (!isBattleMapReady) {
@@ -1289,7 +1304,7 @@ function App() {
               ] as Array<[WorkspaceTabId, string, string]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
             </div>
             <div id={`panel-${workspaceTab}`} role="tabpanel" aria-labelledby={`tab-${workspaceTab}`} className="workspace-tabpanel">
-              {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div ref={diceLogFeedRef} className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => <DiceLogEntry key={log.id} log={log} isExpanded={expandedDiceLogId === log.id} onToggle={() => setExpandedDiceLogId(expandedDiceLogId === log.id ? null : log.id)} onRoll={(request) => void rollDice(request)} />) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab === 'initiative' ? 'initiative' : workspaceTab === 'characters' ? 'characters' : 'legend')}
+              {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div ref={diceLogFeedRef} className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => <DiceLogEntry key={log.id} log={log} characterSheets={characterSheets} isExpanded={expandedDiceLogId === log.id} onToggle={() => setExpandedDiceLogId(expandedDiceLogId === log.id ? null : log.id)} onRoll={(request) => void rollDice(request)} />) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab === 'initiative' ? 'initiative' : workspaceTab === 'characters' ? 'characters' : 'legend')}
             </div>
             <div className="workspace-dice-dock">{renderSidebarSection('dice')}</div>
           </div>

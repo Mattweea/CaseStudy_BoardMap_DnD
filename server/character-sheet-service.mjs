@@ -141,6 +141,16 @@ export class CharacterSheetService {
     }));
   }
 
+  // Ritratti pre-login (schermata di autenticazione): nessun dato di scheda, solo l'immagine,
+  // pubblica per policy (vedi canViewPortrait) quindi accessibile senza sessione.
+  getPublicRoster(campaignId = 'local-campaign') {
+    return this.repository.findByCampaign(campaignId).map((sheet) => ({
+      id: sheet.id,
+      ownerUserId: sheet.ownerUserId,
+      portraitUrl: sheet.portraitFileName ? `/api/character-sheets/${sheet.id}/public-portrait?v=${encodeURIComponent(sheet.portraitUpdatedAt ?? '')}` : null,
+    }));
+  }
+
   applyPatch(user, id, payload) {
     const state = this.#load(id);
     if (!this.policy.canWrite(user, state.record)) throw new CharacterSheetError('Modifica della scheda negata.', 403);

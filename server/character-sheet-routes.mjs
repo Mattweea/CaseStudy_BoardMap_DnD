@@ -26,6 +26,21 @@ export async function registerCharacterSheetRoutes(app, { service, portraitStora
     try { return { sheets: service.getRoster(user) }; } catch (error) { return sendError(reply, error); }
   });
 
+  // Schermata di login: niente sessione ancora, quindi niente `authenticated()`. Espone solo id,
+  // proprietario e URL del ritratto, mai i dati della scheda.
+  app.get('/api/character-sheets/public-roster', async (request, reply) => {
+    try { return { sheets: service.getPublicRoster() }; } catch (error) { return sendError(reply, error); }
+  });
+
+  app.get('/api/character-sheets/:id/public-portrait', async (request, reply) => {
+    try {
+      const portrait = service.getPublicPortrait(request.params.id);
+      if (!portrait.portraitFileName) return reply.code(404).send({ message: 'Ritratto non disponibile.' });
+      reply.type(portrait.portraitMediaType).header('Cache-Control', 'public, max-age=3600');
+      return reply.send(portraitStorage.open(portrait.portraitFileName));
+    } catch (error) { return sendError(reply, error); }
+  });
+
   app.get('/api/character-sheets/:id', async (request, reply) => {
     const user = authenticated(request, reply); if (!user) return;
     try { return service.get(user, request.params.id); } catch (error) { return sendError(reply, error); }

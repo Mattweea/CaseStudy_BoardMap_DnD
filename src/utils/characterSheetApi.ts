@@ -24,8 +24,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+export interface PublicPortraitEntry {
+  id: string;
+  ownerUserId: string;
+  portraitUrl: string | null;
+}
+
 export const characterSheetApi = {
   list: () => request<{ sheets: CharacterSheetRosterEntry[] }>('/character-sheets'),
+  publicRoster: () => request<{ sheets: PublicPortraitEntry[] }>('/character-sheets/public-roster'),
   get: (id: string) => request<CharacterSheetRecord & { persistence: { status: string; version: number; message: string | null } }>(`/character-sheets/${id}`),
   patch: (id: string, baseVersion: number, operations: CharacterSheetPatchOperation[]) => request<CharacterSheetRecord & { operations: CharacterSheetPatchOperation[] }>(`/character-sheets/${id}`, {
     method: 'PATCH', body: JSON.stringify({ baseVersion, operations }),

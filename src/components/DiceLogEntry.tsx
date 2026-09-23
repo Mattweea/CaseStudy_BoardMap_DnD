@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { CHARACTER_PROFILES } from '../constants/characters';
+import { CHARACTER_PROFILES, resolveCharacterPortrait } from '../constants/characters';
 import type { DiceRollLog, DiceRollSourceRequest, DiceType } from '../types';
+import type { CharacterSheetRosterEntry } from '../utils/characterSheetApi';
 import { DiceGlyph, numericDiceToIconType } from './DiceIcons';
 
 function diceSidesFromFormula(formula: string): DiceType {
@@ -25,6 +26,7 @@ function breakdownTitle(rolls: number[], modifier: number) {
 
 interface DiceLogEntryProps {
   log: DiceRollLog;
+  characterSheets: CharacterSheetRosterEntry[];
   isExpanded: boolean;
   onToggle: () => void;
   onRoll?: (request: DiceRollSourceRequest) => void;
@@ -69,13 +71,14 @@ function sourceKind(target: string | undefined): 'single' | 'damage' | 'dual' | 
   return 'dual';
 }
 
-export function DiceLogEntry({ log, isExpanded, onToggle, onRoll }: DiceLogEntryProps) {
+export function DiceLogEntry({ log, characterSheets, isExpanded, onToggle, onRoll }: DiceLogEntryProps) {
   const profile = CHARACTER_PROFILES.find((entry) => entry.id === log.authorUserId);
+  const sheet = characterSheets.find((entry) => entry.ownerUserId === log.authorUserId);
   const timestamp = new Date(log.timestamp);
   const kind = sourceKind(log.source?.target);
 
   const header = <header>
-    <img src={profile?.imageUrl} alt="" />
+    <img src={resolveCharacterPortrait(profile, sheet?.portraitUrl)} alt="" />
     <div><strong>{profile?.displayName ?? log.rollerName}</strong><span>{profile?.username ?? log.rollerName}</span></div>
     <time dateTime={log.timestamp}>{Number.isNaN(timestamp.valueOf()) ? '' : timestamp.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</time>
   </header>;

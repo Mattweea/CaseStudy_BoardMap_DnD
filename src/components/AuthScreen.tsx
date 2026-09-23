@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { CHARACTER_PROFILES } from '../constants/characters';
+import { CHARACTER_PROFILES, resolveCharacterPortrait } from '../constants/characters';
 
 interface AuthScreenProps {
   error: string | null;
   isLoading: boolean;
   onLogin: (username: string, password: string) => void;
+  portraitsByOwnerId: Record<string, string>;
 }
 
-export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
+export function AuthScreen({ error, isLoading, onLogin, portraitsByOwnerId }: AuthScreenProps) {
   const [username, setUsername] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -49,7 +50,12 @@ export function AuthScreen({ error, isLoading, onLogin }: AuthScreenProps) {
                 }}
                 aria-pressed={isSelected}
               >
-                <img src={profile.imageUrl} alt="" aria-hidden="true" className="auth-profile-card__image" />
+                <img
+                  src={resolveCharacterPortrait(profile, portraitsByOwnerId[profile.id])}
+                  alt=""
+                  aria-hidden="true"
+                  className="auth-profile-card__image"
+                />
                 <span className="auth-profile-card__meta">
                   <strong>@{profile.username}</strong>
                   <span>{profile.displayName} · {profile.role === 'master' ? 'Master' : 'Avventuriero'}</span>

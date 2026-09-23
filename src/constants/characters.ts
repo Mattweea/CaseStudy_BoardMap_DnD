@@ -135,6 +135,18 @@ export const CHARACTER_PROFILES: CharacterProfile[] = [
   },
 ];
 
+export const GENERIC_PORTRAIT_PLACEHOLDER = '/media/images/portrait-placeholder.svg';
+
+// Fonte unica di verità per il ritratto di un personaggio: il ritratto caricato nella scheda
+// vince sempre; l'immagine statica del profilo resta come default finché nessuno ne carica uno;
+// un placeholder generico copre il caso in cui manchi anche quello.
+export function resolveCharacterPortrait(
+  profile: CharacterProfile | null | undefined,
+  sheetPortraitUrl?: string | null,
+): string {
+  return sheetPortraitUrl ?? profile?.imageUrl ?? GENERIC_PORTRAIT_PLACEHOLDER;
+}
+
 export function findCharacterProfileByUsername(username: string) {
   const normalized = username.trim().toLowerCase();
   return CHARACTER_PROFILES.find((profile) => profile.username === normalized) ?? null;
