@@ -5,6 +5,7 @@ import {
   buildDicePresentation,
   canAnimateDice,
   collectDiceDeliveries,
+  isDicePresentationSkipInput,
   percentileFaces,
 } from '../shared/dice-3d-presentation.mjs';
 
@@ -115,6 +116,26 @@ test('la coda supera anche un timeout', async () => {
   assert.deepEqual(completed, ['next']);
 });
 
+test('lo scarto rimuove solo i pendenti e ne conserva la deduplica', async () => {
+  const events = [];
+  let releaseCurrent;
+  const queue = new DicePresentationQueue({
+    run: ({ id }) => {
+      events.push(id);
+      if (id === 'current') return new Promise((resolve) => { releaseCurrent = resolve; });
+      return undefined;
+    },
+  });
+  queue.enqueue([log('current'), log('pending-1'), log('pending-2')]);
+  await Promise.resolve();
+  assert.deepEqual(queue.discardPending().map(({ id }) => id), ['pending-1', 'pending-2']);
+  releaseCurrent();
+  await queue.whenIdle();
+  queue.enqueue([log('pending-1'), log('future')]);
+  await queue.whenIdle();
+  assert.deepEqual(events, ['current', 'future']);
+});
+
 test('un errore fatale disabilita il renderer ma drena i tiri successivi senza mutare i log', async () => {
   const original = [log('broken', [die('a', 6, 3)]), log('fallback', [die('b', 8, 5)])];
   const snapshot = structuredClone(original);
@@ -143,4 +164,13 @@ test('la capability rispetta movimento ridotto e disponibilita WebGL', () => {
   assert.equal(canAnimateDice({ reducedMotion: true, createCanvas: () => canvas(['webgl']) }), false);
   assert.equal(canAnimateDice({ reducedMotion: false, createCanvas: () => canvas([]) }), false);
   assert.equal(canAnimateDice({ reducedMotion: false, createCanvas: () => canvas(['webgl2']) }), true);
+});
+
+test('riconosce soltanto click primario ed Escape come comandi di salto', () => {
+  assert.equal(isDicePresentationSkipInput({ type: 'click', button: 0 }), true);
+  assert.equal(isDicePresentationSkipInput({ type: 'click', button: 1 }), false);
+  assert.equal(isDicePresentationSkipInput({ type: 'contextmenu', button: 2 }), false);
+  assert.equal(isDicePresentationSkipInput({ type: 'keydown', key: 'Escape' }), true);
+  assert.equal(isDicePresentationSkipInput({ type: 'keydown', key: 'Enter' }), false);
+  assert.equal(isDicePresentationSkipInput(null), false);
 });

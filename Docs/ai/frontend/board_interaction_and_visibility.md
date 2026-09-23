@@ -44,6 +44,8 @@ Master multi-token and connected-obstacle movement may use a full shared-state c
 - Modal and fullscreen transitions must preserve a clear close/escape path.
 - The authoritative dice overlay is mounted once and moved to the active normal/fullscreen board host. Its canvas and semantic result rail are pointer-transparent, unfocusable and hidden from assistive technologies because the existing dice log remains the live textual result.
 - A dice scene must resize with its board host without entering camera/zoom transforms or changing grid coordinates. Reduced-motion preference, missing WebGL, invalid/legacy detail, excess logical dice, or renderer failure fall back silently to the numeric log.
+- While a dice presentation is active, a primary click or `Escape` aborts only that presentation. Global listeners must not prevent default behavior, stop propagation, move focus, or make the overlay pointer-interactive; the originally targeted board or UI action still runs.
+- Personal animation and sound controls remain usable from the dice dock. Reduced motion overrides visual playback without rewriting the saved animation preference, and audio stays silent until a trusted user activation.
 
 ## Verification
 

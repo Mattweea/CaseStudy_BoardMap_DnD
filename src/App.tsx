@@ -15,6 +15,8 @@ import { CHARACTER_PROFILES, findCharacterProfileByKey, resolveCharacterPortrait
 import { useAnimatedPresence } from './hooks/useAnimatedPresence';
 import { useAuthSession } from './hooks/useAuthSession';
 import { useBattleMapState } from './hooks/useBattleMapState';
+import { useDicePresentationPreferences } from './hooks/useDicePresentationPreferences';
+import { usePageActivation } from './hooks/usePageActivation';
 import { getTokenFootprint } from './utils/board';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
@@ -143,6 +145,12 @@ function connectedObstacleTokens(tokens: UnitToken[], tokenId: string): UnitToke
 
 function App() {
   const { user, isLoading, isSubmitting, error, login, logout } = useAuthSession();
+  const {
+    preferences: dicePresentationPreferences,
+    setAnimationEnabled: setDiceAnimationEnabled,
+    setSoundEnabled: setDiceSoundEnabled,
+  } = useDicePresentationPreferences();
+  const hasUserActivated = usePageActivation();
   const {
     isReady: isBattleMapReady,
     isMutating,
@@ -914,6 +922,10 @@ function App() {
           <DicePanel
             key="dice"
             onRoll={rollDice}
+            animationEnabled={dicePresentationPreferences.animationEnabled}
+            soundEnabled={dicePresentationPreferences.soundEnabled}
+            onAnimationEnabledChange={setDiceAnimationEnabled}
+            onSoundEnabledChange={setDiceSoundEnabled}
           />
         );
       case 'notes':
@@ -1186,6 +1198,8 @@ function App() {
                 <p><strong>Rotella</strong>: zoom.</p>
                 <p><strong>Ctrl + drag</strong>: muovi visuale.</p>
                 <p><strong>/r 1d20+5</strong>: tiro libero (d4, d6, d8, d10, d12, d20, d100; max 20 dadi).</p>
+                <p><strong>Click / Esc</strong>: salta il tiro 3D in corso senza annullare il risultato.</p>
+                <p><strong>Presentazione dadi</strong>: animazione e suoni sono preferenze locali nel pannello dadi.</p>
                 <p><strong>🔎</strong>: lista elementi.</p>
                 <p><strong>📖</strong>: manuale.</p>
               </div>
@@ -1617,6 +1631,9 @@ function App() {
       <Dice3DOverlay
         host={isBoardFullscreenVisible ? fullscreenBoardHost : standardBoardHost}
         deliveries={diceRollDeliveries}
+        animationEnabled={dicePresentationPreferences.animationEnabled}
+        soundEnabled={dicePresentationPreferences.soundEnabled}
+        hasUserActivated={hasUserActivated}
       />
 
       <InitiativeRollModal

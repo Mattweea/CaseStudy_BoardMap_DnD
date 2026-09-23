@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   DicePresentationQueue,
   buildDicePresentation,
   canAnimateDice,
+  isDicePresentationSkipInput,
 } from '../../shared/dice-3d-presentation.mjs';
 import type { DicePresentation } from '../../shared/dice-3d-presentation.mjs';
+import { DiceRollAudioController } from '../../shared/dice-roll-audio.mjs';
 import type { DiceRollLog } from '../types';
 import type DiceBox from '@3d-dice/dice-box-threejs';
 
@@ -15,13 +17,22 @@ const RESULT_HOLD_MS = 1_800;
 interface Dice3DOverlayProps {
   host: HTMLElement | null;
   deliveries: DiceRollLog[];
+  animationEnabled: boolean;
+  soundEnabled: boolean;
+  hasUserActivated: boolean;
 }
 
 function wait(duration: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, duration));
 }
 
-export function Dice3DOverlay({ host, deliveries }: Dice3DOverlayProps) {
+export function Dice3DOverlay({
+  host,
+  deliveries,
+  animationEnabled,
+  soundEnabled,
+  hasUserActivated,
+}: Dice3DOverlayProps) {
   const [overlayRoot] = useState(() => {
     const node = document.createElement('div');
     node.className = 'dice-3d-overlay';
@@ -35,6 +46,9 @@ export function Dice3DOverlay({ host, deliveries }: Dice3DOverlayProps) {
   );
   const hostRef = useRef(host);
   const reducedMotionRef = useRef(reducedMotion);
+  const animationEnabledRef = useRef(animationEnabled);
+  const soundEnabledRef = useRef(soundEnabled);
+  const userActivatedRef = useRef(hasUserActivated);
   const rendererRef = useRef<DiceBox | null>(null);
   const rendererPromiseRef = useRef<Promise<DiceBox> | null>(null);
   const fatalRendererErrorRef = useRef(false);
@@ -42,9 +56,29 @@ export function Dice3DOverlay({ host, deliveries }: Dice3DOverlayProps) {
   const abortCurrentRef = useRef<(() => void) | null>(null);
   const runRef = useRef<(log: DiceRollLog) => Promise<void>>(async () => undefined);
   const queueRef = useRef<DicePresentationQueue | null>(null);
+  const audioControllerRef = useRef<DiceRollAudioController | null>(null);
+
+  if (!audioControllerRef.current) {
+    audioControllerRef.current = new DiceRollAudioController({
+      createAudio: (src: string) => new Audio(src),
+    });
+  }
 
   hostRef.current = host;
   reducedMotionRef.current = reducedMotion;
+  animationEnabledRef.current = animationEnabled;
+  soundEnabledRef.current = soundEnabled;
+  userActivatedRef.current = hasUserActivated;
+
+  const interruptCurrentPresentation = useCallback(() => {
+    abortCurrentRef.current?.();
+    audioControllerRef.current?.stop();
+    try {
+      rendererRef.current?.clearDice();
+    } catch {
+      // Il risultato autorevole è già disponibile nel log numerico.
+    }
+  }, []);
 
   if (!queueRef.current) {
     queueRef.current = new DicePresentationQueue({
@@ -52,12 +86,7 @@ export function Dice3DOverlay({ host, deliveries }: Dice3DOverlayProps) {
       timeoutMs: 15_000,
       onError: (error) => {
         fatalRendererErrorRef.current = true;
-        abortCurrentRef.current?.();
-        try {
-          rendererRef.current?.clearDice();
-        } catch {
-          // Il log numerico resta l'unica presentazione autorevole disponibile.
-        }
+        interruptCurrentPresentation();
         console.warn('Presentazione 3D del tiro non disponibile.', error);
       },
     });
@@ -91,7 +120,13 @@ export function Dice3DOverlay({ host, deliveries }: Dice3DOverlayProps) {
 
   runRef.current = async (log) => {
     const result = buildDicePresentation(log);
-    if (!result.ok || fatalRendererErrorRef.current || reducedMotionRef.current || !hostRef.current) return;
+    if (
+      !result.ok
+      || fatalRendererErrorRef.current
+      || reducedMotionRef.current
+      || !animationEnabledRef.current
+      || !hostRef.current
+    ) return;
 
     if (webglAvailableRef.current === null) {
       webglAvailableRef.current = canAnimateDice({
@@ -106,18 +141,38 @@ export function Dice3DOverlay({ host, deliveries }: Dice3DOverlayProps) {
     overlayRoot.dataset.state = 'rolling';
 
     let aborted = false;
+    let resolveAbort = () => {};
+    const abortPromise = new Promise<void>((resolve) => {
+      resolveAbort = resolve;
+    });
+    abortCurrentRef.current = () => {
+      if (aborted) return;
+      aborted = true;
+      audioControllerRef.current?.stop();
+      resolveAbort();
+    };
+
     try {
-      const renderer = await ensureRenderer();
-      if (reducedMotionRef.current || !hostRef.current) return;
+      const renderer = await Promise.race([
+        ensureRenderer(),
+        abortPromise.then(() => null),
+      ]);
+      if (
+        !renderer
+        || aborted
+        || reducedMotionRef.current
+        || !animationEnabledRef.current
+        || !hostRef.current
+      ) return;
+
+      audioControllerRef.current?.start({
+        soundEnabled: soundEnabledRef.current,
+        userActivated: userActivatedRef.current,
+      });
 
       await Promise.race([
         renderer.roll(result.presentation.notation),
-        new Promise<void>((resolve) => {
-          abortCurrentRef.current = () => {
-            aborted = true;
-            resolve();
-          };
-        }),
+        abortPromise,
       ]);
 
       if (!aborted) {
@@ -125,12 +180,7 @@ export function Dice3DOverlay({ host, deliveries }: Dice3DOverlayProps) {
         overlayRoot.dataset.state = 'settled';
         await Promise.race([
           wait(RESULT_HOLD_MS),
-          new Promise<void>((resolve) => {
-            abortCurrentRef.current = () => {
-              aborted = true;
-              resolve();
-            };
-          }),
+          abortPromise,
         ]);
       }
     } catch (error) {
@@ -138,6 +188,7 @@ export function Dice3DOverlay({ host, deliveries }: Dice3DOverlayProps) {
       throw error;
     } finally {
       abortCurrentRef.current = null;
+      audioControllerRef.current?.stop();
       try {
         rendererRef.current?.clearDice();
       } catch (error) {
@@ -167,13 +218,35 @@ export function Dice3DOverlay({ host, deliveries }: Dice3DOverlayProps) {
 
   useEffect(() => {
     if (!reducedMotion) return;
-    abortCurrentRef.current?.();
-    try {
-      rendererRef.current?.clearDice();
-    } catch (error) {
-      console.warn('Interruzione della scena 3D non riuscita.', error);
-    }
-  }, [reducedMotion]);
+    queueRef.current?.discardPending();
+    interruptCurrentPresentation();
+  }, [interruptCurrentPresentation, reducedMotion]);
+
+  useEffect(() => {
+    if (animationEnabled) return;
+    queueRef.current?.discardPending();
+    interruptCurrentPresentation();
+  }, [animationEnabled, interruptCurrentPresentation]);
+
+  useEffect(() => {
+    if (!soundEnabled) audioControllerRef.current?.stop();
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    if (!presentation) return undefined;
+    const handleClick = (event: MouseEvent) => {
+      if (isDicePresentationSkipInput(event)) interruptCurrentPresentation();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isDicePresentationSkipInput(event)) interruptCurrentPresentation();
+    };
+    document.addEventListener('click', handleClick, true);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      document.removeEventListener('click', handleClick, true);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [interruptCurrentPresentation, presentation]);
 
   useEffect(() => {
     queueRef.current?.enqueue(deliveries);

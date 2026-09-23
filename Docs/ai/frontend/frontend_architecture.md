@@ -19,7 +19,7 @@ Define the stable React boundaries and client-state rules used by D&D Battle Map
 Use three explicit state classes:
 
 1. Server-shared state is represented by `BattleMapSharedState`, delivered by HTTP/SSE, and mutated through `useBattleMapState` actions.
-2. Local persistent preference currently contains board zoom only and is stored in `localStorage`.
+2. Local persistent preferences contain board zoom and the versioned dice-presentation toggles (`animationEnabled`, `soundEnabled`) stored in `localStorage`; they never enter the shared snapshot.
 3. Ephemeral UI state belongs in the nearest component or in `App.tsx` when several sibling surfaces coordinate it.
 
 Dice animation deliveries are ephemeral client state derived inside `useBattleMapState` from already sanitized snapshots. The initial HTTP state and first snapshot of every SSE connection seed a local id baseline; subsequent unseen log ids are delivered once to the presentation queue. This feed must not enter `BattleMapSharedState`, persistence, undo, or authorization logic.
@@ -44,6 +44,8 @@ Do not add a shared game field only to React state. A shared field requires the 
 - Avoid changing the very large shared `App`, `Board`, or `ElementModals` surfaces for a local concern unless their shared contract is the actual root cause.
 - `src/utils/dice.ts` is only the browser adapter for local dice uses: it supplies Web Crypto entropy to the dependency-free shared engine and preserves its current UI-facing API. It is not an authority for shared roll results and must not import Node runtime code.
 - The 3D dice adapter consumes only valid `DiceRollLog.dice` values and forces the renderer faces. Renderer totals, physics and completion are decorative and must never mutate the authoritative log or delay a successful roll response.
+- `App` owns one local dice-preference snapshot shared by `DicePanel` and `Dice3DOverlay`. Disabling animation aborts the active presentation and discards pending presentations while retaining their deduplication; disabling sound stops only the local audio layer.
+- Dice audio is a cancellable browser adapter over selected local DiceBox samples. It remains gated until a trusted page interaction, never delays the renderer, and absorbs loading or playback failures without affecting the visual queue or log.
 
 ## Error and loading behavior
 

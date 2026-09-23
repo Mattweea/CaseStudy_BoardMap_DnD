@@ -152,6 +152,14 @@ export class DicePresentationQueue {
     void this.drain();
   }
 
+  discardPending() {
+    const discarded = this.items.splice(0);
+    if (!this.running) {
+      for (const resolve of this.idleWaiters.splice(0)) resolve();
+    }
+    return discarded;
+  }
+
   async drain() {
     if (this.running) return;
     this.running = true;
@@ -185,4 +193,10 @@ export function canAnimateDice({ reducedMotion, createCanvas }) {
   } catch {
     return false;
   }
+}
+
+export function isDicePresentationSkipInput(input) {
+  if (!input || typeof input !== 'object') return false;
+  if (input.type === 'click') return input.button === 0;
+  return input.type === 'keydown' && input.key === 'Escape';
 }

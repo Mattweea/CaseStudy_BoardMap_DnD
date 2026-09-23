@@ -43,6 +43,8 @@ Master actions use full snapshot undo. Adventurer movement, dash, owned-token up
 - The logical result is authoritative and independent of presentation. A future 3D renderer may consume the detail, including expanding a logical d100 visually, but animation cannot choose or change the result.
 - The local 3D presentation forces every visible die to its logged value, serializes newly delivered log ids, and never replays the initial or reconnect history. A logical d100 may expand to coordinated tens and units models, while still remaining one die for limits and game semantics.
 - Kept, discarded and unresolved results retain their server meanings in the visual result rail. Missing or invalid detail causes an all-or-nothing numeric fallback; the client must not reconstruct a partial roll from the formula.
+- Animation and sound are independent, persistent browser-local preferences with compatible enabled defaults. They do not enter shared state or affect another participant; reduced motion still takes precedence over visual animation without changing the stored preference.
+- A primary click or `Escape` may skip the current local presentation without changing the authoritative result. Dice audio begins only after a trusted page interaction, uses local assets, and fails silently without stopping visual presentation or queue progress.
 - Public rolls are delivered to every authenticated participant. Secret rolls are delivered only to their author and the master through HTTP state and SSE sanitization.
 - Accepted logs are prepended and capped at 30; no secret formula, result, preview, or metadata may reach an unauthorized player.
 - The legacy client-log endpoint is rejected; callers must use the authoritative `/api/battle-map/rolls` endpoint.

@@ -44,6 +44,7 @@ export class DicePresentationQueue {
     onError?: (error: unknown, log: DiceRollLog) => void;
   });
   enqueue(logs: DiceRollLog[]): void;
+  discardPending(): DiceRollLog[];
   whenIdle(): Promise<void>;
 }
 
@@ -51,3 +52,9 @@ export function canAnimateDice(options: {
   reducedMotion: boolean;
   createCanvas: () => { getContext: (kind: string) => unknown };
 }): boolean;
+
+export function isDicePresentationSkipInput(input: {
+  type?: string;
+  button?: number;
+  key?: string;
+} | null): boolean;
