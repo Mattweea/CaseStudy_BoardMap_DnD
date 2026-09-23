@@ -42,6 +42,8 @@ Master multi-token and connected-obstacle movement may use a full shared-state c
 - Pointer-only actions need an equivalent control when they represent a required gameplay operation.
 - Selection, valid destinations, active turn, movement remaining, hidden state, and blocking errors must remain distinguishable without relying solely on color.
 - Modal and fullscreen transitions must preserve a clear close/escape path.
+- The authoritative dice overlay is mounted once and moved to the active normal/fullscreen board host. Its canvas and semantic result rail are pointer-transparent, unfocusable and hidden from assistive technologies because the existing dice log remains the live textual result.
+- A dice scene must resize with its board host without entering camera/zoom transforms or changing grid coordinates. Reduced-motion preference, missing WebGL, invalid/legacy detail, excess logical dice, or renderer failure fall back silently to the numeric log.
 
 ## Verification
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AuthScreen } from './components/AuthScreen';
 import { Board } from './components/Board';
+import { Dice3DOverlay } from './components/Dice3DOverlay';
 import { CharacterSheetWindow } from './components/character-sheet/CharacterSheetWindow';
 import { DiceLogModal } from './components/DiceLogModal';
 import { DicePanel } from './components/DicePanel';
@@ -146,6 +147,7 @@ function App() {
     isReady: isBattleMapReady,
     isMutating,
     state,
+    diceRollDeliveries,
     addTokens,
     rollDice,
     cycleTurn,
@@ -209,6 +211,8 @@ function App() {
   const [boardFullscreenPhase, setBoardFullscreenPhase] = useState<
     'closed' | 'opening' | 'open' | 'closing'
   >('closed');
+  const [standardBoardHost, setStandardBoardHost] = useState<HTMLDivElement | null>(null);
+  const [fullscreenBoardHost, setFullscreenBoardHost] = useState<HTMLDivElement | null>(null);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const diceLogFeedRef = useRef<HTMLDivElement | null>(null);
   const sidebarHoverOpenTimeoutRef = useRef<number | null>(null);
@@ -1313,6 +1317,7 @@ function App() {
 
       <main className="app-main">
         <Board
+          onPresentationHostChange={setStandardBoardHost}
           tokens={visibleBoardTokens}
           zoom={state.zoom}
           selectedTokenIds={selectedTokenIds}
@@ -1385,6 +1390,7 @@ function App() {
           className={`board-fullscreen-overlay board-fullscreen-overlay--${boardFullscreenPhase}`}
         >
           <Board
+            onPresentationHostChange={setFullscreenBoardHost}
             tokens={visibleBoardTokens}
             zoom={state.zoom}
             selectedTokenIds={selectedTokenIds}
@@ -1606,6 +1612,11 @@ function App() {
         logs={state.diceLogs}
         onClose={() => setIsDiceLogModalOpen(false)}
         onClear={clearDiceLogs}
+      />
+
+      <Dice3DOverlay
+        host={isBoardFullscreenVisible ? fullscreenBoardHost : standardBoardHost}
+        deliveries={diceRollDeliveries}
       />
 
       <InitiativeRollModal

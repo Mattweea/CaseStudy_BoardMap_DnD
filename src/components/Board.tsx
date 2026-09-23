@@ -51,6 +51,7 @@ interface BoardProps {
     onConfirm: () => void;
     onCancel: () => void;
   } | null;
+  onPresentationHostChange?: (host: HTMLDivElement | null) => void;
 }
 
 const INITIAL_CAMERA = { x: 0, y: 0 };
@@ -282,6 +283,7 @@ export function Board({
   onSelectionChange,
   onZoomChange,
   obstaclePlacement = null,
+  onPresentationHostChange,
 }: BoardProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -358,6 +360,11 @@ export function Board({
         y: (visionCenter.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
       }
     : null;
+
+  useEffect(() => {
+    onPresentationHostChange?.(shellRef.current);
+    return () => onPresentationHostChange?.(null);
+  }, [onPresentationHostChange]);
 
   useEffect(() => {
     const node = shellRef.current;

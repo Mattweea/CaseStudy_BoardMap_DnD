@@ -10,6 +10,7 @@ Define supported local, preview, and ngrok workflows plus their configuration bo
 - Run Fastify in watch mode with `npm run dev:server`.
 - Run Vite with `npm run dev` or `npm run dev:client`.
 - Produce a type-checked production build with `npm run build`.
+- Regenerate the locally served DiceBox assets with `npm run assets:dice`. `npm run build` invokes this automatically before Vite so a clean build does not depend on a CDN or manually copied files.
 - Serve the build locally with `npm run preview` while the backend remains separately available.
 - Run the Node test suite with `npm test`.
 - Manage the SQLite schema with `npm run db:migrate`, `npm run db:status`, `npm run db:rollback`, and the explicitly confirmed development reset command.

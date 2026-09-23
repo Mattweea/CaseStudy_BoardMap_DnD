@@ -41,6 +41,8 @@ Master actions use full snapshot undo. Adventurer movement, dash, owned-token up
 - Advantage/disadvantage are valid only for `1d20`, roll two d20s, and keep the higher/lower result.
 - New logs carry additive per-die detail: an id unique within the roll, sides, value, logical group, and `kept`/`discarded`/`unresolved` disposition. Normal dice are `kept`; advantage/disadvantage selects exactly one die (the first on a tie); the two independent d20s of a character-sheet target remain `unresolved` because the reader chooses which applies. A d100 remains one logical die from 1 to 100.
 - The logical result is authoritative and independent of presentation. A future 3D renderer may consume the detail, including expanding a logical d100 visually, but animation cannot choose or change the result.
+- The local 3D presentation forces every visible die to its logged value, serializes newly delivered log ids, and never replays the initial or reconnect history. A logical d100 may expand to coordinated tens and units models, while still remaining one die for limits and game semantics.
+- Kept, discarded and unresolved results retain their server meanings in the visual result rail. Missing or invalid detail causes an all-or-nothing numeric fallback; the client must not reconstruct a partial roll from the formula.
 - Public rolls are delivered to every authenticated participant. Secret rolls are delivered only to their author and the master through HTTP state and SSE sanitization.
 - Accepted logs are prepended and capped at 30; no secret formula, result, preview, or metadata may reach an unauthorized player.
 - The legacy client-log endpoint is rejected; callers must use the authoritative `/api/battle-map/rolls` endpoint.
