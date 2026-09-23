@@ -34,8 +34,8 @@ const COMBAT_ANNOUNCEMENT_STORAGE_KEY = 'dnd-battle-map:last-combat-announcement
 const MANUAL_PDF_PATH =
   'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
 
-type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'movement' | 'notes' | 'dice' | 'initiative' | 'characters' | 'legend';
-type WorkspaceTabId = 'chat' | 'initiative' | 'characters' | 'legend';
+type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'movement' | 'notes' | 'dice' | 'initiative' | 'characters' | 'settings' | 'legend';
+type WorkspaceTabId = 'chat' | 'initiative' | 'characters' | 'settings' | 'legend';
 
 const KEYBOARD_MOVEMENTS: Record<string, { dx: number; dy: number }> = {
   ArrowUp: { dx: 0, dy: -1 },
@@ -988,14 +988,40 @@ function App() {
         );
       case 'dice':
         return (
-          <DicePanel
-            key="dice"
-            onRoll={rollDice}
-            animationEnabled={dicePresentationPreferences.animationEnabled}
-            soundEnabled={dicePresentationPreferences.soundEnabled}
-            onAnimationEnabledChange={setDiceAnimationEnabled}
-            onSoundEnabledChange={setDiceSoundEnabled}
-          />
+          <DicePanel key="dice" onRoll={rollDice} />
+        );
+      case 'settings':
+        return (
+          <section key="settings" className="sidebar__section settings-panel">
+            <div className="panel-heading panel-heading--compact">
+              <div>
+                <p className="eyebrow">Sessione</p>
+                <h2>Impostazioni</h2>
+              </div>
+            </div>
+            <fieldset className="settings-panel__group">
+              <legend>Presentazione dadi</legend>
+              <label className="settings-panel__option">
+                <input
+                  type="checkbox"
+                  checked={dicePresentationPreferences.animationEnabled}
+                  onChange={(event) => setDiceAnimationEnabled(event.target.checked)}
+                />
+                <span>Animazione 3D</span>
+              </label>
+              <label className="settings-panel__option">
+                <input
+                  type="checkbox"
+                  checked={dicePresentationPreferences.soundEnabled}
+                  onChange={(event) => setDiceSoundEnabled(event.target.checked)}
+                />
+                <span>Suoni</span>
+              </label>
+            </fieldset>
+            <p className="settings-panel__hint">
+              Valgono solo per te: non cambiano cosa vedono gli altri al tavolo.
+            </p>
+          </section>
         );
       case 'notes':
         return (
@@ -1460,11 +1486,11 @@ function App() {
             </div>
             <div className="workspace-tabs" role="tablist" aria-label="Pannello sessione">
               {([
-                ['chat', 'Chat + Dadi', '🎲'], ['initiative', 'Turni di iniziativa', '⚔'], ['characters', 'Personaggi', '♟'], ['legend', 'Legenda dei comandi', '☷'],
+                ['chat', 'Chat + Dadi', '🎲'], ['initiative', 'Turni di iniziativa', '⚔'], ['characters', 'Personaggi', '♟'], ['settings', 'Impostazioni', '⚙'], ['legend', 'Legenda dei comandi', '☷'],
               ] as Array<[WorkspaceTabId, string, string]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
             </div>
             <div id={`panel-${workspaceTab}`} role="tabpanel" aria-labelledby={`tab-${workspaceTab}`} className="workspace-tabpanel">
-              {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div ref={diceLogFeedRef} className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => <DiceLogEntry key={log.id} log={log} characterSheets={characterSheets} isExpanded={expandedDiceLogId === log.id} onToggle={() => setExpandedDiceLogId(expandedDiceLogId === log.id ? null : log.id)} onRoll={(request) => void rollDice(request)} />) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab === 'initiative' ? 'initiative' : workspaceTab === 'characters' ? 'characters' : 'legend')}
+              {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div ref={diceLogFeedRef} className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => <DiceLogEntry key={log.id} log={log} characterSheets={characterSheets} isExpanded={expandedDiceLogId === log.id} onToggle={() => setExpandedDiceLogId(expandedDiceLogId === log.id ? null : log.id)} onRoll={(request) => void rollDice(request)} />) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab)}
             </div>
             <div className="workspace-dice-dock">{renderSidebarSection('dice')}</div>
           </div>

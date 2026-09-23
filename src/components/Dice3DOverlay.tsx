@@ -314,9 +314,8 @@ export function Dice3DOverlay({
           <>
             <strong className="dice-3d-result-rail__title">{presentation.label}</strong>
             <div className="dice-3d-result-rail__groups">
-              {presentation.groups.map((group, index) => (
+              {presentation.groups.map((group) => (
                 <div className="dice-3d-result-group" key={group.id}>
-                  <span className="dice-3d-result-group__label">Gruppo {index + 1}</span>
                   <span className="dice-3d-result-group__dice">
                     {group.dice.map((die) => (
                       <span
