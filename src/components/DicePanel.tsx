@@ -26,7 +26,18 @@ export function DicePanel({ onRoll }: DicePanelProps) {
   // combinazione non esiste una coppia da confrontare, quindi la scelta non va nemmeno mostrata.
   const supportsRollMode = selectedDie === 20 && count === 1;
   const effectiveMode: RollMode = supportsRollMode ? mode : 'normal';
-  const changeCount = (die: DiceType, delta: number) => { setSelectedDie(die); setCounts((current) => ({ ...current, [die]: Math.max(0, Math.min(20, current[die] + delta)) })); };
+  // Il server accetta un solo gruppo NdS per tiro (parseRollFormula), quindi la formula usa
+  // soltanto selectedDie. Conservare i contatori degli altri dadi lasciava il badge acceso su
+  // una chip che non finiva nel tiro: cambiare tipo azzera gli altri invece di nasconderli.
+  const changeCount = (die: DiceType, delta: number) => {
+    // Togliere da un dado non selezionato non deve spostare la selezione in corso.
+    if (die !== selectedDie && delta < 0) return;
+    setSelectedDie(die);
+    setCounts((current) => {
+      const base = die === selectedDie ? current : initialCounts;
+      return { ...base, [die]: Math.max(0, Math.min(20, base[die] + delta)) };
+    });
+  };
   const resetDice = () => { setCounts({ ...initialCounts }); setSelectedDie(null); setModifierInput(''); setMode('normal'); setVisibility('public'); };
   const submit = async () => { if (isRolling || count < 1) return; setIsRolling(true); setMessage(null); const result = await onRoll({ formula, visibility, mode: effectiveMode }); if (!result?.ok) setMessage(result?.message ?? 'Tiro non riuscito.'); else { setIsConfigOpen(false); resetDice(); } setIsRolling(false); };
   const submitCommand = async () => {
