@@ -20,19 +20,19 @@ Il client SHALL animare sopra la superficie della mappa ogni nuovo log visibile 
 - **WHEN** un partecipante riceve un nuovo tiro da un bersaglio della scheda
 - **THEN** l'animazione usa lo stesso dettaglio per-dado del log senza ricostruire la formula dai campi della scheda
 
-### Requirement: Dadi multipli, percentile e disposizione leggibile
+### Requirement: Dadi multipli e percentile leggibili
 
-La presentazione SHALL includere tutti i dadi autorevoli di una voce entro il limite supportato e SHALL mantenere riconoscibili i gruppi logici. Un d100 logico SHALL essere rappresentato mediante due modelli percentile coordinati la cui lettura corrisponde al valore `1..100`, compresi `100`, i multipli di dieci e i valori inferiori a dieci, senza aggiungere dadi al contratto autorevole. Al termine del tiro, i dadi `kept` SHALL essere evidenziati, i `discarded` SHALL risultare attenuati e gli `unresolved` SHALL restare neutri e paritari.
+La presentazione SHALL includere tutti i dadi autorevoli di una voce entro il limite supportato e SHALL mantenere riconoscibili i gruppi logici. Un d100 logico SHALL essere rappresentato mediante due modelli percentile coordinati la cui lettura corrisponde al valore `1..100`, compresi `100`, i multipli di dieci e i valori inferiori a dieci, senza aggiungere dadi al contratto autorevole. Al termine del tiro, i dadi di una stessa voce SHALL essere presentati con pari enfasi, senza che la presentazione indichi quale esito debba contare.
 
-#### Scenario: Vantaggio o svantaggio
+#### Scenario: Coppia non risolta
 
-- **WHEN** un tiro contiene due d20 con uno `kept` e uno `discarded`
-- **THEN** entrambi rotolano sul proprio valore e, una volta fermi, il risultato tenuto è in evidenza mentre quello scartato è attenuato
-
-#### Scenario: Coppia non risolta della scheda
-
-- **WHEN** un tiro della scheda contiene due d20 entrambi `unresolved`
+- **WHEN** un tiro contiene due d20 entrambi `unresolved`
 - **THEN** entrambi rotolano e restano presentati con pari enfasi, senza inventare una scelta del server
+
+#### Scenario: Voce storica con esito scartato
+
+- **WHEN** la presentazione riceve una voce registrata prima del cambiamento, con un d20 `kept` e uno `discarded`
+- **THEN** entrambi rotolano sul proprio valore e restano presentati con pari enfasi, senza errori e senza attenuare alcun dado
 
 #### Scenario: Casi limite percentile
 
