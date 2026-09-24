@@ -318,8 +318,11 @@ export function Dice3DOverlay({
                 <div className="dice-3d-result-group" key={group.id}>
                   <span className="dice-3d-result-group__dice">
                     {group.dice.map((die) => (
+                      // `disposition` (kept/discarded/unresolved) resta nel dato per le voci
+                      // storiche, ma la resa non lo distingue più: i dadi di una voce hanno
+                      // pari enfasi, salvo la coppia non risolta che ha una tinta propria.
                       <span
-                        className={`dice-3d-result-die dice-3d-result-die--${die.disposition}`}
+                        className={`dice-3d-result-die dice-3d-result-die--${die.disposition === 'unresolved' ? 'unresolved' : 'kept'}`}
                         key={die.id}
                         title={`${die.id} · ${group.id}`}
                       >

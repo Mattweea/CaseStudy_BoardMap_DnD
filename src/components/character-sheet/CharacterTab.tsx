@@ -92,9 +92,10 @@ function buildRowDiffOps<T extends { id: string }>(collection: string, before: T
   return ops;
 }
 
-export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs }: {
+export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisibility = 'public' }: {
   data: CharacterSheetData; patch: (operation: CharacterSheetPatchOperation) => void;
   sheetId?: string; onRoll?: (request: DiceRollSourceRequest) => void; diceLogs?: DiceRollLog[];
+  rollVisibility?: 'public' | 'secret';
 }) {
   const [featureFilter, setFeatureFilter] = useState('');
   const [editingAttackId, setEditingAttackId] = useState<string | 'new' | null>(null);
@@ -141,13 +142,18 @@ export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs }: {
     if (!target) return;
     if (target.startsWith('attack-damage:')) {
       const attackTarget = `attack:${target.slice('attack-damage:'.length)}`;
-      onRoll({ source: { sheetId, target }, critical: wasLastAttackCritical(diceLogs, attackTarget) });
+      onRoll({ source: { sheetId, target }, visibility: rollVisibility, critical: wasLastAttackCritical(diceLogs, attackTarget) });
       return;
     }
-    onRoll({ source: { sheetId, target } });
+    onRoll({ source: { sheetId, target }, visibility: rollVisibility });
   };
 
   return <div className="character-sheet-page character-page" onClick={handleSheetClick}>
+    {rollVisibility === 'secret' ? (
+      // Stato persistente reso evidente dove si tira, non solo dove si è attivato: tirare in
+      // pubblico credendosi in segreto rivelerebbe qualcosa di irrecuperabile.
+      <p className="sheet-roll-visibility-banner" role="status">🔒 I prossimi tiri da questa scheda sono segreti.</p>
+    ) : null}
     <header className="sheet-identity">
       <SheetField label="Nome del personaggio" value={data.character.name} onChange={set('character.name')} className="sheet-identity__name" />
       <div className="sheet-identity__facts">

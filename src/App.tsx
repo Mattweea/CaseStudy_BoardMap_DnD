@@ -1021,6 +1021,17 @@ function App() {
             <p className="settings-panel__hint">
               Valgono solo per te: non cambiano cosa vedono gli altri al tavolo.
             </p>
+            <fieldset className="settings-panel__group">
+              <legend>Attribuzione grafica</legend>
+              <p className="settings-panel__attribution">
+                Icone dei dadi (d4-d20): set <cite>game-icons.net</cite>, di{' '}
+                <a href="https://game-icons.net/1x1/skoll/d4.html" target="_blank" rel="noreferrer">Skoll</a>{' '}
+                (d4, d10, d12) e{' '}
+                <a href="https://game-icons.net/1x1/delapouite/cube.html" target="_blank" rel="noreferrer">Delapouite</a>{' '}
+                (d6, d8, d20), sotto licenza{' '}
+                <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>.
+              </p>
+            </fieldset>
           </section>
         );
       case 'notes':
@@ -1829,7 +1840,9 @@ function App() {
         onLocateToken={locateToken}
       />
 
-      <DiceResultModal result={latestDiceResult} onClose={() => setLatestDiceResult(null)} />
+      {/* Disattivata su richiesta: il dettaglio del tiro si legge già nella card del log
+          (P0.7.5). Codice e stato restano intatti, così da poterla riattivare senza riscriverla. */}
+      {false ? <DiceResultModal result={latestDiceResult} onClose={() => setLatestDiceResult(null)} /> : null}
 
       {turnNotice ? <div className="turn-notice" role="dialog" aria-modal="true" aria-label="Avviso turno"><div><h2>{turnNotice === 'turn' ? 'Tocca a te!' : 'Sei il prossimo!'}</h2><button type="button" className="primary-button" autoFocus onClick={() => setTurnNotice(null)}>Capito</button></div></div> : null}
 

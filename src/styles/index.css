@@ -103,8 +103,8 @@ button {
 .session-workspace .sidebar__content { display: flex; flex-direction: column; gap: .75rem; min-height: 0; overflow: hidden; }
 .session-workspace { backdrop-filter: none; }
 .workspace-tools { display: none; }
-.workspace-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .25rem; padding: .1rem 0 .55rem; }
-.workspace-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; color: #d9bdb0; padding: .5rem .25rem; font-size: 1.15rem; line-height: 1; text-align: center; }
+.workspace-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .2rem; padding: .1rem 0 .55rem; }
+.workspace-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; color: #d9bdb0; padding: .4rem .1rem; font-size: 1.05rem; line-height: 1; text-align: center; min-width: 0; }
 .workspace-tab--active { color: #ffe4d1; border-color: #ed8758; background: rgba(151, 53, 35, .16); }
 .workspace-tab:focus-visible { outline: 2px solid #ffb37d; outline-offset: 2px; }
 .workspace-tabpanel { min-height: 0; overflow: hidden; flex: 1; display: flex; }
@@ -123,6 +123,9 @@ button {
 .settings-panel__option input { flex: 0 0 auto; accent-color: #e9794a; }
 .settings-panel__option span { overflow-wrap: anywhere; }
 .settings-panel__hint { margin: .35rem 0 0; color: #a98b7d; font-size: .7rem; }
+.settings-panel__attribution { margin: 0; color: #a98b7d; font-size: .7rem; line-height: 1.4; }
+.settings-panel__attribution a { color: #e9794a; }
+.settings-panel__attribution cite { font-style: normal; }
 .dice-panel__chat-input { width: 100%; resize: none; min-height: 3.9rem; border: 1px solid rgba(255, 192, 150, .26); border-radius: .35rem; padding: .65rem .7rem; background: rgba(10, 4, 6, .58); color: #ffe5d4; }
 .dice-panel__chat-input::placeholder { color: #ba9687; }
 .dice-panel__chat-input:focus-visible { outline: 2px solid rgba(255, 166, 107, .72); outline-offset: 2px; }
@@ -144,30 +147,35 @@ button {
 .dice-log__entry header time { margin-left: auto; align-self: start; color: rgba(36, 21, 19, .68); font-size: .65rem; white-space: nowrap; }
 .dice-log__entry header strong { font-size: .95rem; }
 .dice-log__entry header span { font-size: .76rem; opacity: .72; }
-.dice-log__formula, .dice-log__total { margin: 0; width: 100%; min-height: 2rem; border: 1px solid rgba(59, 38, 30, .32); border-radius: .24rem; background: rgba(255,255,255,.3); color: inherit; text-align: center; }
-.dice-log__formula { display: grid; place-items: center; font-weight: 700; }
-.dice-log__total { font-size: 1.35rem; font-weight: 800; cursor: pointer; }
-.dice-log__detail { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+/* Card unica del log (P0.7.5): stessa forma per tiro libero e tiro dalla scheda. La formula
+   resta visibile su ogni voce con un peso tipografico inferiore ai totali, che restano
+   l'elemento dominante. */
+.dice-log__formula { margin: 0; font-size: .78rem; font-weight: 600; opacity: .78; text-align: center; }
+.dice-log__detail { display: grid; gap: .55rem; }
+.dice-log__detail-group { display: grid; gap: .3rem; }
+.dice-log__detail-label { margin: 0; font-size: .78rem; font-weight: 700; opacity: .8; }
 .dice-log__dice-row { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
 .dice-log__die { position: relative; display: grid; place-items: center; width: 2.65rem; height: 2.65rem; }
-.dice-log__die svg { width: 2.65rem; height: 2.65rem; color: #817a75; opacity: .78; }
+/* Le icone game-icons.net sono a riempimento pieno, non a tratto: un'opacità più bassa di
+   quella dei disegni precedenti mantiene leggibile il numero sovrapposto. */
+.dice-log__die svg { width: 2.65rem; height: 2.65rem; color: #817a75; opacity: .5; }
 .dice-log__die b { position: absolute; z-index: 1; color: #514b47; font-size: 1rem; line-height: 1; }
-.dice-log__dice-total { display: grid; flex: 0 0 auto; place-items: center; width: 2.65rem; height: 2.65rem; border: 1px solid rgba(59, 38, 30, .36); border-radius: .24rem; background: rgba(255,255,255,.34); color: #24201e; font-size: 1.1rem; }
-.dice-log__entry small { color: #f3bd8d; }
+.dice-log__detail-subtotal { margin: 0; font-size: .78rem; opacity: .78; }
+.dice-log__secret-tag { color: inherit; font-style: italic; }
 .dice-log__empty { margin: auto 0; text-align: center; color: #c6a79a; }
 
-/* Bersagli 1d20 della scheda (P0.5 Fase B): due tiri indipendenti mostrati fianco a fianco,
-   senza vantaggio/svantaggio pre-scelto dal server. */
+/* Uno o più totali attivabili: un bersaglio 1d20 della scheda o un d20 solitario del tiro
+   libero ne mostrano due (una coppia da cui scegliere, marcata), un Xd20 indipendente o un
+   danno a più blocchi ne mostrano altrettanti senza marcatore. Ogni totale apre lo stesso
+   dettaglio condiviso: il tooltip nativo non era raggiungibile da tastiera. */
 .dice-log__pair { display: flex; align-items: stretch; gap: .5rem; }
-.dice-log__pair-total { flex: 1; display: grid; place-items: center; min-height: 2.4rem; border: 1px solid rgba(59, 38, 30, .32); border-radius: .24rem; background: rgba(255,255,255,.3); font-size: 1.35rem; font-weight: 800; cursor: default; }
+.dice-log__pair-total { flex: 1; display: grid; place-items: center; min-height: 2.4rem; border: 1px solid rgba(59, 38, 30, .32); border-radius: .24rem; background: rgba(255,255,255,.3); color: inherit; font: inherit; font-size: 1.35rem; font-weight: 800; cursor: pointer; }
+.dice-log__pair-total:hover, .dice-log__pair-total:focus-visible { background: rgba(255,255,255,.46); }
 .dice-log__pair-total--crit { color: #1c7a34; }
 .dice-log__pair-total--fumble { color: #a3221f; }
 .dice-log__pair-divider { width: 1px; background: rgba(59, 38, 30, .32); }
 .dice-log__pair-caption { display: flex; align-items: center; justify-content: center; gap: .35rem; font-size: .85rem; }
-.dice-log__pair-caption--parts { gap: .5rem; }
-.dice-log__pair-caption--parts small { flex: 1; text-align: center; }
 .dice-log__action-name { padding: 0; border: none; background: none; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
-.dice-log__pair-caption small { opacity: .72; }
 .dice-log__saving-throw { margin: 0; font-size: .8rem; opacity: .85; }
 .dice-roll-config { display: grid; gap: .7rem; }
 .dice-roll-config label { display: flex; align-items: center; gap: .5rem; }
@@ -1558,11 +1566,6 @@ button {
   box-shadow: 0 0 0 2px rgba(255, 177, 84, 0.16), 0 7px 18px rgba(0, 0, 0, 0.25);
 }
 
-.dice-3d-result-die--discarded {
-  filter: grayscale(0.65);
-  opacity: 0.42;
-}
-
 .dice-3d-result-die--unresolved {
   border-color: rgba(151, 204, 255, 0.58);
   background: rgba(46, 67, 103, 0.9);
@@ -2267,7 +2270,6 @@ button {
 .dice-chip__icon {
   width: 29px;
   height: 29px;
-  stroke-width: 1.9;
 }
 
 .dice-panel__roll-button {

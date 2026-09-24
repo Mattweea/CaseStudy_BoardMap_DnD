@@ -18,47 +18,29 @@ function signed(value: number) {
   return value === 0 ? '' : value > 0 ? `+${value}` : `${value}`;
 }
 
-// Dettaglio del tiro (dado naturale più modificatore) mostrato solo al passaggio del mouse sul
-// totale, via `title`: il totale resta l'unico numero sempre leggibile.
-function breakdownTitle(rolls: number[], modifier: number) {
-  return `${rolls.join('+')}${signed(modifier)}`;
-}
-
-interface DiceLogEntryProps {
-  log: DiceRollLog;
-  characterSheets: CharacterSheetRosterEntry[];
-  isExpanded: boolean;
-  onToggle: () => void;
-  onRoll?: (request: DiceRollSourceRequest) => void;
-}
-
-interface PairBox {
+interface ResultBox {
   value: number;
-  title: string;
-  highlight?: string;
+  highlight?: 'crit' | 'fumble';
 }
 
-// Forma comune a ogni bersaglio della scheda (uno o due riquadri col totale, mai la formula in
-// chiaro, dettaglio solo in hover): un tiro singolo (dado vita, salvataggio contro morte), un
-// tiro doppio (caratteristiche/prove/attacco) e un tiro di danno sono la stessa card, con un
-// riquadro diverso per numero soltanto.
-function PairCard({ header, boxes, partLabels, caption, savingThrow, visibility }: {
-  header: ReactNode; boxes: PairBox[]; partLabels?: Array<string | undefined>;
-  caption: ReactNode; savingThrow?: DiceRollLog['savingThrow']; visibility: 'public' | 'secret';
-}) {
-  return <article className="dice-log__entry dice-log__entry--dual">
-    {header}
-    <div className="dice-log__pair">
-      {boxes.flatMap((box, index) => [
-        index > 0 ? <span className="dice-log__pair-divider" aria-hidden="true" key={`div-${index}`} /> : null,
-        <span key={index} className={`dice-log__pair-total ${box.highlight ?? ''}`} title={box.title}>{box.value}</span>,
-      ])}
-    </div>
-    {partLabels && partLabels.length > 1 ? <div className="dice-log__pair-caption dice-log__pair-caption--parts">{partLabels.map((label, index) => <small key={index}>{label}</small>)}</div> : null}
-    <div className="dice-log__pair-caption">{caption}</div>
-    {savingThrow ? <p className="dice-log__saving-throw">Tiro salvezza: {savingThrow.ability ? abilityLabels[savingThrow.ability] ?? savingThrow.ability : '—'} CD {savingThrow.dc || '—'}</p> : null}
-    {visibility === 'secret' ? <small>Segreto</small> : null}
-  </article>;
+interface DetailGroup {
+  key: string;
+  label?: string;
+  sides: DiceType;
+  rolls: number[];
+  modifier: number;
+  // Presente solo quando i dadi del gruppo si sommano in un unico subtotale (danno, tiro
+  // singolo, gruppo del tiro libero). Un bersaglio 1d20 o un Xd20 indipendente non lo porta:
+  // i suoi dadi sono esiti alternativi, non addendi, e sommarli mentirebbe sul loro significato.
+  total?: number;
+}
+
+interface CardModel {
+  results: ResultBox[];
+  formula: string;
+  detailGroups: DetailGroup[];
+  caption: ReactNode | null;
+  savingThrow?: DiceRollLog['savingThrow'];
 }
 
 // Un bersaglio della scheda (P0.5 Fase B) porta `log.source`: distingue le forme di voce. Il dado
@@ -71,69 +53,130 @@ function sourceKind(target: string | undefined): 'single' | 'damage' | 'dual' | 
   return 'dual';
 }
 
-export function DiceLogEntry({ log, characterSheets, isExpanded, onToggle, onRoll }: DiceLogEntryProps) {
-  const profile = CHARACTER_PROFILES.find((entry) => entry.id === log.authorUserId);
-  const sheet = characterSheets.find((entry) => entry.ownerUserId === log.authorUserId);
-  const timestamp = new Date(log.timestamp);
-  const kind = sourceKind(log.source?.target);
+function highlightFor(natural: number): 'crit' | 'fumble' | undefined {
+  return natural === 20 ? 'crit' : natural === 1 ? 'fumble' : undefined;
+}
 
-  const header = <header>
-    <img src={resolveCharacterPortrait(profile, sheet?.portraitUrl)} alt="" />
-    <div><strong>{profile?.displayName ?? log.rollerName}</strong><span>{profile?.username ?? log.rollerName}</span></div>
-    <time dateTime={log.timestamp}>{Number.isNaN(timestamp.valueOf()) ? '' : timestamp.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</time>
-  </header>;
+function buildModel(log: DiceRollLog, onRoll?: (request: DiceRollSourceRequest) => void): CardModel {
+  const kind = sourceKind(log.source?.target);
 
   if (kind === 'dual') {
     const [naturalA, naturalB] = log.rolls;
-    const totals = log.rolls.map((natural) => natural + log.modifier);
-    const highlight = (natural: number) => natural === 20 ? 'dice-log__pair-total--crit' : natural === 1 ? 'dice-log__pair-total--fumble' : undefined;
     const canRollDamage = log.source?.target.startsWith('attack:') && Boolean(onRoll);
     const rollDamage = () => {
       if (!log.source || !onRoll) return;
       const attackId = log.source.target.slice('attack:'.length);
       onRoll({ source: { sheetId: log.source.sheetId, target: `attack-damage:${attackId}` }, critical: log.critical === true });
     };
-    return <PairCard
-      header={header} visibility={log.visibility} savingThrow={log.savingThrow}
-      boxes={[
-        { value: totals[0], title: breakdownTitle([naturalA], log.modifier), highlight: highlight(naturalA) },
-        { value: totals[1], title: breakdownTitle([naturalB], log.modifier), highlight: highlight(naturalB) },
-      ]}
-      caption={canRollDamage
+    return {
+      formula: log.formula,
+      results: [
+        { value: naturalA + log.modifier, highlight: highlightFor(naturalA) },
+        { value: naturalB + log.modifier, highlight: highlightFor(naturalB) },
+      ],
+      detailGroups: [{ key: 'dual', sides: 20, rolls: log.rolls, modifier: log.modifier }],
+      caption: canRollDamage
         ? <button type="button" className="dice-log__action-name" onClick={rollDamage}>{log.actionLabel ?? log.label}</button>
-        : <span>{log.actionLabel ?? log.label}</span>}
-    />;
+        : <span>{log.actionLabel ?? log.label}</span>,
+      savingThrow: log.savingThrow,
+    };
   }
 
   if (kind === 'damage') {
-    const rollParts = log.parts?.length ? log.parts : [{ label: undefined, rolls: log.rolls, modifier: log.modifier, total: log.total, critical: log.critical }];
-    return <PairCard
-      header={header} visibility={log.visibility}
-      boxes={rollParts.map((part) => ({ value: part.total, title: breakdownTitle(part.rolls, part.modifier), highlight: part.critical ? 'dice-log__pair-total--crit' : undefined }))}
-      partLabels={rollParts.length > 1 ? rollParts.map((part) => part.label) : undefined}
-      caption={<span>{log.actionLabel ?? log.label}</span>}
-    />;
+    const rollParts = log.parts?.length ? log.parts : [{ label: undefined, formula: log.formula, rolls: log.rolls, keptRolls: log.keptRolls, modifier: log.modifier, total: log.total, critical: log.critical }];
+    return {
+      formula: rollParts.map((part) => part.formula).join('+'),
+      results: rollParts.map((part) => ({ value: part.total, highlight: part.critical ? 'crit' : undefined })),
+      detailGroups: rollParts.map((part, index) => ({
+        key: `part-${index}`, label: part.label, sides: diceSidesFromFormula(part.formula),
+        rolls: part.rolls, modifier: part.modifier, total: part.total,
+      })),
+      caption: <span>{log.actionLabel ?? log.label}</span>,
+    };
   }
 
   if (kind === 'single') {
-    return <PairCard
-      header={header} visibility={log.visibility}
-      boxes={[{ value: log.total, title: breakdownTitle(log.rolls, log.modifier) }]}
-      caption={<span>{log.actionLabel ?? log.label}</span>}
-    />;
+    return {
+      formula: log.formula,
+      results: [{ value: log.total }],
+      detailGroups: [{ key: 'single', sides: diceSidesFromFormula(log.formula), rolls: log.rolls, modifier: log.modifier, total: log.total }],
+      caption: <span>{log.actionLabel ?? log.label}</span>,
+    };
   }
 
-  // Tiro libero di P0.3: comportamento invariato, dado singolo con dettaglio pieghevole.
+  // Tiro libero di P0.3, ora estendibile a più gruppi. Un d20 solitario resta la coppia non
+  // risolta (`unresolved`): i due valori restano indipendenti, mai sommati. Un Xd20 (X>1) o un
+  // tiro non-d20 con più gruppi produce invece un totale aggregato con dettaglio per gruppo.
+  if (log.parts?.length) {
+    return {
+      formula: log.formula,
+      results: [{ value: log.total }],
+      detailGroups: log.parts.map((part, index) => ({
+        key: `free-part-${index}`, label: part.label, sides: diceSidesFromFormula(part.formula),
+        rolls: part.rolls, modifier: part.modifier, total: part.total,
+      })),
+      caption: null,
+    };
+  }
+
+  const isPureD20Roll = (log.dice?.length ?? 0) >= 2 && log.dice!.every((die) => die.sides === 20);
+  if (isPureD20Roll) {
+    return {
+      formula: log.formula,
+      results: log.rolls.map((natural) => ({ value: natural + log.modifier, highlight: highlightFor(natural) })),
+      detailGroups: [{ key: 'd20', sides: 20, rolls: log.rolls, modifier: log.modifier }],
+      caption: null,
+    };
+  }
+
   const diceSides = diceSidesFromFormula(log.formula);
-  const diceTotal = log.keptRolls.reduce((sum, roll) => sum + roll, 0);
+  return {
+    formula: log.formula,
+    results: [{ value: log.total }],
+    detailGroups: [{ key: 'free', sides: diceSides, rolls: log.rolls, modifier: log.modifier, total: log.total }],
+    caption: null,
+  };
+}
+
+interface DiceLogEntryProps {
+  log: DiceRollLog;
+  characterSheets: CharacterSheetRosterEntry[];
+  isExpanded: boolean;
+  onToggle: () => void;
+  onRoll?: (request: DiceRollSourceRequest) => void;
+}
+
+export function DiceLogEntry({ log, characterSheets, isExpanded, onToggle, onRoll }: DiceLogEntryProps) {
+  const profile = CHARACTER_PROFILES.find((entry) => entry.id === log.authorUserId);
+  const sheet = characterSheets.find((entry) => entry.ownerUserId === log.authorUserId);
+  const timestamp = new Date(log.timestamp);
+  const model = buildModel(log, onRoll);
+
   return <article className={`dice-log__entry ${isExpanded ? 'dice-log__entry--expanded' : ''}`}>
-    {header}
-    <p className="dice-log__formula">{log.formula}</p>
+    <header>
+      <img src={resolveCharacterPortrait(profile, sheet?.portraitUrl)} alt="" />
+      <div><strong>{profile?.displayName ?? log.rollerName}</strong><span>{profile?.username ?? log.rollerName}</span></div>
+      <time dateTime={log.timestamp}>{Number.isNaN(timestamp.valueOf()) ? '' : timestamp.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</time>
+    </header>
+    <p className="dice-log__formula">{model.formula}{log.visibility === 'secret' ? <em className="dice-log__secret-tag"> (segreto)</em> : null}</p>
+    <div className="dice-log__pair">
+      {model.results.flatMap((box, index) => [
+        index > 0 ? <span className="dice-log__pair-divider" aria-hidden="true" key={`div-${index}`} /> : null,
+        <button
+          type="button" key={index} onClick={onToggle} aria-expanded={isExpanded}
+          aria-label={`Mostra dettaglio di ${model.formula}`}
+          className={`dice-log__pair-total ${box.highlight === 'crit' ? 'dice-log__pair-total--crit' : box.highlight === 'fumble' ? 'dice-log__pair-total--fumble' : ''}`}
+        >{box.value}</button>,
+      ])}
+    </div>
     {isExpanded ? <div className="dice-log__detail">
-      <div className="dice-log__dice-row">{log.rolls.map((roll, index) => <span className="dice-log__die" key={`${log.id}-${index}`}><DiceGlyph type={numericDiceToIconType[diceSides]} /><b>{roll}</b></span>)}</div>
-      <b className="dice-log__dice-total">{diceTotal}</b>
+      {model.detailGroups.map((group) => <div className="dice-log__detail-group" key={group.key}>
+        {group.label ? <p className="dice-log__detail-label">{group.label}</p> : null}
+        <div className="dice-log__dice-row">{group.rolls.map((roll, index) => <span className="dice-log__die" key={`${group.key}-${index}`}><DiceGlyph type={numericDiceToIconType[group.sides]} /><b>{roll}</b></span>)}</div>
+        {group.total !== undefined ? <p className="dice-log__detail-subtotal">Subtotale dadi: {group.total - group.modifier}{group.modifier !== 0 ? ` · Modificatore: ${signed(group.modifier)}` : ''}</p> : null}
+      </div>)}
     </div> : null}
-    <button type="button" className="dice-log__total" onClick={onToggle} aria-expanded={isExpanded} aria-label={`Mostra dettaglio di ${log.formula}`}>{log.total}</button>
-    {log.visibility === 'secret' ? <small>Segreto</small> : null}
+    {model.caption ? <div className="dice-log__pair-caption">{model.caption}</div> : null}
+    {model.savingThrow ? <p className="dice-log__saving-throw">Tiro salvezza: {model.savingThrow.ability ? abilityLabels[model.savingThrow.ability] ?? model.savingThrow.ability : '—'} CD {model.savingThrow.dc || '—'}</p> : null}
   </article>;
 }

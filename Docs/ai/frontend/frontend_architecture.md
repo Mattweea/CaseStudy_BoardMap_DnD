@@ -46,6 +46,8 @@ Do not add a shared game field only to React state. A shared field requires the 
 - The 3D dice adapter consumes only valid `DiceRollLog.dice` values and forces the renderer faces. Renderer totals, physics and completion are decorative and must never mutate the authoritative log or delay a successful roll response.
 - `App` owns one local dice-preference snapshot shared by `DicePanel` and `Dice3DOverlay`. Disabling animation aborts the active presentation and discards pending presentations while retaining their deduplication; disabling sound stops only the local audio layer.
 - Dice audio is a cancellable browser adapter over selected local DiceBox samples. It remains gated until a trusted page interaction, never delays the renderer, and absorbs loading or playback failures without affecting the visual queue or log.
+- `DicePanel`'s tray selection is cumulative across dice types (a per-type counter, not a single selected type); the client composes the formula by sorting active types by face count and blocks adding a `d20` to a selection that already has another type (and vice versa) before the request ever reaches the server, since the server rejects a mixed `d20` formula outright. The panel never sends a `mode`; the server derives it from the formula alone.
+- `DiceLogEntry` renders one card shape for every roll origin (free roll, character-sheet ability/attack/damage/single target): a shared model function classifies the log into result boxes (one totalizable box, or one box per independent/paired outcome), an optional pair marker, a formula line, and a shared click-to-expand detail — not per-origin branches with different affordances (a native `title` tooltip is not keyboard-reachable).
 
 ## Error and loading behavior
 

@@ -37,16 +37,17 @@ function normalizeGroup(group, index) {
   const count = group?.count;
   const sides = group?.sides;
   const modifier = group?.modifier ?? 0;
+  const sign = group?.sign ?? 1;
   if (!Number.isInteger(count) || count < 1 || !SUPPORTED_DICE_SET.has(sides) ||
-      !Number.isFinite(modifier)) {
+      !Number.isFinite(modifier) || (sign !== 1 && sign !== -1)) {
     throw new RangeError(`Invalid dice group at index ${index}`);
   }
-  return { count, sides, modifier, label: typeof group.label === 'string' ? group.label : undefined };
+  return { count, sides, modifier, sign, label: typeof group.label === 'string' ? group.label : undefined };
 }
 
-function formulaFor({ count, sides, modifier }) {
+function formulaFor({ count, sides, modifier, sign = 1 }) {
   const suffix = modifier === 0 ? '' : modifier > 0 ? `+${modifier}` : String(modifier);
-  return `${count}d${sides}${suffix}`;
+  return `${sign === -1 ? '-' : ''}${count}d${sides}${suffix}`;
 }
 
 function resolveGroup(group, mode, nextUint32, groupIndex, dieOffset) {
@@ -80,7 +81,8 @@ function resolveGroup(group, mode, nextUint32, groupIndex, dieOffset) {
     rolls: values,
     keptRolls,
     modifier: group.modifier,
-    total: keptRolls.reduce((sum, value) => sum + value, group.modifier),
+    sign: group.sign,
+    total: keptRolls.reduce((sum, value) => sum + value, 0) * group.sign + group.modifier,
     dice,
   };
 }
@@ -93,6 +95,9 @@ function resolveGroup(group, mode, nextUint32, groupIndex, dieOffset) {
  * - NdS: sum of N independent 1dS variables; means and variances add.
  * - advantage/disadvantage: max/min of two independent d20 values.
  * - unresolved: two independent d20 values with selection deliberately deferred.
+ *
+ * `formula`, `rolls`, `keptRolls`, `modifier` and `total` describe only `groups[0]`; a caller
+ * that passes several groups must read `aggregateTotal` (or `groups`) for the whole roll.
  */
 export function resolveDiceRoll({ groups, mode = 'normal' }, { nextUint32 }) {
   assertNextUint32(nextUint32);
@@ -115,7 +120,12 @@ export function resolveDiceRoll({ groups, mode = 'normal' }, { nextUint32 }) {
     dieOffset += resolved.dice.length;
     return resolved;
   });
+  // I campi legacy sotto (`formula`, `rolls`, `keptRolls`, `modifier`, `total`) descrivono
+  // soltanto il primo gruppo, per compatibilità con i chiamanti esistenti (tiro libero a gruppo
+  // singolo, bersagli della scheda). `aggregateTotal` è il totale del tiro intero, gruppi
+  // multipli compresi, e rispetta il segno di ciascun gruppo.
   const primary = resolvedGroups[0];
+  const aggregateTotal = resolvedGroups.reduce((sum, group) => sum + group.total, 0);
 
   return {
     formula: primary.formula,
@@ -123,6 +133,7 @@ export function resolveDiceRoll({ groups, mode = 'normal' }, { nextUint32 }) {
     keptRolls: primary.keptRolls,
     modifier: primary.modifier,
     total: primary.total,
+    aggregateTotal,
     dice: resolvedGroups.flatMap((group) => group.dice),
     groups: resolvedGroups,
   };

@@ -60,6 +60,52 @@ test('the engine generates independent dice and coherent additive aggregates', (
   assert.notEqual(result.groups[0].groupId, result.groups[1].groupId);
 });
 
+test('a signed group lowers its own total and the aggregate, without a negative die value', () => {
+  const result = resolveDiceRoll({
+    groups: [
+      { count: 1, sides: 8, modifier: 0 },
+      { count: 1, sides: 4, modifier: 0, sign: -1 },
+    ],
+  }, { nextUint32: queueUint32([5, 1]) });
+
+  assert.equal(result.groups[0].total, 6);
+  assert.equal(result.groups[1].total, -2);
+  assert.equal(result.aggregateTotal, 4);
+  assert.ok(result.dice.every((die) => die.value > 0));
+});
+
+test('an invalid sign is rejected like any other malformed group', () => {
+  assert.throws(() => resolveDiceRoll({ groups: [{ count: 1, sides: 6, sign: 0 }] }, { nextUint32: queueUint32([0]) }), RangeError);
+});
+
+test('aggregateTotal sums three groups by sign while the legacy fields keep describing only the first', () => {
+  const result = resolveDiceRoll({
+    groups: [
+      { count: 1, sides: 8, modifier: 2 },
+      { count: 1, sides: 6, modifier: 0, sign: -1 },
+      { count: 1, sides: 4, modifier: 0 },
+    ],
+  }, { nextUint32: queueUint32([3, 2, 1]) });
+
+  assert.equal(result.total, 6);
+  assert.equal(result.aggregateTotal, 5);
+  assert.notEqual(result.total, result.aggregateTotal);
+});
+
+test('a mode other than normal stays rejected unless the groups are exactly one d20', () => {
+  assert.throws(
+    () => resolveDiceRoll({ groups: [{ count: 2, sides: 20 }], mode: 'advantage' }, { nextUint32: queueUint32([0, 0]) }),
+    RangeError,
+  );
+  assert.throws(
+    () => resolveDiceRoll({
+      groups: [{ count: 1, sides: 20 }, { count: 1, sides: 4 }],
+      mode: 'advantage',
+    }, { nextUint32: queueUint32([0, 0]) }),
+    RangeError,
+  );
+});
+
 test('advantage and disadvantage keep by index, including ties', () => {
   const advantage = resolveDiceRoll({ groups: [{ count: 1, sides: 20, modifier: 3 }], mode: 'advantage' }, {
     nextUint32: queueUint32([6, 15]),

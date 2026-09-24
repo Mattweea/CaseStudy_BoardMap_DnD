@@ -137,6 +137,19 @@ test('every d20 target rolls two independent dice, not a pre-picked advantage/di
   assert.deepEqual(result.log.dice.map((die) => die.disposition), ['unresolved', 'unresolved']);
 });
 
+test('a roll from the sheet defaults to public and respects an explicit secret visibility', () => {
+  const { service } = harness();
+  const defaulted = rollCharacterSheetTarget(owner, service, {
+    source: { sheetId: 'sheet-1', target: 'ability:strength' },
+  }, { rng: queueRng([5, 18]) });
+  assert.equal(defaulted.log.visibility, 'public');
+
+  const secret = rollCharacterSheetTarget(owner, service, {
+    source: { sheetId: 'sheet-1', target: 'ability:strength' }, visibility: 'secret',
+  }, { rng: queueRng([5, 18]) });
+  assert.equal(secret.log.visibility, 'secret');
+});
+
 test('hit dice stays a single roll (not a d20, no dual roll)', () => {
   const { service } = harness();
   const result = rollCharacterSheetTarget(owner, service, { source: { sheetId: 'sheet-1', target: 'hit-dice' } }, { rng: queueRng([5]) });

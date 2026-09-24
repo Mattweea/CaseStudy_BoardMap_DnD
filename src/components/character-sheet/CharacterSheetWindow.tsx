@@ -10,12 +10,35 @@ import '../../styles/character-sheet.css';
 type TabId = 'character' | 'story' | 'spells';
 type WindowPosition = { x: number; y: number };
 type DragState = { pointerId: number; offsetX: number; offsetY: number };
+type RollVisibility = 'public' | 'secret';
 
 const tabs: Array<[TabId, string]> = [['character', 'Personaggio e combattimento'], ['story', 'Aspetto e storia'], ['spells', 'Incantesimi']];
 const saveLabels = { loading: 'Caricamento', editing: 'Modifica in corso', saving: 'Salvataggio', saved: 'Salvato', error: 'Errore' } as const;
 const positionStorageKey = 'board-map:character-sheet-position';
 const compactViewportQuery = '(max-width: 820px)';
 const windowGutter = 12;
+
+// L'interruttore vale per la singola scheda e resta locale al browser, come le preferenze di
+// presentazione dei dadi: non è un fatto della sessione, ma di chi tira da quella scheda.
+function rollVisibilityStorageKey(sheetId: string) {
+  return `board-map:character-sheet-roll-visibility:${sheetId}`;
+}
+
+function readStoredRollVisibility(sheetId: string): RollVisibility {
+  try {
+    return window.localStorage.getItem(rollVisibilityStorageKey(sheetId)) === 'secret' ? 'secret' : 'public';
+  } catch {
+    return 'public';
+  }
+}
+
+function storeRollVisibility(sheetId: string, value: RollVisibility) {
+  try {
+    window.localStorage.setItem(rollVisibilityStorageKey(sheetId), value);
+  } catch {
+    // L'interruttore resta utilizzabile anche senza storage persistente.
+  }
+}
 
 function isCompactViewport() {
   return window.matchMedia(compactViewportQuery).matches;
@@ -52,6 +75,7 @@ export function CharacterSheetWindow({ sheetId, isOpen, title, onClose, onRoll, 
   onRoll?: (request: DiceRollSourceRequest) => void; diceLogs?: DiceRollLog[];
 }) {
   const [activeTab, setActiveTab] = useState<TabId>('character');
+  const [rollVisibility, setRollVisibility] = useState<RollVisibility>('public');
   const [position, setPosition] = useState<WindowPosition | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -63,6 +87,17 @@ export function CharacterSheetWindow({ sheetId, isOpen, title, onClose, onRoll, 
 
   const close = async () => { await flush(); onClose(); };
   closeRef.current = close;
+
+  useEffect(() => {
+    setRollVisibility(sheetId ? readStoredRollVisibility(sheetId) : 'public');
+  }, [sheetId]);
+
+  const toggleRollVisibility = () => {
+    if (!sheetId) return;
+    const next: RollVisibility = rollVisibility === 'secret' ? 'public' : 'secret';
+    setRollVisibility(next);
+    storeRollVisibility(sheetId, next);
+  };
 
   const moveWindow = (nextPosition: WindowPosition, persist = false) => {
     const element = dialogRef.current;
@@ -188,6 +223,11 @@ export function CharacterSheetWindow({ sheetId, isOpen, title, onClose, onRoll, 
           if (!window.confirm('Debug: svuotare tutti i campi della scheda? La modifica viene sincronizzata con gli altri partecipanti.')) return;
           buildClearOperations(draft).forEach((operation) => patch(operation));
         }} title="Solo in sviluppo: svuota ogni campo della scheda">Svuota scheda</button> : null}
+        <button
+          type="button" className={`sheet-roll-visibility sheet-roll-visibility--${rollVisibility}`}
+          onClick={toggleRollVisibility} aria-pressed={rollVisibility === 'secret'}
+          title="Vale per i tiri fatti da questa scheda"
+        >{rollVisibility === 'secret' ? 'Tiri: Segreti' : 'Tiri: Pubblici'}</button>
         <div className={`sheet-save-state sheet-save-state--${saveState}`} role="status"><span aria-hidden="true" />{saveLabels[saveState]}</div>
         <button type="button" data-sheet-close className="character-sheet-window__close" onClick={() => void close()} aria-label="Chiudi scheda">×</button>
       </header>
@@ -195,7 +235,7 @@ export function CharacterSheetWindow({ sheetId, isOpen, title, onClose, onRoll, 
       {error ? <div className="sheet-alert" role="alert"><strong>{saveState === 'error' ? 'La pergamena non è stata salvata.' : 'Attenzione'}</strong><span>{error}</span></div> : null}
       {conflicts.length ? <div className="sheet-conflicts" role="alert"><strong>Conflitto da risolvere</strong>{conflicts.map((conflict) => <p key={conflict.path}><code>{conflict.path}</code>: il tuo valore <b>{String(conflict.localValue ?? '')}</b>, sul server <b>{String(conflict.value ?? '')}</b>.</p>)}</div> : null}
       <div className="character-sheet-window__scroll" role="tabpanel">
-        {!draft ? <div className="sheet-loading">Apro la scheda…</div> : activeTab === 'character' ? <CharacterTab data={draft} patch={patch} sheetId={sheetId ?? undefined} onRoll={onRoll} diceLogs={diceLogs} /> : activeTab === 'story' ? <StoryTab data={draft} portraitUrl={sheet?.portraitUrl ?? null} patch={patch} onPortrait={(file) => void uploadPortrait(file)} /> : <SpellsTab data={draft} patch={patch} />}
+        {!draft ? <div className="sheet-loading">Apro la scheda…</div> : activeTab === 'character' ? <CharacterTab data={draft} patch={patch} sheetId={sheetId ?? undefined} onRoll={onRoll} diceLogs={diceLogs} rollVisibility={rollVisibility} /> : activeTab === 'story' ? <StoryTab data={draft} portraitUrl={sheet?.portraitUrl ?? null} patch={patch} onPortrait={(file) => void uploadPortrait(file)} /> : <SpellsTab data={draft} patch={patch} />}
       </div>
     </div>
   </div>;

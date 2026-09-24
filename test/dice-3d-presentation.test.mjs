@@ -44,6 +44,15 @@ test('traduce tutti i casi percentile richiesti', () => {
   assert.equal(result.presentation.notation, '1d100+1d10@100,7');
 });
 
+test('una voce storica con un dado scartato resta presentabile e conserva la disposizione senza errori', () => {
+  const result = buildDicePresentation(log('historic-advantage', [
+    die('a', 20, 14, 'group-1', 'kept'),
+    die('b', 20, 9, 'group-1', 'discarded'),
+  ]));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.presentation.groups[0].dice.map(({ disposition }) => disposition), ['kept', 'discarded']);
+});
+
 test('preserva gruppi e disposizioni per il result rail', () => {
   const result = buildDicePresentation(log('groups', [
     die('a', 20, 18, 'attack', 'kept'),
@@ -54,6 +63,29 @@ test('preserva gruppi e disposizioni per il result rail', () => {
   assert.deepEqual(result.presentation.groups.map(({ id }) => id), ['attack', 'damage-fire']);
   assert.deepEqual(result.presentation.groups[0].dice.map(({ disposition }) => disposition), ['kept', 'discarded']);
   assert.equal(result.presentation.groups[1].dice[0].disposition, 'unresolved');
+});
+
+test('costruisce la notazione da un log con più tipi di dado e conserva i gruppi logici distinti', () => {
+  const result = buildDicePresentation(log('mixed', [
+    die('a', 8, 5, 'group-1'),
+    die('b', 6, 2, 'group-2'),
+    die('c', 6, 4, 'group-2'),
+    die('d', 6, 6, 'group-2'),
+  ]));
+  assert.equal(result.ok, true);
+  assert.equal(result.presentation.notation, '1d8+3d6@5,2,4,6');
+  assert.deepEqual(result.presentation.groups.map(({ id }) => id), ['group-1', 'group-2']);
+  assert.equal(result.presentation.groups[0].dice.length, 1);
+  assert.equal(result.presentation.groups[1].dice.length, 3);
+});
+
+test('gruppi combinati oltre il limite degradano come un unico gruppo troppo grande', () => {
+  const combined = [
+    ...Array.from({ length: 11 }, (_, index) => die(`a-${index}`, 4, 1, 'group-1')),
+    ...Array.from({ length: 10 }, (_, index) => die(`b-${index}`, 6, 1, 'group-2')),
+  ];
+  assert.equal(combined.length, 21);
+  assert.deepEqual(buildDicePresentation(log('combined-over-limit', combined)), { ok: false, reason: 'too-many-dice' });
 });
 
 test('degrada l intera voce per dettaglio assente, malformato, duplicato o oltre limite', () => {

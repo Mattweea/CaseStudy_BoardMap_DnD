@@ -217,7 +217,9 @@ export interface DragState {
 export type DiceType = 4 | 6 | 8 | 10 | 12 | 20 | 100;
 
 export interface DiceRollLogPart {
-  label: string;
+  // Assente per un gruppo del tiro libero, che non ha un'etichetta come "Danno" o "Danno
+  // secondario"; presente per un blocco di danno della scheda.
+  label?: string;
   formula: string;
   rolls: number[];
   keptRolls: number[];
@@ -264,7 +266,6 @@ export interface DiceRollLog {
 export interface DiceRollFormulaRequest {
   formula: string;
   visibility: 'public' | 'secret';
-  mode?: RollMode;
 }
 
 export interface DiceRollSourceRequest {
