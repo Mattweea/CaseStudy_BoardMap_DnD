@@ -22,7 +22,7 @@ Il client SHALL animare sopra la superficie della mappa ogni nuovo log visibile 
 
 ### Requirement: Dadi multipli e percentile leggibili
 
-La presentazione SHALL includere tutti i dadi autorevoli di una voce entro il limite supportato e SHALL mantenere riconoscibili i gruppi logici. Un d100 logico SHALL essere rappresentato mediante due modelli percentile coordinati la cui lettura corrisponde al valore `1..100`, compresi `100`, i multipli di dieci e i valori inferiori a dieci, senza aggiungere dadi al contratto autorevole. Al termine del tiro, i dadi di una stessa voce SHALL essere presentati con pari enfasi, senza che la presentazione indichi quale esito debba contare.
+La presentazione SHALL includere tutti i dadi autorevoli di una voce entro il limite supportato e SHALL rispettare i gruppi logici del tiro. Un d100 logico SHALL essere rappresentato mediante due modelli percentile coordinati la cui lettura corrisponde al valore `1..100`, compresi `100`, i multipli di dieci e i valori inferiori a dieci, senza aggiungere dadi al contratto autorevole. Al termine del tiro, i dadi di una stessa voce SHALL restare fermi sulla mappa con pari enfasi, senza che la presentazione indichi quale esito debba contare. La presentazione SHALL NOT sovrapporre alla mappa un riepilogo testuale del risultato: la lettura del tiro, gruppi compresi, SHALL restare affidata al log dei dadi.
 
 #### Scenario: Coppia non risolta
 
@@ -42,7 +42,7 @@ La presentazione SHALL includere tutti i dadi autorevoli di una voce entro il li
 #### Scenario: Danno con più gruppi
 
 - **WHEN** un tiro di danno contiene dadi appartenenti a due gruppi logici
-- **THEN** tutti i dadi rotolano nella stessa presentazione e il riepilogo finale conserva distinguibili i due gruppi
+- **THEN** tutti i dadi rotolano nella stessa presentazione, nessun riepilogo compare sulla mappa e il log mostra distinti i due gruppi
 
 ### Requirement: Una sola animazione per nuovo log visibile
 
@@ -89,7 +89,7 @@ La scena SHALL essere trasparente agli eventi del puntatore e SHALL NOT sottrarr
 
 ### Requirement: Interruzione immediata della presentazione
 
-Durante una presentazione 3D attiva il partecipante SHALL poter terminare immediatamente il tiro corrente premendo `Esc` oppure effettuando un click primario. L'interruzione SHALL ripulire la scena e l'eventuale attesa del riepilogo senza modificare il log o il risultato autorevole, SHALL NOT impedire l'azione normalmente associata al click o al tasto e SHALL consentire alla coda di proseguire con il tiro successivo.
+Durante una presentazione 3D attiva il partecipante SHALL poter terminare immediatamente il tiro corrente premendo `Esc` oppure effettuando un click primario. L'interruzione SHALL ripulire la scena e l'eventuale attesa a dadi fermi senza modificare il log o il risultato autorevole, SHALL NOT impedire l'azione normalmente associata al click o al tasto e SHALL consentire alla coda di proseguire con il tiro successivo.
 
 #### Scenario: Salto con Escape durante il tiro
 
@@ -103,7 +103,7 @@ Durante una presentazione 3D attiva il partecipante SHALL poter terminare immedi
 
 #### Scenario: Salto durante il riepilogo finale
 
-- **WHEN** i dadi sono fermi e il riepilogo finale è ancora visibile
+- **WHEN** i dadi sono fermi e ancora visibili sulla mappa
 - **THEN** `Esc` o un click primario chiude subito la presentazione e libera la coda
 
 ### Requirement: Preferenze personali persistenti dei dadi 3D
