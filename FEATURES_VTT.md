@@ -438,30 +438,51 @@ Il tooltip non è una perdita: non è raggiungibile da tastiera e non è annunci
 
 ### P0.8 — Turni, HP e condizioni durante il combattimento
 
-**Vincolo ereditato da P0.7.5:** il tiro d'iniziativa diventa doppio come ogni altro `d20` — due esiti indipendenti, la scelta a chi legge — e `initiativeMode` sui token smette di avere senso. Due cose che P0.7.5 non poteva risolvere restano qui: un valore d'iniziativa deve collassare a **un** numero per guidare l'ordine dei turni, quindi serve un momento esplicito in cui la coppia diventa un valore; e il tiro di massa (`rollForEveryone`) moltiplicherebbe quel momento per ogni creatura, il che è un flusso diverso, non lo stesso costo ripetuto. Da P0.7.5 il motore conserva `advantage` e `disadvantage` senza produttori, in attesa di questa decisione.
+**Vincolo ereditato da P0.7.5:** un `d20` libero si risolve come coppia indipendente e `initiativeMode` sui token smette di avere senso. Un valore d'iniziativa però deve collassare a **un** numero per guidare l'ordine dei turni, e il tiro di massa (`rollForEveryone`) moltiplicherebbe quel momento per ogni creatura. Da P0.7.5 il motore conserva `advantage` e `disadvantage` senza produttori, in attesa di questa decisione: P0.8 li riattiva **solo** per l'iniziativa.
+
+**Riferimento esterno.** Roll20 (scheda 5e) e Foundry (dnd5e) fanno scegliere la modalità **prima** del tiro d'iniziativa e mandano al tracker un solo numero; Foundry offre uno spareggio calcolato sulla Destrezza. Roll20 non applica danni in automatico: si scrive `-7` o `+5` sulla barra HP del token e il VTT fa il conto. P0.8 segue questi due modelli.
+
+**Decisioni confermate:**
+
+- **Fonte delle regole:** PHB 5e 2014. Dove il tavolo adotta una variante, è dichiarata qui.
+- **Due modalità di sessione:** Esplorazione e Combattimento, commutate solo dal Master. In Esplorazione il movimento è libero, senza budget, non esiste turno attivo e il tiro d'iniziativa è disabilitato. Entrando in Combattimento il tracker si svuota, i partecipanti tirano l'iniziativa e il Master avvia il round 1. Uscendo, tracker, round, movimento usato e scatto si azzerano.
+- **Modalità del tiro d'iniziativa come in Roll20:** accanto al riquadro Iniziativa della scheda un'icona impostazioni apre un selettore Normale/Vantaggio/Svantaggio. La scelta è un dato della scheda, così vale anche quando il Master tira al posto del Player; il server risolve il tiro con quella modalità e produce un valore solo. È l'unica eccezione alla regola di P0.7.5 per cui un `d20` non dichiara modalità.
+- **Dove si tira:** dalla scheda e dalla tab Turni di iniziativa. Il risultato entra nella voce del token collegato e nel log dei dadi. Il Master può tirare per un Player che non l'ha fatto; `rollForEveryone` resta solo del Master.
+- **Ordine e spareggio come in Foundry:** valore decrescente; a parità vince il modificatore di Destrezza più alto; a parità ulteriore decide una frazione casuale generata dal server al momento del tiro, mai mostrata. Variante dichiarata rispetto al PHB, che lascia gli spareggi a Master e giocatori. Lo spostamento o l'inserimento esplicito del Master prevale su ogni valore.
+- **Turni:** li avanza il Master. Un'impostazione del Master, spenta di default, permette al Player di terminare il proprio turno quando il token attivo è suo.
+- **Avvisi:** all'avvio del combattimento compare a tutti un annuncio con spade incrociate davanti a uno scudo (icone game-icons.net già in uso) e un effetto sonoro. «Sei il prossimo!» e «Tocca a te!» restano visibili solo al Player interessato e guadagnano un suono. Audio libero CC0 (pacchetto Kenney RPG Audio o equivalente); volume e silenziamento sono preferenze locali nella tab Impostazioni.
+- **HP senza automazione di attacchi e cure, come in Roll20:** l'app non sa se un nemico ha *Scudo* o se un incantesimo cura, quindi un tiro non modifica mai gli HP da solo. Il Player aggiorna il proprio PG, il Master i mostri, scrivendo `-N` o `+N` su token o scheda. L'unica aritmetica applicata è quella del PHB: il danno scala prima gli HP temporanei, le cure non superano il massimo, gli HP temporanei non si sommano. A 0 HP la condizione Privo di sensi si applica in automatico.
+- **Condizioni PHB 2014:** le quattordici ufficiali più Indebolimento a livelli, in un menu radiale sul token (Player sul proprio, Master su tutti) con quattro icone per le più comuni — Prono, Afferrato, Trattenuto, Avvelenato — e un'icona `+` che apre le altre, per non affollarlo. Nessuna durata: si tolgono a mano. L'unico effetto meccanico gestito è la velocità: 0 per Afferrato, Trattenuto, Paralizzato, Pietrificato, Stordito, Privo di sensi e Indebolimento 5; dimezzata dal livello 2 di Indebolimento. Prono: un comando esplicito «Alzati» toglie la condizione e costa metà della velocità; muoversi restando proni significa strisciare, e ogni casella costa il doppio.
+- **Risorse del turno:** si traccia solo il movimento; azione, azione bonus e reazione restano al tavolo.
+- **Confine con P0.9:** le voci d'iniziativa dei PNG del Master arrivano con P0.9; P0.8 non introduce schede per i mostri.
+- **Tre change in sequenza:** `p0-8a` modalità di sessione, iniziativa, avvisi e fine turno opzionale; `p0-8b` HP con `±N`; `p0-8c` condizioni, menu radiale e velocità.
 
 **Players**
 
-- [ ] Tirare l'iniziativa dalla scheda e vedere il risultato nella propria voce del tracker, scegliendo nella modale fra tiro normale, vantaggio e svantaggio.
-- [ ] Mostrare al player quando tocca a lui e quanto movimento o risorse gli restano nel turno.
-- [ ] Vedere danni, cure, HP temporanei e condizioni aggiornarsi su scheda e token durante il combattimento.
+- [x] Scegliere dalla scheda la modalità del proprio tiro d'iniziativa e tirare dalla scheda o dalla tab Turni, vedendo il risultato nella propria voce del tracker e nel log.
+- [x] Ricevere «Sei il prossimo!» e «Tocca a te!» con un suono, e vedere il movimento residuo nel turno.
+- [x] Terminare il proprio turno quando il Master lo consente.
+- [ ] Aggiornare gli HP del proprio PG scrivendo `-N` o `+N` su token o scheda.
+- [ ] Applicare e togliere condizioni sul proprio token dal menu radiale, e alzarsi da prono con «Alzati».
 
 **Master**
 
-- [ ] Avviare e avanzare il combattimento, correggere iniziativa e turno, applicare danni, cure e condizioni ai bersagli.
-- [ ] Inserire un elemento nell'iniziativa in qualunque posizione, assegnando il valore manualmente oppure lanciando un dado dalla modale con scelta fra tiro normale, vantaggio e svantaggio.
+- [x] Passare fra Esplorazione e Combattimento, con annuncio sonoro all'avvio.
+- [x] Avanzare e correggere turno e round, tirare l'iniziativa al posto di un Player e inserire o spostare una voce in qualunque posizione, con valore manuale o tirato.
+- [x] Consentire o no ai Player di terminare il proprio turno.
+- [ ] Aggiornare HP e condizioni di qualunque token.
 
 **Sistema**
 
-- [ ] Mantenere condivisi iniziativa, turno attivo e numero del round.
-- [ ] Collegare l'iniziativa tirata dalla scheda alla voce corretta del tracker.
-- [ ] Ordinare per valore decrescente i tiri di iniziativa, conservando l'ordine imposto esplicitamente dal Master quando sposta o inserisce una voce in una posizione specifica.
-- [ ] Applicare danni, cure e HP temporanei al bersaglio in pochi passaggi, aggiornando scheda e token insieme.
-- [ ] Usare marcatori di condizione specifici, con durata o scadenza quando pertinente.
+- [x] Mantenere condivisi modalità di sessione, iniziativa, turno attivo e numero del round.
+- [x] Risolvere lato server il tiro d'iniziativa con la modalità della scheda e collegarlo alla voce corretta del tracker.
+- [x] Ordinare per valore, modificatore di Destrezza e frazione nascosta, conservando l'ordine esplicito del Master.
+- [ ] Applicare `±N` con l'ordine PHB degli HP temporanei, aggiornando scheda e token insieme, e Privo di sensi a 0 HP.
+- [ ] Ricavare la velocità disponibile dalle condizioni attive, addebitare «Alzati» sul budget del turno e raddoppiare il costo del movimento di un token prono.
 
-**Stato attuale:** iniziativa, round, HP e alcune condizioni sono già presenti, ma non sono collegati a una scheda personale e alle sue azioni. La modale esistente non copre lo svantaggio né l'inserimento arbitrario nell'ordine.
+**Stato attuale:** `p0-8a` applicata (change `p0-8a-combat-mode-initiative`, in attesa di archiviazione). La sessione ha le modalità Esplorazione e Combattimento, con fase di tiro prima del round 1; il budget di movimento vale solo a round avviato. Il tiro d'iniziativa è risolto dal server (`server/initiative-roll.mjs`) dalla scheda o dalla tab Turni, con la modalità salvata nella scheda, e scrive voce e log in una sola commit; l'ordine segue valore, Destrezza e frazione nascosta, e gli spostamenti del Master restano. Il Master avanza i turni dal server e può consentire ai Player di chiudere il proprio; annuncio con emblema, corno da battaglia e tamburi per «Tocca a te!» (asset CC0 locali), con volume e silenziamento locali. HP con `±N` (`p0-8b`) e condizioni PHB con velocità (`p0-8c`) restano da fare: le condizioni attuali non sono quelle del PHB.
 
-**Accettazione:** il Master avvia l'incontro, un Player sceglie normale, vantaggio o svantaggio e tira iniziativa dalla scheda; il tracker colloca il risultato nell'ordine decrescente. Il Master inserisce una voce a scelta manualmente o con un tiro, anche in una posizione diversa da quella suggerita dal valore. Turno, HP, condizioni e risorse restano coerenti su scheda, token e tracker.
+**Accettazione:** il Master passa in Combattimento e tutti vedono e sentono l'annuncio; un Player imposta Vantaggio accanto all'Iniziativa, tira dalla scheda e il tracker colloca il valore in ordine decrescente, con due valori pari ordinati per Destrezza. Il Master tira per un Player assente, sposta una voce a mano e avanza i turni; solo il Player interessato vede e sente «Sei il prossimo!» e «Tocca a te!». Un PG con 5 HP temporanei che riceve `-8` perde 5 temporanei e 3 normali; a 0 HP diventa Privo di sensi. Un token Afferrato non può muoversi; un token prono che usa «Alzati» perde metà della velocità del turno, mentre uno che striscia per due caselle ne paga quattro. Tornando in Esplorazione il movimento è libero e il tracker è vuoto.
 
 ### P0.9 — Mappe e scene giocabili
 

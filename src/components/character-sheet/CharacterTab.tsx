@@ -3,7 +3,7 @@ import type {
   AbilityKey, CharacterSheetAttack, CharacterSheetData, CharacterSheetEquipmentItem, CharacterSheetFeature,
   CharacterSheetLanguage, CharacterSheetPatchOperation, CharacterSheetResourceSection, CharacterSheetRow, CharacterSheetTool, CoinKey, SkillKey,
 } from '../../types/character-sheet';
-import type { DiceRollLog, DiceRollSourceRequest } from '../../types';
+import type { DiceRollLog, DiceRollSourceRequest, InitiativeRollMode, SessionMode } from '../../types';
 import {
   abilityModifier, computeAttackBonus, computeDamageModifier, computeInitiative, computePassivePerception,
   computeSavingThrowValue, computeSkillValue, computeToolBonus, formatSigned, proficiencyBonusForLevel, SKILL_ABILITY,
@@ -14,6 +14,7 @@ import {
 } from './SheetPrimitives';
 import { AttackEditor, ToolEditor } from './RowEditor';
 import { createAttack as createAttackDraft, createTool as createToolDraft } from './rowDefaults';
+import { GearIcon, LockIcon } from '../UiIcons';
 
 const abilities: Array<[AbilityKey, string, string]> = [
   ['strength', 'Forza', 'FOR'], ['dexterity', 'Destrezza', 'DES'], ['constitution', 'Costituzione', 'COS'],
@@ -82,6 +83,29 @@ function wasLastAttackCritical(diceLogs: DiceRollLog[] | undefined, attackTarget
   return diceLogs?.find((log) => log.source?.target === attackTarget)?.critical === true;
 }
 
+const initiativeRollModes: Array<[InitiativeRollMode, string]> = [['normal', 'Normale'], ['advantage', 'Vantaggio'], ['disadvantage', 'Svantaggio']];
+const INITIATIVE_DISABLED_REASON = "Il tiro d'iniziativa si abilita quando il Master avvia il combattimento.";
+
+// Selettore della modalità del tiro d'iniziativa (P0.8a): salvata nella scheda come ogni altro
+// campo, letta dal server al momento del tiro. Cambiarla non tira nulla. Sta fuori dal bersaglio
+// `data-roll-source`, così un click sulle opzioni non avvia mai un tiro.
+function InitiativeModePicker({ mode, onChange }: { mode: InitiativeRollMode; onChange: (mode: InitiativeRollMode) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  return <div className="initiative-mode" onKeyDown={(event) => { if (event.key === 'Escape' && isOpen) { event.stopPropagation(); setIsOpen(false); } }}>
+    <button
+      type="button" className="sheet-gear-button initiative-mode__toggle" aria-expanded={isOpen}
+      aria-label="Modalità del tiro d'iniziativa" title="Modalità del tiro d'iniziativa" onClick={() => setIsOpen((current) => !current)}
+    ><GearIcon size="0.95em" /></button>
+    {isOpen ? <fieldset className="initiative-mode__options">
+      <legend>Tiro d'iniziativa</legend>
+      {initiativeRollModes.map(([value, label]) => <label key={value}>
+        <input type="radio" name="initiative-roll-mode" value={value} checked={mode === value} onChange={() => onChange(value)} />
+        <span>{label}</span>
+      </label>)}
+    </fieldset> : null}
+  </div>;
+}
+
 // Emette una patch 'set' solo per i campi effettivamente cambiati rispetto all'apertura dell'editor.
 function buildRowDiffOps<T extends { id: string }>(collection: string, before: T, after: T): CharacterSheetPatchOperation[] {
   const ops: CharacterSheetPatchOperation[] = [];
@@ -92,11 +116,13 @@ function buildRowDiffOps<T extends { id: string }>(collection: string, before: T
   return ops;
 }
 
-export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisibility = 'public' }: {
+export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisibility = 'public', sessionMode }: {
   data: CharacterSheetData; patch: (operation: CharacterSheetPatchOperation) => void;
   sheetId?: string; onRoll?: (request: DiceRollSourceRequest) => void; diceLogs?: DiceRollLog[];
-  rollVisibility?: 'public' | 'secret';
+  rollVisibility?: 'public' | 'secret'; sessionMode?: SessionMode;
 }) {
+  const isInitiativeRollDisabled = sessionMode === 'exploration';
+  const initiativeRollMode = data.character.initiativeRollMode ?? 'normal';
   const [featureFilter, setFeatureFilter] = useState('');
   const [editingAttackId, setEditingAttackId] = useState<string | 'new' | null>(null);
   const [editingToolId, setEditingToolId] = useState<string | 'new' | null>(null);
@@ -140,6 +166,12 @@ export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisib
     if (clicked.closest('button, input, select, textarea, a')) return;
     const target = clicked.closest<HTMLElement>('[data-roll-source]')?.dataset.rollSource;
     if (!target) return;
+    // L'iniziativa scrive l'ordine dei turni: in Esplorazione il bersaglio è inattivo. La sua
+    // visibilità la decide il server, non l'interruttore segreto della scheda.
+    if (target === 'initiative') {
+      if (!isInitiativeRollDisabled) onRoll({ source: { sheetId, target } });
+      return;
+    }
     if (target.startsWith('attack-damage:')) {
       const attackTarget = `attack:${target.slice('attack-damage:'.length)}`;
       onRoll({ source: { sheetId, target }, visibility: rollVisibility, critical: wasLastAttackCritical(diceLogs, attackTarget) });
@@ -152,7 +184,7 @@ export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisib
     {rollVisibility === 'secret' ? (
       // Stato persistente reso evidente dove si tira, non solo dove si è attivato: tirare in
       // pubblico credendosi in segreto rivelerebbe qualcosa di irrecuperabile.
-      <p className="sheet-roll-visibility-banner" role="status">🔒 I prossimi tiri da questa scheda sono segreti.</p>
+      <p className="sheet-roll-visibility-banner" role="status"><LockIcon size="1em" /> I prossimi tiri da questa scheda sono segreti.</p>
     ) : null}
     <header className="sheet-identity">
       <SheetField label="Nome del personaggio" value={data.character.name} onChange={set('character.name')} className="sheet-identity__name" />
@@ -227,11 +259,21 @@ export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisib
       <div className="character-page__column character-page__combat">
         <div className="combat-vitals">
           <FramedValue label="Classe Armatura" value={data.character.armorClass} onChange={set('character.armorClass')} className="framed-value--shield" />
-          <ComputedWithMiscBonus
-            label="Iniziativa" rollSource="initiative"
-            value={computeInitiative({ dexScore: data.character.abilities.dexterity.score, miscBonus: data.character.initiativeMiscBonus })}
-            miscBonus={data.character.initiativeMiscBonus} onMiscBonus={set('character.initiativeMiscBonus')}
-          />
+          <div className="initiative-control">
+            <ComputedWithMiscBonus
+              label="Iniziativa" rollSource="initiative"
+              value={computeInitiative({ dexScore: data.character.abilities.dexterity.score, miscBonus: data.character.initiativeMiscBonus })}
+              miscBonus={data.character.initiativeMiscBonus} onMiscBonus={set('character.initiativeMiscBonus')}
+              rollDisabledReason={isInitiativeRollDisabled ? INITIATIVE_DISABLED_REASON : undefined}
+              badge={initiativeRollMode === 'normal' ? null : <abbr
+                className={`initiative-mode__badge initiative-mode__badge--${initiativeRollMode}`}
+                title={initiativeRollMode === 'advantage' ? 'Iniziativa con vantaggio' : 'Iniziativa con svantaggio'}
+                aria-label={initiativeRollMode === 'advantage' ? 'Iniziativa con vantaggio' : 'Iniziativa con svantaggio'}
+              >{initiativeRollMode === 'advantage' ? 'V' : 'S'}</abbr>}
+            />
+            <InitiativeModePicker mode={initiativeRollMode} onChange={(mode) => set('character.initiativeRollMode')(mode)} />
+            {isInitiativeRollDisabled ? <p className="initiative-control__hint">{INITIATIVE_DISABLED_REASON}</p> : null}
+          </div>
           <FramedValue label="Velocità" value={data.character.speed} onChange={set('character.speed')} />
         </div>
         <SheetPanel title="Punti ferita"><HitPointMeter {...data.character.hitPoints} /><div className="hp-grid">

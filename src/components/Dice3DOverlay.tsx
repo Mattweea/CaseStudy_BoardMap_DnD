@@ -40,7 +40,6 @@ export function Dice3DOverlay({
     return node;
   });
   const [presentation, setPresentation] = useState<DicePresentation | null>(null);
-  const [isSettled, setIsSettled] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   );
@@ -165,7 +164,6 @@ export function Dice3DOverlay({
     if (!webglAvailableRef.current) return;
 
     setPresentation(result.presentation);
-    setIsSettled(false);
     overlayRoot.dataset.state = 'rolling';
 
     let aborted = false;
@@ -211,7 +209,6 @@ export function Dice3DOverlay({
       audioControllerRef.current?.settle();
 
       if (!aborted) {
-        setIsSettled(true);
         overlayRoot.dataset.state = 'settled';
         await Promise.race([
           wait(RESULT_HOLD_MS),
@@ -231,7 +228,6 @@ export function Dice3DOverlay({
         console.warn('Pulizia della scena 3D non riuscita.', error);
       }
       overlayRoot.dataset.state = 'idle';
-      setIsSettled(false);
       setPresentation(null);
     }
   };
@@ -306,38 +302,9 @@ export function Dice3DOverlay({
     return () => observer.disconnect();
   }, [overlayRoot]);
 
+  // Nessun riepilogo testuale sopra la mappa: la lettura del tiro è affidata al log dei dadi.
   return createPortal(
-    <>
-      <div id={SCENE_ID} className="dice-3d-overlay__scene" />
-      <div className="dice-3d-result-rail" data-state={isSettled ? 'visible' : 'hidden'}>
-        {presentation ? (
-          <>
-            <strong className="dice-3d-result-rail__title">{presentation.label}</strong>
-            <div className="dice-3d-result-rail__groups">
-              {presentation.groups.map((group) => (
-                <div className="dice-3d-result-group" key={group.id}>
-                  <span className="dice-3d-result-group__dice">
-                    {group.dice.map((die) => (
-                      // `disposition` (kept/discarded/unresolved) resta nel dato per le voci
-                      // storiche, ma la resa non lo distingue più: i dadi di una voce hanno
-                      // pari enfasi, salvo la coppia non risolta che ha una tinta propria.
-                      <span
-                        className={`dice-3d-result-die dice-3d-result-die--${die.disposition === 'unresolved' ? 'unresolved' : 'kept'}`}
-                        key={die.id}
-                        title={`${die.id} · ${group.id}`}
-                      >
-                        <small>d{die.sides}</small>
-                        <b>{die.label}</b>
-                      </span>
-                    ))}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : null}
-      </div>
-    </>,
+    <div id={SCENE_ID} className="dice-3d-overlay__scene" />,
     overlayRoot,
   );
 }

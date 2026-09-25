@@ -131,6 +131,20 @@ export class CharacterSheetService {
     return publicSheet(state);
   }
 
+  // Ricerca interna del server, senza utente: trova la scheda di un proprietario per ricavarne dati
+  // di gioco (modificatore di Destrezza, modalità d'iniziativa). Non è esposta da alcuna route:
+  // chi deve leggere la scheda per conto di un utente passa poi da `get`, che applica la policy.
+  findIdByOwner(ownerUserId, campaignId = 'local-campaign') {
+    for (const state of this.live.values()) {
+      if (state.record.ownerUserId === ownerUserId && state.record.campaignId === campaignId) return state.record.id;
+    }
+    return this.repository.findByOwnerCampaign?.(ownerUserId, campaignId)?.id ?? null;
+  }
+
+  readInternal(id) {
+    return structuredClone(this.#load(id).data);
+  }
+
   getRoster(user, campaignId = 'local-campaign') {
     if (!user) throw new CharacterSheetError('Autenticazione richiesta.', 401);
     return this.repository.findByCampaign(campaignId).map((sheet) => ({

@@ -18,6 +18,7 @@ export const DAMAGE_TYPES = [
   'piercing', 'poison', 'psychic', 'radiant', 'slashing', 'thunder',
 ];
 export const DEATH_SAVE_COUNTS = ['0', '1', '2', '3'];
+export const INITIATIVE_ROLL_MODES = ['normal', 'advantage', 'disadvantage'];
 export const SPELLCASTING_ABILITIES = ['', ...ABILITY_KEYS];
 export const ABILITY_OR_NONE = ['', ...ABILITY_KEYS];
 export const MAX_TEXT_LENGTH = 20_000;
@@ -113,6 +114,7 @@ export function createInitialCharacterSheetData(profile = {}) {
       inspiration: false,
       level: '1',
       initiativeMiscBonus: '',
+      initiativeRollMode: 'normal',
       abilities: valueMap(ABILITY_KEYS, () => ({ score: '10' })),
       savingThrows: valueMap(ABILITY_KEYS, () => ({ proficient: false, miscBonus: '' })),
       skills: valueMap(SKILL_KEYS, () => ({ proficiency: 'none', miscBonus: '' })),
@@ -226,7 +228,7 @@ export function validateCharacterSheetData(data) {
   if (data.schemaVersion !== 1) errors.push('scheda.schemaVersion deve essere 1.');
 
   const characterKeys = [
-    ...characterScalarKeys, 'inspiration', 'level', 'initiativeMiscBonus', 'abilities', 'savingThrows', 'skills',
+    ...characterScalarKeys, 'inspiration', 'level', 'initiativeMiscBonus', 'initiativeRollMode', 'abilities', 'savingThrows', 'skills',
     'hitPoints', 'hitDice', 'deathSaves', ...CHARACTER_COLLECTION_KEYS, 'currency', 'sectionLocks',
   ];
   if (exactKeys(data.character, characterKeys, 'scheda.character', errors)) {
@@ -234,6 +236,7 @@ export function validateCharacterSheetData(data) {
     boolean(data.character.inspiration, 'scheda.character.inspiration', errors);
     integer(data.character.level, 'scheda.character.level', errors);
     text(data.character.initiativeMiscBonus, 'scheda.character.initiativeMiscBonus', errors);
+    validateField(INITIATIVE_ROLL_MODES, data.character.initiativeRollMode, 'scheda.character.initiativeRollMode', errors);
     if (exactKeys(data.character.abilities, ABILITY_KEYS, 'scheda.character.abilities', errors)) {
       ABILITY_KEYS.forEach((key) => validateValueObject(data.character.abilities[key], { score: 'integer' }, `scheda.character.abilities.${key}`, errors));
     }
@@ -425,6 +428,9 @@ export function normalizeCharacterSheetData(value, profile = {}) {
     const computedBase = computeInitiative({ dexScore, miscBonus: '' });
     initial.character.initiativeMiscBonus = miscBonusFromDifference(legacyInitiative, computedBase);
   }
+  // Modalità del tiro d'iniziativa (P0.8a): una scheda precedente resta su Normale. Il roster non
+  // la decide: la sceglie chi gioca dalla scheda.
+  copyKnownField(initial.character, value.character, 'initiativeRollMode', INITIATIVE_ROLL_MODES);
 
   // 5. Attacchi, strumenti, dado vita e salvataggi contro morte.
   CHARACTER_COLLECTION_KEYS.forEach((collection) => {
@@ -522,6 +528,7 @@ function buildScalarFieldRules() {
   rules['character.inspiration'] = 'boolean';
   rules['character.level'] = 'integer';
   rules['character.initiativeMiscBonus'] = 'text';
+  rules['character.initiativeRollMode'] = INITIATIVE_ROLL_MODES;
   storyKeys.forEach((key) => { rules[`story.${key}`] = 'text'; });
   spellHeaderKeys.forEach((key) => { rules[`spells.${key}`] = 'text'; });
   rules['spells.spellcastingAbility'] = SPELLCASTING_ABILITIES;

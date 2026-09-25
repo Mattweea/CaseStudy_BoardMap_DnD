@@ -168,3 +168,26 @@ test('owner or master can replace a portrait without projecting it to the token'
   assert.deepEqual(removed, []);
   await assert.rejects(service.replacePortrait({ id: 'other', role: 'adventurer' }, 'sheet-1', { buffer: Buffer.from('png'), mediaType: 'image/png' }, storage), /negata/);
 });
+
+test("la modalità d'iniziativa si salva con le regole di autorizzazione e versione degli altri campi", () => {
+  const { service } = harness();
+  // Una scheda letta dal repository senza il campo (normalizzata in lettura) non cambia versione.
+  assert.equal(service.get(owner, 'sheet-1').version, 1);
+  assert.equal(service.get(owner, 'sheet-1').data.character.initiativeRollMode, 'normal');
+
+  const saved = service.applyPatch(owner, 'sheet-1', { baseVersion: 1, operations: [
+    { op: 'set', path: 'character.initiativeRollMode', value: 'advantage' },
+  ] });
+  assert.equal(saved.version, 2);
+  assert.equal(saved.data.character.initiativeRollMode, 'advantage');
+
+  assert.throws(() => service.applyPatch(owner, 'sheet-1', { baseVersion: 2, operations: [
+    { op: 'set', path: 'character.initiativeRollMode', value: 'triple' },
+  ] }), /non valido/);
+  const intruder = { id: 'player-2', role: 'adventurer' };
+  assert.throws(() => service.applyPatch(intruder, 'sheet-1', { baseVersion: 2, operations: [
+    { op: 'set', path: 'character.initiativeRollMode', value: 'disadvantage' },
+  ] }), /negata/);
+  assert.equal(service.get(owner, 'sheet-1').data.character.initiativeRollMode, 'advantage');
+  assert.equal(service.get(owner, 'sheet-1').version, 2);
+});

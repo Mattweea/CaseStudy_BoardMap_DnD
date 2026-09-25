@@ -559,3 +559,26 @@ input.resource-block__caption::placeholder { color: var(--sheet-muted); }
 [data-roll-source] button {
   cursor: auto;
 }
+
+/* Iniziativa (P0.8a): modalità del tiro salvata nella scheda e bersaglio inattivo in Esplorazione. */
+.initiative-control { position: relative; display: grid; }
+.initiative-control > .framed-value { position: relative; }
+.initiative-mode { position: absolute; top: .15rem; right: .15rem; z-index: 2; }
+.initiative-mode__toggle { opacity: 1; }
+.initiative-mode__options {
+  position: absolute; top: calc(100% + .25rem); right: 0; display: grid; gap: .3rem; min-width: 9.5rem; margin: 0;
+  padding: .5rem .65rem; border: 1px solid var(--sheet-line-strong); border-radius: 6px; background: var(--sheet-surface-raised);
+  box-shadow: 0 10px 24px oklch(0% 0 0 / .35);
+}
+.initiative-mode__options legend { padding: 0 .2rem; color: var(--sheet-ember); font: 500 .8125rem/1.2 var(--sheet-font-label); letter-spacing: .04em; }
+.initiative-mode__options label { display: flex; gap: .45rem; align-items: center; color: var(--sheet-ink); font: 500 .9rem/1.2 var(--sheet-font-ui); cursor: pointer; }
+.initiative-mode__options input { accent-color: var(--sheet-ember); }
+.initiative-mode__badge {
+  position: absolute; top: .2rem; left: .3rem; min-width: 1.2rem; padding: .05rem .25rem; border-radius: 3px;
+  font: 700 .75rem/1.2 var(--sheet-font-number); text-align: center; text-decoration: none; letter-spacing: .02em;
+}
+.initiative-mode__badge--advantage { color: oklch(18% .02 150); background: var(--sheet-hp-ok); }
+.initiative-mode__badge--disadvantage { color: oklch(98% .01 30); background: var(--sheet-hp-danger); }
+.framed-value--roll-disabled[data-roll-source] { cursor: not-allowed; opacity: .72; }
+.framed-value--roll-disabled[data-roll-source]:hover { background-color: transparent; box-shadow: none; }
+.initiative-control__hint { margin: .2rem 0 0; color: var(--sheet-muted); font: 500 .75rem/1.25 var(--sheet-font-ui); text-align: center; }

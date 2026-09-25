@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AuthScreen } from './components/AuthScreen';
 import { Board } from './components/Board';
 import { Dice3DOverlay } from './components/Dice3DOverlay';
@@ -11,16 +11,24 @@ import { EditElementModal, ElementsListModal, NewElementModal } from './componen
 import { InitiativeRollModal } from './components/InitiativeRollModal';
 import { InitiativePanel } from './components/InitiativePanel';
 import { Modal } from './components/Modal';
+import { CombatEmblem } from './components/CombatEmblem';
+import {
+  BlockIcon, BookIcon, ChatDiceIcon, CloseIcon, CrossedSwordsIcon, DashIcon, DirectionArrowIcon, GearIcon, KeyboardIcon,
+  MapIcon, MoonIcon, PawnIcon, PinIcon, PlusIcon, ResumeIcon, SaveIcon, SearchIcon, SidebarIcon, SpeakerIcon, TrashIcon, UndoIcon,
+} from './components/UiIcons';
+import { DiceGlyph } from './components/DiceIcons';
 import { CHARACTER_PROFILES, findCharacterProfileByKey, resolveCharacterPortrait } from './constants/characters';
 import { useAnimatedPresence } from './hooks/useAnimatedPresence';
 import { useAuthSession } from './hooks/useAuthSession';
-import { useBattleMapState } from './hooks/useBattleMapState';
+import { isMovementBudgetActive, useBattleMapState } from './hooks/useBattleMapState';
+import { useCombatAudioPreferences } from './hooks/useCombatAudioPreferences';
 import { useDicePresentationPreferences } from './hooks/useDicePresentationPreferences';
 import { usePageActivation } from './hooks/usePageActivation';
 import { getTokenFootprint } from './utils/board';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
 import { characterSheetApi } from './utils/characterSheetApi';
+import { playCombatSound } from './utils/combatAudio';
 import type { CharacterSheetRosterEntry, PublicPortraitEntry } from './utils/characterSheetApi';
 import type { CombatAnnouncement, DiceRollLog, GridPosition, TokenMovementBudget, UnitToken } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
@@ -89,6 +97,7 @@ interface SessionFeedback {
 }
 
 const COMBAT_ANNOUNCEMENT_DURATION_MS = 5600;
+const MOVEMENT_NOTICE_DURATION_MS = 6000;
 
 function cellKey(cell: { x: number; y: number }) {
   return `${cell.x}:${cell.y}`;
@@ -150,7 +159,15 @@ function App() {
     setAnimationEnabled: setDiceAnimationEnabled,
     setSoundEnabled: setDiceSoundEnabled,
   } = useDicePresentationPreferences();
+  const {
+    preferences: combatAudioPreferences,
+    setEnabled: setCombatAudioEnabled,
+    setVolume: setCombatAudioVolume,
+  } = useCombatAudioPreferences();
   const hasUserActivated = usePageActivation();
+  // Gli effetti dei suoni leggono le preferenze correnti senza ripartire quando cambiano.
+  const combatAudioRef = useRef({ preferences: combatAudioPreferences, hasUserActivated });
+  combatAudioRef.current = { preferences: combatAudioPreferences, hasUserActivated };
   const {
     isReady: isBattleMapReady,
     isMutating,
@@ -158,10 +175,15 @@ function App() {
     diceRollDeliveries,
     addTokens,
     rollDice,
-    cycleTurn,
+    advanceTurn,
+    endOwnTurn,
+    endCombat,
+    startRound,
+    rollInitiative,
+    rollAllInitiative,
+    setPlayersCanEndTurn,
     clearDiceLogs,
     clearInitiative,
-    clearInitiatives,
     moveTokens,
     moveOwnedToken,
     moveOwnedTokenBy,
@@ -293,10 +315,11 @@ function App() {
       : null;
   const dashUsed = sessionToken ? state.dashUsedByTokenId[sessionToken.id] === true : false;
   const extraMovement = sessionToken ? state.extraMovementByTokenId[sessionToken.id] ?? 0 : 0;
-  const hasInitiativeOrder = state.initiatives.length > 0;
+  // Il budget di movimento si mostra solo quando il server lo applica: Combattimento a round avviato.
+  const budgetApplies = isMovementBudgetActive(state);
   const movementBudgetByTokenId = useMemo(() => {
     const budgets: Record<string, TokenMovementBudget> = {};
-    if (!hasInitiativeOrder) {
+    if (!budgetApplies) {
       return budgets;
     }
 
@@ -316,7 +339,7 @@ function App() {
 
     return budgets;
   }, [
-    hasInitiativeOrder,
+    budgetApplies,
     state.tokens,
     state.dashUsedByTokenId,
     state.extraMovementByTokenId,
@@ -495,18 +518,29 @@ function App() {
     setDraftNotes(state.sharedNotes);
   }, [state.sharedNotes]);
 
+  // La prima istantanea caricata fissa la base: un avviso già presente al caricamento (ricarica a
+  // metà turno) non si ripropone. Da lì in poi ogni nuovo id è una transizione da mostrare, anche
+  // il primo avviso della partita — che prima veniva scambiato per la base e perso.
+  const turnNoticeBaselineReadyRef = useRef(false);
   useEffect(() => {
-    const notice = state.turnNotice;
-    if (!notice) return;
-    if (lastTurnNoticeIdRef.current === null) {
-      lastTurnNoticeIdRef.current = notice.id;
+    if (!isBattleMapReady) {
+      turnNoticeBaselineReadyRef.current = false;
       return;
     }
+    const notice = state.turnNotice;
+    if (!turnNoticeBaselineReadyRef.current) {
+      turnNoticeBaselineReadyRef.current = true;
+      lastTurnNoticeIdRef.current = notice?.id ?? null;
+      return;
+    }
+    if (!notice) return;
     if (notice.id !== lastTurnNoticeIdRef.current) {
       lastTurnNoticeIdRef.current = notice.id;
       setTurnNotice(notice.kind);
+      const { preferences, hasUserActivated: activated } = combatAudioRef.current;
+      playCombatSound(notice.kind === 'turn' ? 'turn-now' : 'turn-next', preferences, activated);
     }
-  }, [state.turnNotice]);
+  }, [isBattleMapReady, state.turnNotice]);
 
   useEffect(() => {
     if (state.isBoardFullyLit) {
@@ -565,6 +599,7 @@ function App() {
     window.sessionStorage.setItem(COMBAT_ANNOUNCEMENT_STORAGE_KEY, state.combatAnnouncement.id);
     setCombatAnnouncement(state.combatAnnouncement);
     setIsCombatAnnouncementOpen(true);
+    playCombatSound('combat-start', combatAudioRef.current.preferences, combatAudioRef.current.hasUserActivated);
 
     if (combatAnnouncementTimeoutRef.current !== null) {
       window.clearTimeout(combatAnnouncementTimeoutRef.current);
@@ -575,6 +610,51 @@ function App() {
       combatAnnouncementTimeoutRef.current = null;
     }, COMBAT_ANNOUNCEMENT_DURATION_MS);
   }, [state.combatAnnouncement]);
+
+  useEffect(() => {
+    if (!movementNotice) return undefined;
+    const timeoutId = window.setTimeout(clearMovementNotice, MOVEMENT_NOTICE_DURATION_MS);
+    return () => window.clearTimeout(timeoutId);
+    // clearMovementNotice azzera solo lo stato del hook: non serve riavviare il timer a ogni render.
+  }, [movementNotice]);
+
+  // Un tiro dalla scheda o dal log rifiutato dal server non resta silenzioso: il motivo compare
+  // nello stesso avviso in primo piano dei movimenti rifiutati.
+  const [rollNotice, setRollNotice] = useState<{ id: string; message: string } | null>(null);
+  const rollAndReport = async (request: Parameters<typeof rollDice>[0]) => {
+    const result = await rollDice(request);
+    setRollNotice(result.ok ? null : { id: crypto.randomUUID(), message: result.message });
+  };
+  useEffect(() => {
+    if (!rollNotice) return undefined;
+    const timeoutId = window.setTimeout(() => setRollNotice(null), MOVEMENT_NOTICE_DURATION_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [rollNotice]);
+
+  const boardInteractionRef = useRef({ standard: false, fullscreen: false });
+  const handleStandardBoardInteraction = useCallback((isActive: boolean) => {
+    boardInteractionRef.current.standard = isActive;
+  }, []);
+  const handleFullscreenBoardInteraction = useCallback((isActive: boolean) => {
+    boardInteractionRef.current.fullscreen = isActive;
+  }, []);
+
+  function closeCombatAnnouncement() {
+    if (combatAnnouncementTimeoutRef.current !== null) {
+      window.clearTimeout(combatAnnouncementTimeoutRef.current);
+      combatAnnouncementTimeoutRef.current = null;
+    }
+    setIsCombatAnnouncementOpen(false);
+  }
+
+  useEffect(() => {
+    if (!isCombatAnnouncementOpen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeCombatAnnouncement();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCombatAnnouncementOpen]);
 
   function moveSessionTokenBy(deltaX: number, deltaY: number) {
     if (!sessionToken) {
@@ -593,6 +673,12 @@ function App() {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         void undoLastAction();
+        return;
+      }
+
+      // Con un percorso in pianificazione, il righello o una sagoma attivi, frecce e Canc/Backspace
+      // appartengono alla mappa: il token non si muove né si elimina dall'esterno.
+      if (boardInteractionRef.current.standard || boardInteractionRef.current.fullscreen) {
         return;
       }
 
@@ -851,7 +937,6 @@ function App() {
         return (
           <section key="session" className="sidebar__section session-panel">
             <div>
-              <p className="eyebrow">Sessione</p>
               <h2>{user?.displayName}</h2>
             </div>
             <div className="session-panel__body">
@@ -875,8 +960,10 @@ function App() {
                   <p className="session-panel__fact">
                     <span>Stato</span>
                     <strong>
-                      {!hasInitiativeOrder
-                        ? 'Attesa Iniziativa'
+                      {state.sessionMode === 'exploration'
+                        ? 'Esplorazione'
+                        : !state.isRoundStarted
+                          ? 'Attesa Iniziativa'
                         : isPlayersTurn
                           ? 'Il Tuo Turno'
                           : 'In Attesa'}
@@ -893,10 +980,10 @@ function App() {
             </div>
             {!canManageBattleMap && sessionToken ? (
               <div className="movement-pad">
-                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(-1, -1)}>↖</button>
-                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(0, -1)}>↑</button>
-                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(1, -1)}>↗</button>
-                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(-1, 0)}>←</button>
+                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(-1, -1)} aria-label="Muovi su a sinistra"><DirectionArrowIcon angle={315} /></button>
+                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(0, -1)} aria-label="Muovi su"><DirectionArrowIcon angle={0} /></button>
+                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(1, -1)} aria-label="Muovi su a destra"><DirectionArrowIcon angle={45} /></button>
+                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(-1, 0)} aria-label="Muovi a sinistra"><DirectionArrowIcon angle={270} /></button>
                 <div className="movement-pad__center" aria-label="Controlli movimento extra">
                   <button
                     type="button"
@@ -916,14 +1003,14 @@ function App() {
                     +1
                   </button>
                 </div>
-                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(1, 0)}>→</button>
-                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(-1, 1)}>↙</button>
-                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(0, 1)}>↓</button>
-                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(1, 1)}>↘</button>
+                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(1, 0)} aria-label="Muovi a destra"><DirectionArrowIcon angle={90} /></button>
+                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(-1, 1)} aria-label="Muovi giù a sinistra"><DirectionArrowIcon angle={225} /></button>
+                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(0, 1)} aria-label="Muovi giù"><DirectionArrowIcon angle={180} /></button>
+                <button type="button" className="movement-pad__button" onClick={() => moveSessionTokenBy(1, 1)} aria-label="Muovi giù a destra"><DirectionArrowIcon angle={135} /></button>
               </div>
             ) : null}
             <div className="session-panel__controls">
-              {!canManageBattleMap && hasInitiativeOrder && isPlayersTurn && sessionToken ? (
+              {!canManageBattleMap && budgetApplies && isPlayersTurn && sessionToken ? (
                 <button
                   type="button"
                   className="icon-button"
@@ -932,7 +1019,7 @@ function App() {
                   title={dashUsed ? 'Scatto Già Usato' : 'Usa Scatto'}
                   aria-label={dashUsed ? 'Scatto Già Usato' : 'Usa Scatto'}
                 >
-                  🏃
+                  <DashIcon />
                 </button>
               ) : null}
               <button
@@ -943,7 +1030,7 @@ function App() {
                 title="Undo"
                 aria-label="Undo"
               >
-                ↶
+                <UndoIcon />
               </button>
               {canManageBattleMap ? (
                 <button
@@ -953,7 +1040,7 @@ function App() {
                   title="Sospendi Sessione"
                   aria-label="Sospendi Sessione"
                 >
-                  💾
+                  <SaveIcon />
                 </button>
               ) : null}
               {canManageBattleMap ? (
@@ -965,7 +1052,7 @@ function App() {
                   title="Riprendi Ultima Sessione"
                   aria-label="Riprendi Ultima Sessione"
                 >
-                  ⏯
+                  <ResumeIcon />
                 </button>
               ) : null}
               <button
@@ -995,34 +1082,100 @@ function App() {
           <section key="settings" className="sidebar__section settings-panel">
             <div className="panel-heading panel-heading--compact">
               <div>
-                <p className="eyebrow">Sessione</p>
                 <h2>Impostazioni</h2>
               </div>
             </div>
-            <fieldset className="settings-panel__group">
-              <legend>Presentazione dadi</legend>
-              <label className="settings-panel__option">
+            {/* Preferenze personali prima, impostazioni condivise poi, crediti in fondo e chiusi:
+                ogni riga è etichetta a sinistra e controllo a destra, alla larghezza del pannello. */}
+            <section className="settings-group" aria-labelledby="settings-dice-heading">
+              <h3 id="settings-dice-heading" className="settings-group__title">Dadi</h3>
+              <label className="settings-row">
+                <span>Animazione 3D</span>
                 <input
                   type="checkbox"
+                  role="switch"
+                  className="settings-switch"
                   checked={dicePresentationPreferences.animationEnabled}
                   onChange={(event) => setDiceAnimationEnabled(event.target.checked)}
                 />
-                <span>Animazione 3D</span>
               </label>
-              <label className="settings-panel__option">
+              <label className="settings-row">
+                <span>Suoni dei dadi</span>
                 <input
                   type="checkbox"
+                  role="switch"
+                  className="settings-switch"
                   checked={dicePresentationPreferences.soundEnabled}
                   onChange={(event) => setDiceSoundEnabled(event.target.checked)}
                 />
-                <span>Suoni</span>
               </label>
-            </fieldset>
-            <p className="settings-panel__hint">
-              Valgono solo per te: non cambiano cosa vedono gli altri al tavolo.
-            </p>
-            <fieldset className="settings-panel__group">
-              <legend>Attribuzione grafica</legend>
+            </section>
+            <section className="settings-group" aria-labelledby="settings-combat-audio-heading">
+              <h3 id="settings-combat-audio-heading" className="settings-group__title">Suoni di combattimento</h3>
+              <label className="settings-row">
+                <span>Attivi</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  className="settings-switch"
+                  checked={combatAudioPreferences.enabled}
+                  onChange={(event) => setCombatAudioEnabled(event.target.checked)}
+                />
+              </label>
+              <div className="settings-row settings-row--volume" data-disabled={!combatAudioPreferences.enabled || undefined}>
+                <label htmlFor="combat-audio-volume">Volume</label>
+                <input
+                  id="combat-audio-volume"
+                  type="range"
+                  className="settings-range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={Math.round(combatAudioPreferences.volume * 100)}
+                  disabled={!combatAudioPreferences.enabled}
+                  aria-valuetext={`${Math.round(combatAudioPreferences.volume * 100)}%`}
+                  onChange={(event) => setCombatAudioVolume(Number(event.target.value) / 100)}
+                />
+                <output htmlFor="combat-audio-volume" className="settings-row__value">
+                  {Math.round(combatAudioPreferences.volume * 100)}%
+                </output>
+              </div>
+              <button
+                type="button"
+                className="settings-test-button"
+                disabled={!combatAudioPreferences.enabled}
+                // Il click stesso è l'interazione affidabile: il suono di prova parte sempre.
+                onClick={() => playCombatSound('turn-now', combatAudioPreferences, true)}
+              >
+                <SpeakerIcon size={15} /> Prova suono
+              </button>
+              <p className="settings-panel__hint">
+                Dadi e suoni valgono solo per te: non cambiano cosa vedono gli altri al tavolo.
+              </p>
+            </section>
+            <section className="settings-group" aria-labelledby="settings-session-heading">
+              <h3 id="settings-session-heading" className="settings-group__title">Sessione</h3>
+              {canManageBattleMap ? (
+                <label className="settings-row">
+                  <span>I giocatori possono terminare il proprio turno</span>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    className="settings-switch"
+                    checked={state.playersCanEndTurn}
+                    onChange={(event) => void setPlayersCanEndTurn(event.target.checked)}
+                  />
+                </label>
+              ) : (
+                <p className="settings-panel__readonly">
+                  {state.playersCanEndTurn
+                    ? 'Il Master ti consente di terminare il tuo turno.'
+                    : 'Solo il Master può far avanzare il turno.'}
+                </p>
+              )}
+            </section>
+            <details className="settings-credits">
+              <summary>Crediti e licenze</summary>
               <p className="settings-panel__attribution">
                 Icone dei dadi (d4-d20): set <cite>game-icons.net</cite>, di{' '}
                 <a href="https://game-icons.net/1x1/skoll/d4.html" target="_blank" rel="noreferrer">Skoll</a>{' '}
@@ -1031,7 +1184,22 @@ function App() {
                 (d6, d8, d20), sotto licenza{' '}
                 <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>.
               </p>
-            </fieldset>
+              <p className="settings-panel__attribution">
+                Emblema del combattimento: <cite>game-icons.net</cite>,{' '}
+                <a href="https://game-icons.net/1x1/lorc/crossed-swords.html" target="_blank" rel="noreferrer">Crossed swords</a> di Lorc e{' '}
+                <a href="https://game-icons.net/1x1/sbed/shield.html" target="_blank" rel="noreferrer">Shield</a> di sbed, sotto licenza{' '}
+                <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>.
+              </p>
+              <p className="settings-panel__attribution">
+                Suoni di combattimento, tutti{' '}
+                <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noreferrer">CC0</a>: corno
+                d'inizio da{' '}
+                <a href="https://opengameart.org/content/their-coming-generic-horn-sound" target="_blank" rel="noreferrer">«Their coming» di StumpyStrust</a>{' '}
+                (OpenGameArt); «Sei il prossimo!» da{' '}
+                <a href="https://kenney.nl/assets/interface-sounds" target="_blank" rel="noreferrer">Interface Sounds</a> di Kenney; tamburi di
+                «Tocca a te!» sintetizzati per questo progetto.
+              </p>
+            </details>
           </section>
         );
       case 'notes':
@@ -1039,7 +1207,6 @@ function App() {
           <section key="notes" className="sidebar__section notes-panel">
             <div className="panel-heading panel-heading--compact">
               <div>
-                <p className="eyebrow">Condivise</p>
                 <h2>Note</h2>
               </div>
               <button
@@ -1090,7 +1257,6 @@ function App() {
           <section key="actions" className="sidebar__section">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Controlli</p>
                 <h2>Azioni</h2>
               </div>
             </div>
@@ -1100,14 +1266,14 @@ function App() {
                 className="primary-button"
                 onClick={() => setIsNewElementModalOpen(true)}
               >
-                ➕ Nuovo elemento
+                <PlusIcon /> Nuovo elemento
               </button>
               <button
                 type="button"
                 className="secondary-button"
                 onClick={() => setBoardBackgroundHidden(!state.isBoardBackgroundHidden)}
               >
-                {state.isBoardBackgroundHidden ? '🗺️ Mostra sfondo board' : '🌑 Nascondi sfondo board'}
+                {state.isBoardBackgroundHidden ? <><MapIcon /> Mostra sfondo board</> : <><MoonIcon /> Nascondi sfondo board</>}
               </button>
 
               {pendingObstaclePlacement ? (
@@ -1149,7 +1315,7 @@ function App() {
                       onClick={addSelectedToInitiative}
                       disabled={selectedCreatureIds.length === 0}
                     >
-                      ⚔️ Aggiungi selezionati
+                      <CrossedSwordsIcon size="1.1em" /> Aggiungi selezionati
                     </button>
                     <button
                       type="button"
@@ -1157,7 +1323,7 @@ function App() {
                       onClick={() => removeTokens(selectedTokenIds)}
                       disabled={selectedTokenIds.length === 0}
                     >
-                      🗑️ Rimuovi selezionati
+                      <TrashIcon /> Rimuovi selezionati
                     </button>
                   </div>
                 </div>
@@ -1170,7 +1336,6 @@ function App() {
           <section key="lighting" className="sidebar__section">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Visione</p>
                 <h2>Luce</h2>
               </div>
             </div>
@@ -1235,7 +1400,6 @@ function App() {
           <section key="movement" className="sidebar__section">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Regole</p>
                 <h2>Movimento e misura</h2>
               </div>
             </div>
@@ -1309,26 +1473,28 @@ function App() {
             tokens={state.tokens}
             initiatives={state.initiatives}
             activeTurnTokenId={state.activeTurnTokenId}
+            roundNumber={state.roundNumber}
+            sessionMode={state.sessionMode}
+            isRoundStarted={state.isRoundStarted}
+            playersCanEndTurn={state.playersCanEndTurn}
+            currentUserId={user?.id ?? null}
             canManageInitiative={canManageBattleMap}
             onOpenRollModal={() => {
               if (canManageBattleMap) {
                 setIsInitiativeModalOpen(true);
               }
             }}
-            onStartCombat={() => {
-              if (canManageBattleMap) {
-                void startCombat();
-              }
-            }}
-            onCycleTurn={(direction) => {
-              if (canManageBattleMap) {
-                cycleTurn(direction);
-              }
-            }}
+            onStartCombat={startCombat}
+            onEndCombat={endCombat}
+            onStartRound={startRound}
+            onAdvanceTurn={advanceTurn}
+            onEndOwnTurn={endOwnTurn}
+            onRollInitiative={(tokenId) => rollInitiative(tokenId)}
+            onRollAll={rollAllInitiative}
             onSetActiveTurnToken={setActiveTurnToken}
-            onClearInitiatives={() => {
+            onClearInitiative={(tokenId) => {
               if (canManageBattleMap) {
-                clearInitiatives();
+                clearInitiative(tokenId);
               }
             }}
             onReorderInitiatives={(fromIndex, toIndex) => {
@@ -1343,7 +1509,7 @@ function App() {
       case 'characters':
         return (
           <section key="characters" className="sidebar__section character-roster">
-            <div className="panel-heading"><div><p className="eyebrow">Roster</p><h2>Personaggi</h2></div></div>
+            <div className="panel-heading"><div><h2>Personaggi</h2></div></div>
             {CHARACTER_PROFILES.filter((profile) => profile.role === 'adventurer').map((profile) => {
               const token = state.tokens.find((entry) => entry.characterKey === profile.key);
               const sheet = characterSheets.find((entry) => entry.ownerUserId === profile.id);
@@ -1364,7 +1530,6 @@ function App() {
           <section key="legend" className="sidebar__section">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Legenda</p>
                 <h2>Comandi</h2>
               </div>
             </div>
@@ -1377,9 +1542,9 @@ function App() {
                 <p><strong>Ctrl + drag</strong>: muovi visuale.</p>
                 <p><strong>/r 1d20+5</strong>: tiro libero (d4, d6, d8, d10, d12, d20, d100; max 20 dadi).</p>
                 <p><strong>Click / Esc</strong>: salta il tiro 3D in corso senza annullare il risultato.</p>
-                <p><strong>Presentazione dadi</strong>: animazione e suoni sono preferenze locali nel pannello dadi.</p>
-                <p><strong>🔎</strong>: lista elementi.</p>
-                <p><strong>📖</strong>: manuale.</p>
+                <p><strong>Presentazione dadi</strong>: animazione e suoni sono preferenze locali nella tab Impostazioni.</p>
+                <p><strong className="command-legend__icon" aria-label="Lista elementi"><SearchIcon /></strong>: lista elementi.</p>
+                <p><strong className="command-legend__icon" aria-label="Manuale"><BookIcon /></strong>: manuale.</p>
               </div>
 
               {canManageBattleMap ? (
@@ -1388,12 +1553,12 @@ function App() {
                   <p><strong>Drag</strong>: muovi token selezionati.</p>
                   <p><strong>Tasto destro</strong>: edit completo.</p>
                   <p><strong>+</strong>: apre la card Azioni nella sidebar.</p>
-                  <p><strong>⚔️</strong>: aggiungi selezionati ai turni.</p>
-                  <p><strong>🗑️</strong>: rimuovi selezionati.</p>
+                  <p><strong className="command-legend__icon" aria-label="Aggiungi selezionati"><CrossedSwordsIcon size="1.1em" /></strong>: aggiungi selezionati ai turni.</p>
+                  <p><strong className="command-legend__icon" aria-label="Rimuovi selezionati"><TrashIcon /></strong>: rimuovi selezionati.</p>
                   <p><strong>Canc</strong>: rimuovi selezionati.</p>
-                  <p><strong>Roll for selected</strong>: iniziativa solo ai selezionati.</p>
+                  <p><strong>Gestisci voci</strong>: tiro, valore manuale o rimozione per una singola creatura, nella tab Turni di iniziativa.</p>
                   <p><strong>Invisibile</strong>: nasconde token ai player.</p>
-                  <p><strong>↶ / Ctrl+Z</strong>: undo globale.</p>
+                  <p><strong className="command-legend__icon"><UndoIcon aria-label="Annulla" /> / Ctrl+Z</strong>: undo globale.</p>
                 </div>
               ) : (
                 <div className="command-legend__group">
@@ -1402,9 +1567,9 @@ function App() {
                   <p><strong>Frecce</strong>: muovi il tuo PG.</p>
                   <p><strong>Home / PgUp / End / PgDn</strong>: diagonali.</p>
                   <p><strong>-1 / +1</strong>: rimuovi o aggiungi movimento extra.</p>
-                  <p><strong>🏃</strong>: scatto.</p>
+                  <p><strong className="command-legend__icon" aria-label="Scatto"><DashIcon /></strong>: scatto.</p>
                   <p><strong>PF</strong>: aggiorna i tuoi punti ferita.</p>
-                  <p><strong>↶ / Ctrl+Z</strong>: undo della tua ultima azione.</p>
+                  <p><strong className="command-legend__icon"><UndoIcon aria-label="Annulla" /> / Ctrl+Z</strong>: undo della tua ultima azione.</p>
                 </div>
               )}
             </div>
@@ -1480,7 +1645,7 @@ function App() {
             title={isSidebarPinned ? 'Sidebar bloccata aperta' : 'Sidebar in apertura al passaggio'}
             onClick={handleSidebarToggle}
           >
-            <span aria-hidden="true">{isSidebarPinned ? '📌' : '◧'}</span>
+            <span aria-hidden="true">{isSidebarPinned ? <PinIcon /> : <SidebarIcon />}</span>
           </button>
         </div>
 
@@ -1497,11 +1662,11 @@ function App() {
             </div>
             <div className="workspace-tabs" role="tablist" aria-label="Pannello sessione">
               {([
-                ['chat', 'Chat + Dadi', '🎲'], ['initiative', 'Turni di iniziativa', '⚔'], ['characters', 'Personaggi', '♟'], ['settings', 'Impostazioni', '⚙'], ['legend', 'Legenda dei comandi', '☷'],
-              ] as Array<[WorkspaceTabId, string, string]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
+                ['chat', 'Chat + Dadi', <ChatDiceIcon key="chat" />], ['initiative', 'Turni di iniziativa', <CrossedSwordsIcon key="initiative" size="1.1em" />], ['characters', 'Personaggi', <PawnIcon key="characters" />], ['settings', 'Impostazioni', <GearIcon key="settings" />], ['legend', 'Legenda dei comandi', <KeyboardIcon key="legend" />],
+              ] as Array<[WorkspaceTabId, string, ReactNode]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
             </div>
             <div id={`panel-${workspaceTab}`} role="tabpanel" aria-labelledby={`tab-${workspaceTab}`} className="workspace-tabpanel">
-              {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div ref={diceLogFeedRef} className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => <DiceLogEntry key={log.id} log={log} characterSheets={characterSheets} isExpanded={expandedDiceLogId === log.id} onToggle={() => setExpandedDiceLogId(expandedDiceLogId === log.id ? null : log.id)} onRoll={(request) => void rollDice(request)} />) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab)}
+              {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div ref={diceLogFeedRef} className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => <DiceLogEntry key={log.id} log={log} characterSheets={characterSheets} isExpanded={expandedDiceLogId === log.id} onToggle={() => setExpandedDiceLogId(expandedDiceLogId === log.id ? null : log.id)} onRoll={(request) => void rollAndReport(request)} />) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab)}
             </div>
             <div className="workspace-dice-dock">{renderSidebarSection('dice')}</div>
           </div>
@@ -1511,6 +1676,7 @@ function App() {
       <main className="app-main">
         <Board
           onPresentationHostChange={setStandardBoardHost}
+          onMapInteractionChange={handleStandardBoardInteraction}
           tokens={visibleBoardTokens}
           zoom={state.zoom}
           selectedTokenIds={selectedTokenIds}
@@ -1573,8 +1739,6 @@ function App() {
           ephemeralPings={ephemeralPings}
           ephemeralTemplates={ephemeralTemplates}
           tokenWalkEvents={tokenWalkEvents}
-          movementNotice={movementNotice}
-          onDismissMovementNotice={clearMovementNotice}
         />
       </main>
 
@@ -1584,6 +1748,7 @@ function App() {
         >
           <Board
             onPresentationHostChange={setFullscreenBoardHost}
+            onMapInteractionChange={handleFullscreenBoardInteraction}
             tokens={visibleBoardTokens}
             zoom={state.zoom}
             selectedTokenIds={selectedTokenIds}
@@ -1647,8 +1812,6 @@ function App() {
             ephemeralPings={ephemeralPings}
             ephemeralTemplates={ephemeralTemplates}
             tokenWalkEvents={tokenWalkEvents}
-            movementNotice={movementNotice}
-            onDismissMovementNotice={clearMovementNotice}
           />
         </div>
       ) : null}
@@ -1736,14 +1899,27 @@ function App() {
         isOpen={openCharacterSheetId !== null}
         title={CHARACTER_PROFILES.find((profile) => characterSheets.find((sheet) => sheet.id === openCharacterSheetId)?.ownerUserId === profile.id)?.displayName ?? 'Scheda del personaggio'}
         onClose={() => setOpenCharacterSheetId(null)}
-        onRoll={(request) => void rollDice(request)}
+        onRoll={(request) => void rollAndReport(request)}
         diceLogs={state.diceLogs}
+        sessionMode={state.sessionMode}
       />
 
       <div className="combat-announcement-overlay" data-state={isCombatAnnouncementOpen ? 'open' : 'closed'}>
-        <div className="combat-announcement-card" data-state={isCombatAnnouncementOpen ? 'open' : 'closed'}>
-          <p>{combatAnnouncement?.title ?? 'Il combattimento ha inzio...'}</p>
+        <div
+          className="combat-announcement-card"
+          data-state={isCombatAnnouncementOpen ? 'open' : 'closed'}
+          role={isCombatAnnouncementOpen ? 'alertdialog' : undefined}
+          aria-hidden={!isCombatAnnouncementOpen}
+          aria-label={combatAnnouncement?.title ?? 'Il combattimento ha inizio'}
+        >
+          <CombatEmblem size={104} />
+          <p>{combatAnnouncement?.title ?? 'Il combattimento ha inizio'}</p>
           <strong>{combatAnnouncement?.message ?? '"C vol la iaul? C VOL LA IAAAAAUL!?!?"'}</strong>
+          {isCombatAnnouncementOpen ? (
+            <button type="button" className="secondary-button secondary-button--small combat-announcement-card__close" onClick={closeCombatAnnouncement}>
+              Chiudi
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -1819,17 +1995,13 @@ function App() {
         isOpen={isInitiativeModalOpen}
         tokens={state.tokens}
         initiatives={state.initiatives}
-        selectedTokenIds={selectedTokenIds}
+        sessionMode={state.sessionMode}
         canManage={canManageBattleMap}
         onClose={() => setIsInitiativeModalOpen(false)}
+        onRollInitiative={rollInitiative}
         onSetInitiative={(entry) => {
           if (canManageBattleMap) {
             setInitiative(entry);
-          }
-        }}
-        onSetInitiatives={(entries) => {
-          if (canManageBattleMap) {
-            setInitiatives(entries);
           }
         }}
         onClearInitiative={(tokenId) => {
@@ -1843,6 +2015,27 @@ function App() {
       {/* Disattivata su richiesta: il dettaglio del tiro si legge già nella card del log
           (P0.7.5). Codice e stato restano intatti, così da poterla riattivare senza riscriverla. */}
       {false ? <DiceResultModal result={latestDiceResult} onClose={() => setLatestDiceResult(null)} /> : null}
+
+      {movementNotice || rollNotice ? (
+        // Un movimento o un tiro rifiutati non restano mai silenziosi: l'avviso è in primo piano
+        // sopra la mappa, a schermo intero compreso, finché non scade.
+        <div className="app-toasts">
+          {movementNotice ? (
+            <div className="movement-toast" role="alert" key={movementNotice.id}>
+              <BlockIcon aria-hidden="true" />
+              <p>{movementNotice.message}</p>
+              <button type="button" onClick={clearMovementNotice} aria-label="Chiudi l'avviso di movimento rifiutato"><CloseIcon size="0.9em" /></button>
+            </div>
+          ) : null}
+          {rollNotice ? (
+            <div className="movement-toast" role="alert" key={rollNotice.id}>
+              <DiceGlyph type="d20" size="1.1em" />
+              <p>{rollNotice.message}</p>
+              <button type="button" onClick={() => setRollNotice(null)} aria-label="Chiudi l'avviso di tiro rifiutato"><CloseIcon size="0.9em" /></button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {turnNotice ? <div className="turn-notice" role="dialog" aria-modal="true" aria-label="Avviso turno"><div><h2>{turnNotice === 'turn' ? 'Tocca a te!' : 'Sei il prossimo!'}</h2><button type="button" className="primary-button" autoFocus onClick={() => setTurnNotice(null)}>Capito</button></div></div> : null}
 

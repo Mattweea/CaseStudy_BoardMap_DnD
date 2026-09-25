@@ -45,6 +45,7 @@ export interface CharacterSheetData {
   character: {
     name: SheetText; className: SheetText; subclass: SheetText; level: SheetText; species: SheetText; background: SheetText; alignment: SheetText; experience: SheetText;
     inspiration: boolean; armorClass: SheetText; speed: SheetText; initiativeMiscBonus: SheetText;
+    initiativeRollMode: 'normal' | 'advantage' | 'disadvantage';
     equipmentTotalWeight: SheetText; personalityTraits: SheetText; ideals: SheetText; bonds: SheetText; flaws: SheetText;
     abilities: Record<AbilityKey, { score: SheetText }>;
     savingThrows: Record<AbilityKey, { proficient: boolean; miscBonus: SheetText }>;

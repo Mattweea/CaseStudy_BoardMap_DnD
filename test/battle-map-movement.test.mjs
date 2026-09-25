@@ -329,3 +329,60 @@ test('a successful move broadcasts the walked path so every client can animate i
     __testing.streamClients.delete(master);
   }
 });
+
+// --- P0.8a: il budget dipende dalla modalità di sessione ---------------------------------------
+
+test('in Esplorazione un Adventurer muove 10 caselle con velocità 6 senza addebito', async () => {
+  __testing.setBattleMapState({ tokens: [heroToken({ movementCells: 6 })], sessionMode: 'exploration' });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 10, y: 0 });
+  assert.equal(__testing.getBattleMapState().movementUsedByTokenId['hero-1'] ?? 0, 0);
+  assert.equal(__testing.getBattleMapState().diagonalParityByTokenId['hero-1'] ?? 0, 0);
+});
+
+test("nella fase di tiro l'Adventurer si dispone liberamente, senza addebito", async () => {
+  __testing.setBattleMapState({
+    tokens: [heroToken({ movementCells: 6 })],
+    sessionMode: 'combat',
+    isRoundStarted: false,
+    initiatives: [{ tokenId: 'hero-1', value: 10, source: 'manual' }],
+  });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 10, y: 0 });
+  assert.equal(__testing.getBattleMapState().movementUsedByTokenId['hero-1'] ?? 0, 0);
+  __testing.setBattleMapState({ ...__testing.getBattleMapState(), tokens: [heroToken()] });
+
+  const byMaster = await move(MASTER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 12, y: 0 }] });
+  assert.equal(byMaster.statusCode, 200);
+  assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 12, y: 0 });
+});
+
+test('a round avviato il budget si applica e il Master resta libero', async () => {
+  __testing.setBattleMapState({
+    ...withActiveTurn({ tokens: [heroToken({ movementCells: 6 })] }),
+    sessionMode: 'combat',
+    isRoundStarted: true,
+  });
+  const tooFar = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 7, y: 0 }] });
+  assert.equal(tooFar.statusCode, 400);
+  assert.match(tooFar.json().message, /Movimento insufficiente/);
+  const within = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 6, y: 0 }] });
+  assert.equal(within.statusCode, 200);
+  assert.equal(__testing.getBattleMapState().movementUsedByTokenId['hero-1'], 6);
+
+  const byMaster = await move(MASTER, { tokenId: 'hero-1', waypoints: [{ x: 6, y: 0 }, { x: 16, y: 0 }] });
+  assert.equal(byMaster.statusCode, 200);
+});
+
+test('uno snapshot legacy con un incontro in corso mantiene il movimento già addebitato', async () => {
+  __testing.setBattleMapState({
+    ...withActiveTurn({ tokens: [heroToken({ movementCells: 6 })] }),
+    movementUsedByTokenId: { 'hero-1': 5 },
+  });
+  assert.equal(__testing.getBattleMapState().sessionMode, 'combat');
+  const response = await move(PLAYER, { tokenId: 'hero-1', x: 2, y: 0 });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /restano 1 caselle/);
+});

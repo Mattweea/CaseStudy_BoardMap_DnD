@@ -332,3 +332,16 @@ test('a master can roll on a sheet they do not own', () => {
   const result = rollCharacterSheetTarget(master, service, { source: { sheetId: 'sheet-1', target: 'ability:strength' } }, { rng: queueRng([9, 2]) });
   assert.deepEqual(result.log.rolls, [9, 2]);
 });
+
+test("P0.8a l'iniziativa non passa più dal tiro doppio: il resolver la rimanda al tiro autorevole", () => {
+  const { service } = harness();
+  const initiative = rollCharacterSheetTarget(owner, service, { source: { sheetId: 'sheet-1', target: 'initiative' } }, { rng: queueRng([5, 18]) });
+  assert.ok(initiative.error);
+  assert.equal(initiative.log, undefined);
+
+  // Gli altri bersagli 1d20 restano due dadi `unresolved`.
+  for (const target of ['ability:dexterity', 'saving-throw:strength', 'skill:stealth', 'tool:tool_0001', 'attack:attack_0001']) {
+    const result = rollCharacterSheetTarget(owner, service, { source: { sheetId: 'sheet-1', target } }, { rng: queueRng([5, 18]) });
+    assert.deepEqual(result.log.dice.map((die) => die.disposition), ['unresolved', 'unresolved'], target);
+  }
+});

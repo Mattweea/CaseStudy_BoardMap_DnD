@@ -1,5 +1,6 @@
 import type { ChangeEvent, ReactNode } from 'react';
 import { formatSigned } from '../../../shared/dnd-rules';
+import { GearIcon, LockIcon, ProficiencyMarkIcon, UnlockIcon } from '../UiIcons';
 
 export function SheetPanel({ title, className = '', rollSource, headerAction, children }: {
   title: string; className?: string; rollSource?: string; headerAction?: ReactNode; children: ReactNode;
@@ -54,17 +55,24 @@ export function ReadOnlyStat({ label, value, compact = false, rollSource, classN
 }
 
 // Come ReadOnlyStat ma con il proprio campo bonus vari accanto (iniziativa, valori da incantatore).
-export function ComputedWithMiscBonus({ label, value, miscBonus, onMiscBonus, compact = false, rollSource, className = '' }: {
+// `rollDisabledReason` lascia l'ancoraggio del bersaglio al suo posto ma lo mostra inattivo, con la
+// spiegazione come testo accessibile; `badge` è un'etichetta breve accanto al valore.
+export function ComputedWithMiscBonus({ label, value, miscBonus, onMiscBonus, compact = false, rollSource, className = '', rollDisabledReason, badge }: {
   label: string; value: number | null; miscBonus: string; onMiscBonus: (value: string) => void; compact?: boolean; rollSource?: string; className?: string;
+  rollDisabledReason?: string; badge?: ReactNode;
 }) {
-  return <div className={`framed-value framed-value--readonly framed-value--misc ${compact ? 'framed-value--compact' : ''} ${className}`} data-roll-source={rollSource}>
+  return <div
+    className={`framed-value framed-value--readonly framed-value--misc ${compact ? 'framed-value--compact' : ''} ${rollDisabledReason ? 'framed-value--roll-disabled' : ''} ${className}`}
+    data-roll-source={rollSource} aria-disabled={rollDisabledReason ? true : undefined} title={rollDisabledReason}
+  >
+    {badge}
     <output aria-label={label}>{formatSigned(value)}</output>
     <input className="framed-value__misc" value={miscBonus} onChange={(event) => onMiscBonus(event.target.value)} aria-label={`Bonus vari: ${label}`} placeholder="±" title="Bonus vari" />
     <span>{label}</span>
   </div>;
 }
 
-export type CompetenceState = { key: string; mark: string; ariaLabel: string };
+export type CompetenceState = { key: 'none' | 'proficient' | 'expertise'; ariaLabel: string };
 
 // Indicatore ciclico di competenza: due stati per i tiri salvezza, tre per abilità e strumenti.
 // Un <button> nativo copre da solo tastiera e stato esposto (aria-label cambia ad ogni stato).
@@ -75,7 +83,7 @@ export function CompetenceRow({ label, states, currentIndex, onCycle, value, mis
   const current = states[currentIndex];
   return <div className="proficiency-row" data-roll-source={rollSource}>
     <button type="button" className={`proficiency-indicator proficiency-indicator--${current.key}`} onClick={onCycle} aria-label={`Competenza ${label}: ${current.ariaLabel}`}>
-      <span aria-hidden="true">{current.mark}</span>
+      <ProficiencyMarkIcon level={current.key} />
     </button>
     <output className="proficiency-row__value" aria-label={`Valore: ${label}`}>{formatSigned(value)}</output>
     <input className="proficiency-row__misc" value={miscBonus} onChange={(event) => onMiscBonus(event.target.value)} aria-label={`Bonus vari: ${label}`} placeholder="±" title="Bonus vari" />
@@ -84,13 +92,13 @@ export function CompetenceRow({ label, states, currentIndex, onCycle, value, mis
 }
 
 export const SAVING_THROW_STATES: readonly CompetenceState[] = [
-  { key: 'none', mark: '○', ariaLabel: 'nessuna competenza' },
-  { key: 'proficient', mark: '●', ariaLabel: 'competente' },
+  { key: 'none', ariaLabel: 'nessuna competenza' },
+  { key: 'proficient', ariaLabel: 'competente' },
 ];
 export const SKILL_STATES: readonly CompetenceState[] = [
-  { key: 'none', mark: '○', ariaLabel: 'nessuna competenza' },
-  { key: 'proficient', mark: '●', ariaLabel: 'competente' },
-  { key: 'expertise', mark: '◉', ariaLabel: 'esperto' },
+  { key: 'none', ariaLabel: 'nessuna competenza' },
+  { key: 'proficient', ariaLabel: 'competente' },
+  { key: 'expertise', ariaLabel: 'esperto' },
 ];
 
 // Tre indicatori riempibili/svuotabili a mano per riga (dadi vita e salvataggi contro morte).
@@ -111,12 +119,12 @@ export function PipCounter({ label, count, max, onChange }: { label: string; cou
 }
 
 export function GearButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return <button type="button" className="sheet-gear-button" onClick={onClick} aria-label={label} title={label}>⚙</button>;
+  return <button type="button" className="sheet-gear-button" onClick={onClick} aria-label={label} title={label}><GearIcon size="0.95em" /></button>;
 }
 
 export function LockToggle({ locked, onToggle, label }: { locked: boolean; onToggle: () => void; label: string }) {
   return <button type="button" className={`sheet-lock-toggle ${locked ? 'sheet-lock-toggle--locked' : ''}`} onClick={onToggle} aria-pressed={locked} aria-label={locked ? `${label}: sblocca` : `${label}: blocca`} title={locked ? 'Sblocca sezione' : 'Blocca sezione'}>
-    {locked ? '🔒' : '🔓'}
+    {locked ? <LockIcon size="1em" /> : <UnlockIcon size="1em" />}
   </button>;
 }
 

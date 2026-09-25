@@ -11,7 +11,7 @@ Define the stable React boundaries and client-state rules used by D&D Battle Map
 - `src/hooks/useAuthSession.ts` owns session discovery, login, logout, and authentication feedback.
 - `src/hooks/useBattleMapState.ts` owns the client copy of shared game state, SSE subscription, version tracking, optimistic mutations, mutation serialization, and local zoom.
 - `src/components/Board.tsx` owns board-space rendering and pointer interaction.
-- `src/components/Dice3DOverlay.tsx` owns the single client-local 3D dice scene, its FIFO presentation queue, capability fallback, and result rail. `App.tsx` points it at the currently active normal or fullscreen board host; individual `Board` instances do not own renderer instances.
+- `src/components/Dice3DOverlay.tsx` owns the single client-local 3D dice scene, its FIFO presentation queue, and capability fallback. It draws no textual result summary over the map: the dice log is the only place where a roll is read. `App.tsx` points it at the currently active normal or fullscreen board host; individual `Board` instances do not own renderer instances.
 - Feature components receive state and actions through typed props; they must not create a second shared-state source.
 
 ## State ownership
@@ -19,7 +19,7 @@ Define the stable React boundaries and client-state rules used by D&D Battle Map
 Use three explicit state classes:
 
 1. Server-shared state is represented by `BattleMapSharedState`, delivered by HTTP/SSE, and mutated through `useBattleMapState` actions.
-2. Local persistent preferences contain board zoom and the versioned dice-presentation toggles (`animationEnabled`, `soundEnabled`) stored in `localStorage`; they never enter the shared snapshot.
+2. Local persistent preferences contain board zoom, the versioned dice-presentation toggles (`animationEnabled`, `soundEnabled`), and the versioned combat-audio preferences (`enabled`, `volume`, `shared/combat-audio-preferences.mjs` via `useCombatAudioPreferences`) stored in `localStorage`; they never enter the shared snapshot.
 3. Ephemeral UI state belongs in the nearest component or in `App.tsx` when several sibling surfaces coordinate it.
 
 Dice animation deliveries are ephemeral client state derived inside `useBattleMapState` from already sanitized snapshots. The initial HTTP state and first snapshot of every SSE connection seed a local id baseline; subsequent unseen log ids are delivered once to the presentation queue. This feed must not enter `BattleMapSharedState`, persistence, undo, or authorization logic.
@@ -33,6 +33,7 @@ Do not add a shared game field only to React state. A shared field requires the 
 - Optimistic client updates may improve responsiveness, but failures must restore or apply the authoritative snapshot returned by the server.
 - Mutations are serialized by the shared-state hook to avoid racing local writes.
 - Full master state commits include `baseVersion`; HTTP `409` means the client must accept the returned snapshot before retrying.
+- Combat mutations with role rules (enter/leave combat, round start, turn advance and end of turn, initiative roll and roll-all, `playersCanEndTurn`) go through dedicated endpoints via the hook's serialized queue; a rejection applies the snapshot the server returns (or restores the previous one) and returns the server's reason to the caller. Tracker controls stay disabled while their request is in flight. The movement-budget predicate (`isMovementBudgetActive`: combat with the round started) is shared by the optimistic move, the board's budget display, and the dash control.
 - SSE can update the state at any time. Never assume the client is the only writer.
 
 ## Component conventions

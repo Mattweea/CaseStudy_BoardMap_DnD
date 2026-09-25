@@ -54,7 +54,6 @@ export function DiceResultModal({ result, onClose }: DiceResultModalProps) {
       aria-live="polite"
     >
       <div className="dice-result-card" data-state={isVisible ? 'open' : 'closed'}>
-        <p className="eyebrow dice-result-card__eyebrow">Risultato</p>
         {result.log.rollerName ? <p className="dice-result-card__roller">{`${result.log.rollerName} lancia i dadi...`}</p> : null}
         <p className="dice-result-card__flavor">{result.flavor}</p>
 

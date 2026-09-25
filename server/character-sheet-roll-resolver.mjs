@@ -5,10 +5,11 @@
 // danno, se applicare il critico.
 //
 // Modello dei tiri (coerente con Roll20, non con vantaggio/svantaggio scelto prima del tiro):
-// ogni bersaglio 1d20 (caratteristica, tiro salvezza, abilità, iniziativa, strumento, salvataggio
-// contro morte, tiro di attacco) tira sempre DUE d20 indipendenti e mostra entrambi i totali; è il
-// giocatore a decidere quale contare (il primo per un tiro normale, il più alto per vantaggio, il
-// più basso per svantaggio). Il dado vita non raddoppia: non è un d20 e non ha vantaggio/svantaggio.
+// ogni bersaglio 1d20 (caratteristica, tiro salvezza, abilità, strumento, tiro di attacco) tira
+// sempre DUE d20 indipendenti e mostra entrambi i totali; è il giocatore a decidere quale contare
+// (il primo per un tiro normale, il più alto per vantaggio, il più basso per svantaggio).
+// L'iniziativa fa eccezione (P0.8a): il suo valore guida l'ordine dei turni, quindi non passa da
+// qui ma da `initiative-roll.mjs`, che la risolve in un valore solo con la modalità della scheda. Il dado vita non raddoppia: non è un d20 e non ha vantaggio/svantaggio.
 // Il danno di un attacco è un bersaglio separato (`attack-damage:<id>`), tirato a richiesta dalla
 // scheda o dal log; il client dichiara se applicare il critico (dadi raddoppiati, modificatore
 // invariato), dedotto lato client dall'ultimo tiro di attacco visto per quel bersaglio.
@@ -219,6 +220,10 @@ export function rollCharacterSheetTarget(user, service, requestBody, options = {
     sheet = service.get(user, sheetId);
   } catch (error) {
     return { error: error instanceof CharacterSheetError ? error.message : 'Impossibile leggere la scheda.' };
+  }
+
+  if (target === 'initiative') {
+    return { error: "Il tiro d'iniziativa scrive l'ordine dei turni: usa il tiro d'iniziativa autorevole." };
   }
 
   const plan = resolveTargetPlan(sheet.data, target);

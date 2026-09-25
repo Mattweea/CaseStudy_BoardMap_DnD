@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { collectDiceDeliveries } from '../../shared/dice-3d-presentation.mjs';
 import { normalizeDiceLogDetail } from '../../shared/dice-log-normalization.mjs';
+import { insertInitiativeEntry } from '../../shared/initiative-order.mjs';
 import { BOARD_CONFIG } from '../constants/board';
 import type {
   BattleMapSharedState,
@@ -14,6 +15,7 @@ import type {
   EphemeralTemplate,
   GridPosition,
   InitiativeEntry,
+  InitiativeRollMode,
   LightSource,
   MeasurementUnit,
   TemplateShape,
@@ -132,6 +134,9 @@ const initialSharedState: BattleMapSharedState = {
   diceLogs: [],
   latestDicePreview: null,
   combatAnnouncement: null,
+  sessionMode: 'exploration',
+  isRoundStarted: false,
+  playersCanEndTurn: false,
   initiatives: [],
   activeTurnTokenId: null,
   roundNumber: 1,
@@ -155,6 +160,42 @@ function readStoredZoom() {
 
   const rawValue = window.localStorage.getItem(ZOOM_STORAGE_KEY);
   return clampZoom(rawValue ? Number(rawValue) : 1);
+}
+
+const INITIATIVE_ROLL_MODES: readonly InitiativeRollMode[] = ['normal', 'advantage', 'disadvantage'];
+
+function normalizeInitiativeEntries(rawEntries: unknown, tokens: UnitToken[]): InitiativeEntry[] {
+  if (!Array.isArray(rawEntries)) return [];
+  const tokenIds = new Set(tokens.map((token) => token.id));
+  const seen = new Set<string>();
+  return rawEntries.flatMap<InitiativeEntry>((raw) => {
+    const entry = raw as Partial<InitiativeEntry> | null;
+    if (
+      !entry ||
+      typeof entry.tokenId !== 'string' ||
+      !tokenIds.has(entry.tokenId) ||
+      seen.has(entry.tokenId) ||
+      typeof entry.value !== 'number' ||
+      !Number.isFinite(entry.value)
+    ) {
+      return [];
+    }
+    seen.add(entry.tokenId);
+    const normalized: InitiativeEntry = {
+      tokenId: entry.tokenId,
+      value: entry.value,
+      source: entry.source === 'rolled' ? 'rolled' : 'manual',
+    };
+    if (typeof entry.dexModifier === 'number' && Number.isFinite(entry.dexModifier)) normalized.dexModifier = entry.dexModifier;
+    if (typeof entry.tiebreaker === 'number' && entry.tiebreaker >= 0 && entry.tiebreaker < 1) normalized.tiebreaker = entry.tiebreaker;
+    if (entry.mode && INITIATIVE_ROLL_MODES.includes(entry.mode)) normalized.mode = entry.mode;
+    return [normalized];
+  });
+}
+
+// Il budget di movimento vale solo in Combattimento a round avviato: stesso predicato del server.
+export function isMovementBudgetActive(state: Pick<BattleMapSharedState, 'sessionMode' | 'isRoundStarted'>) {
+  return state.sessionMode === 'combat' && state.isRoundStarted;
 }
 
 function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): BattleMapSharedState {
@@ -235,9 +276,19 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
         };
       })
     : initialSharedState.tokens;
-  const initiatives = Array.isArray(parsed?.initiatives)
-    ? parsed.initiatives.filter((entry) => tokens.some((token) => token.id === entry.tokenId))
-    : [];
+  // Stesse invarianti della normalizzazione server (P0.8a). A differenza del server, il client non
+  // genera mai la frazione di spareggio: due client con frazioni diverse vedrebbero ordini diversi.
+  const rawInitiatives = normalizeInitiativeEntries(parsed?.initiatives, tokens);
+  const rawActiveTurnTokenId =
+    typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null;
+  const hasSessionMode = parsed?.sessionMode === 'exploration' || parsed?.sessionMode === 'combat';
+  const sessionMode = hasSessionMode
+    ? parsed.sessionMode!
+    : rawInitiatives.length > 0 ? 'combat' : 'exploration';
+  const isRoundStarted = sessionMode === 'combat' &&
+    (hasSessionMode ? parsed?.isRoundStarted === true : rawActiveTurnTokenId !== null);
+  const initiatives = sessionMode === 'combat' ? rawInitiatives : [];
+  const activeTurnTokenId = isRoundStarted ? rawActiveTurnTokenId : null;
   const lightSources = Array.isArray(parsed?.lightSources)
     ? parsed.lightSources.flatMap<LightSource>((light) => {
         if (
@@ -302,9 +353,11 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
             message: parsed.combatAnnouncement.message,
           }
         : null,
+    sessionMode,
+    isRoundStarted,
+    playersCanEndTurn: parsed?.playersCanEndTurn === true,
     initiatives,
-    activeTurnTokenId:
-      typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null,
+    activeTurnTokenId,
     roundNumber: typeof parsed?.roundNumber === 'number' && parsed.roundNumber > 0 ? parsed.roundNumber : 1,
     turnNotice: parsed?.turnNotice && typeof parsed.turnNotice.id === 'number' && (parsed.turnNotice.kind === 'next' || parsed.turnNotice.kind === 'turn') ? parsed.turnNotice : null,
     movementUsedByTokenId:
@@ -593,9 +646,9 @@ export function useBattleMapState(isAuthenticated: boolean) {
     const tokenWalkTimeoutsRef = new Set<ReturnType<typeof window.setTimeout>>();
     const handleTokenWalk = (event: MessageEvent) => {
       try {
-        const payload = JSON.parse(event.data) as { tokenId: string; waypoints: GridPosition[] };
+        const payload = JSON.parse(event.data) as { tokenId: string; waypoints: GridPosition[]; showTrack?: boolean };
         const id = `${payload.tokenId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        setTokenWalkEvents((current) => [...current, { id, tokenId: payload.tokenId, waypoints: payload.waypoints }]);
+        setTokenWalkEvents((current) => [...current, { id, tokenId: payload.tokenId, waypoints: payload.waypoints, showTrack: payload.showTrack !== false }]);
         const timeout = window.setTimeout(() => {
           setTokenWalkEvents((current) => current.filter((entry) => entry.id !== id));
           tokenWalkTimeoutsRef.delete(timeout);
@@ -729,6 +782,13 @@ export function useBattleMapState(isAuthenticated: boolean) {
         applySnapshot(payload.state, payload.version);
         return { ok: true as const };
       } catch (error) {
+        // Un tiro rifiutato (per esempio un secondo tiro d'iniziativa) riporta lo snapshot del
+        // server: lo stato si riallinea e il motivo torna al chiamante.
+        const payload =
+          error instanceof Error && 'payload' in error
+            ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+            : undefined;
+        if (payload?.state && typeof payload.version === 'number') applySnapshot(payload.state, payload.version);
         return { ok: false as const, message: error instanceof Error ? error.message : 'Tiro non riuscito.' };
       }
     });
@@ -848,7 +908,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
 
     const path = waypoints && waypoints.length > 0 ? waypoints : [optimisticToken.position, { x, y }];
     const destination = path[path.length - 1];
-    const hasInitiativeOrder = previousState.initiatives.length > 0;
+    const budgetApplies = isMovementBudgetActive(previousState);
     const usedCells = previousState.movementUsedByTokenId[tokenId] ?? 0;
     const previousDiagonalParity = previousState.diagonalParityByTokenId[tokenId] ?? 0;
     const { cells: moveDistance, nextDiagonalParity } = pathCost(path, {
@@ -862,13 +922,13 @@ export function useBattleMapState(isAuthenticated: boolean) {
           token.id === tokenId ? { ...token, position: destination } : token,
         ),
       ),
-      movementUsedByTokenId: hasInitiativeOrder
+      movementUsedByTokenId: budgetApplies
         ? {
             ...previousState.movementUsedByTokenId,
             [tokenId]: usedCells + moveDistance,
           }
         : previousState.movementUsedByTokenId,
-      diagonalParityByTokenId: hasInitiativeOrder
+      diagonalParityByTokenId: budgetApplies
         ? {
             ...previousState.diagonalParityByTokenId,
             [tokenId]: nextDiagonalParity,
@@ -1021,23 +1081,12 @@ export function useBattleMapState(isAuthenticated: boolean) {
         return current;
       }
 
-      const nextEntries = current.initiatives.filter((item) => item.tokenId !== entry.tokenId);
-      const insertIndex = nextEntries.findIndex((item) => item.value < entry.value);
-
-      if (insertIndex === -1) {
-        nextEntries.push(entry);
-      } else {
-        nextEntries.splice(insertIndex, 0, entry);
-      }
-
+      // Una voce manuale nuova non ha frazione né Destrezza: il server le completa. La posizione
+      // segue la regola d'inserimento condivisa, senza riordinare le altre voci.
+      const { tiebreaker: _tiebreaker, dexModifier: _dexModifier, ...manualEntry } = entry;
       return {
         ...current,
-        initiatives: nextEntries,
-        activeTurnTokenId: current.activeTurnTokenId ?? nextEntries[0]?.tokenId ?? null,
-        movementUsedByTokenId: current.movementUsedByTokenId,
-        diagonalParityByTokenId: current.diagonalParityByTokenId,
-        dashUsedByTokenId: current.dashUsedByTokenId,
-        extraMovementByTokenId: current.extraMovementByTokenId,
+        initiatives: insertInitiativeEntry(current.initiatives, manualEntry),
       };
     });
   };
@@ -1052,28 +1101,15 @@ export function useBattleMapState(isAuthenticated: boolean) {
         return current;
       }
 
-      const nextEntries = current.initiatives.filter(
-        (item) => !validEntries.some((entry) => entry.tokenId === item.tokenId),
+      const nextEntries = validEntries.reduce(
+        (entriesSoFar, { tiebreaker: _tiebreaker, dexModifier: _dexModifier, ...entry }) =>
+          insertInitiativeEntry(entriesSoFar, entry),
+        current.initiatives,
       );
-
-      validEntries.forEach((entry) => {
-        const insertIndex = nextEntries.findIndex((item) => item.value < entry.value);
-
-        if (insertIndex === -1) {
-          nextEntries.push(entry);
-        } else {
-          nextEntries.splice(insertIndex, 0, entry);
-        }
-      });
 
       return {
         ...current,
         initiatives: nextEntries,
-        activeTurnTokenId: current.activeTurnTokenId ?? nextEntries[0]?.tokenId ?? null,
-        movementUsedByTokenId: current.movementUsedByTokenId,
-        diagonalParityByTokenId: current.diagonalParityByTokenId,
-        dashUsedByTokenId: current.dashUsedByTokenId,
-        extraMovementByTokenId: current.extraMovementByTokenId,
       };
     });
   };
@@ -1129,38 +1165,65 @@ export function useBattleMapState(isAuthenticated: boolean) {
     }));
   };
 
-  const cycleTurn = (direction: 'next' | 'previous') => {
-    void commitSharedState((current) => {
-      if (current.initiatives.length === 0) {
-        return current;
+  // Mutazioni del combattimento con regole o autorizzazioni per ruolo (P0.8a): passano da endpoint
+  // dedicati. Un rifiuto riallinea lo stato allo snapshot restituito dal server, o a quello di
+  // partenza quando il server non ne restituisce uno.
+  const postCombatMutation = async (
+    path: string,
+    body: Record<string, unknown> = {},
+    optimistic?: (current: BattleMapSharedState) => BattleMapSharedState,
+  ) => {
+    return enqueueMutation(async () => {
+      const previousState = sharedStateRef.current;
+      const previousVersion = versionRef.current;
+      if (optimistic) setOptimisticState(normalizeSharedState(optimistic(previousState)));
+
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number; skipped?: string[] }>(path, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        applySnapshot(payload.state, payload.version);
+        return { ok: true as const, skipped: payload.skipped ?? [] };
+      } catch (error) {
+        console.error(error);
+        const payload =
+          error instanceof Error && 'payload' in error
+            ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+            : undefined;
+        if (payload?.state && typeof payload.version === 'number') {
+          applySnapshot(payload.state, payload.version);
+        } else {
+          applySnapshot(previousState, previousVersion);
+        }
+        return { ok: false as const, message: error instanceof Error ? error.message : 'Richiesta rifiutata dal server.' };
       }
-
-      const activeIndex = current.initiatives.findIndex(
-        (entry) => entry.tokenId === current.activeTurnTokenId,
-      );
-      const startIndex =
-        activeIndex >= 0 ? activeIndex : direction === 'next' ? -1 : 0;
-      const nextIndex =
-        direction === 'next'
-          ? (startIndex + 1) % current.initiatives.length
-          : (startIndex - 1 + current.initiatives.length) % current.initiatives.length;
-      const wrappedRound =
-        (direction === 'next' && startIndex === current.initiatives.length - 1) ||
-        (direction === 'previous' && startIndex === 0);
-
-      return {
-        ...current,
-        activeTurnTokenId: current.initiatives[nextIndex]?.tokenId ?? null,
-        roundNumber: wrappedRound
-          ? Math.max(1, current.roundNumber + (direction === 'next' ? 1 : -1))
-          : current.roundNumber,
-        movementUsedByTokenId: wrappedRound ? {} : current.movementUsedByTokenId,
-        diagonalParityByTokenId: wrappedRound ? {} : current.diagonalParityByTokenId,
-        dashUsedByTokenId: wrappedRound ? {} : current.dashUsedByTokenId,
-        extraMovementByTokenId: wrappedRound ? {} : current.extraMovementByTokenId,
-      };
     });
   };
+
+  const advanceTurn = (direction: 'next' | 'previous') =>
+    postCombatMutation('/battle-map/turn/advance', { direction });
+
+  // Fine turno dell'Adventurer: stesso endpoint dell'avanzamento, solo in avanti.
+  const endOwnTurn = () => postCombatMutation('/battle-map/turn/advance', { direction: 'next' });
+
+  const startCombat = () => postCombatMutation('/battle-map/combat/start');
+
+  const endCombat = () => postCombatMutation('/battle-map/combat/end');
+
+  const startRound = () => postCombatMutation('/battle-map/combat/round/start');
+
+  const rollInitiative = (tokenId: string, mode?: InitiativeRollMode) =>
+    postCombatMutation('/battle-map/initiative/roll', mode ? { tokenId, mode } : { tokenId });
+
+  const rollAllInitiative = () => postCombatMutation('/battle-map/initiative/roll-all');
+
+  const setPlayersCanEndTurn = (enabled: boolean) =>
+    postCombatMutation(
+      '/battle-map/settings/players-can-end-turn',
+      { enabled },
+      (current) => ({ ...current, playersCanEndTurn: enabled }),
+    );
 
   const useDashAction = async (tokenId: string) => {
     return enqueueMutation(async () => {
@@ -1380,19 +1443,6 @@ export function useBattleMapState(isAuthenticated: boolean) {
     }
   };
 
-  const startCombat = async () => {
-    return enqueueMutation(async () => {
-      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
-        '/battle-map/combat/start',
-        {
-          method: 'POST',
-        },
-      );
-
-      applySnapshot(payload.state, payload.version);
-    });
-  };
-
   const resetZoom = () => setZoom(1);
 
   const suspendSession = async () => {
@@ -1452,7 +1502,13 @@ export function useBattleMapState(isAuthenticated: boolean) {
     reorderInitiatives,
     clearInitiative,
     clearInitiatives,
-    cycleTurn,
+    advanceTurn,
+    endOwnTurn,
+    endCombat,
+    startRound,
+    rollInitiative,
+    rollAllInitiative,
+    setPlayersCanEndTurn,
     setActiveTurnToken,
     setBoardBackgroundHidden,
     setBoardFullyLit,

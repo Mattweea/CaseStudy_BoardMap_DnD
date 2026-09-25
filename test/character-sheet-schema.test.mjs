@@ -181,3 +181,28 @@ test('patch allowlist covers derived-value rules and rejects the removed derived
   assert.match(validatePatchOperation({ op: 'set', path: 'character.level', value: 'cinque' }), /non valido/);
   assert.match(validatePatchOperation({ op: 'set', path: 'spells.spellcastingAbility', value: 'Carisma' }), /non valido/);
 });
+
+test("la modalità del tiro d'iniziativa è un dominio chiuso con default Normale", () => {
+  assert.equal(createInitialCharacterSheetData().character.initiativeRollMode, 'normal');
+  for (const value of ['normal', 'advantage', 'disadvantage']) {
+    assert.equal(validatePatchOperation({ op: 'set', path: 'character.initiativeRollMode', value }), null);
+  }
+  assert.match(validatePatchOperation({ op: 'set', path: 'character.initiativeRollMode', value: 'double' }), /non valido/);
+  assert.match(validatePatchOperation({ op: 'set', path: 'character.initiativeRollMode', value: true }), /non valido/);
+
+  const data = createInitialCharacterSheetData();
+  data.character.initiativeRollMode = 'elven-accuracy';
+  assert.ok(validateCharacterSheetData(data).some((error) => error.includes('initiativeRollMode')));
+});
+
+test("una scheda precedente resta su Normale anche se il roster dichiara il vantaggio", () => {
+  const legacy = createInitialCharacterSheetData({ displayName: 'Ragnar' });
+  delete legacy.character.initiativeRollMode;
+  const ragnarProfile = { displayName: 'Ragnar', initiativeMode: 'advantage' };
+  assert.equal(normalizeCharacterSheetData(legacy, ragnarProfile).character.initiativeRollMode, 'normal');
+
+  const chosen = { ...legacy, character: { ...legacy.character, initiativeRollMode: 'advantage' } };
+  assert.equal(normalizeCharacterSheetData(chosen, ragnarProfile).character.initiativeRollMode, 'advantage');
+  const invalid = { ...legacy, character: { ...legacy.character, initiativeRollMode: 'nope' } };
+  assert.equal(normalizeCharacterSheetData(invalid).character.initiativeRollMode, 'normal');
+});

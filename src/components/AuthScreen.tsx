@@ -30,7 +30,6 @@ export function AuthScreen({ error, isLoading, onLogin, portraitsByOwnerId }: Au
     <div className="auth-shell">
       <section className="auth-card">
         <header className="auth-header">
-          <p className="eyebrow">Multiplayer Access</p>
           <h1>Discesa Nell&apos;Averno</h1>
         </header>
 

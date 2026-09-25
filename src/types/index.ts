@@ -14,6 +14,10 @@ export type CharacterKey =
   | 'vesuth';
 export type RollMode = 'normal' | 'advantage' | 'disadvantage';
 export type InitiativeMode = Extract<RollMode, 'normal' | 'advantage'>;
+// Modalità del tiro d'iniziativa scelta dalla scheda o dal Master (P0.8a); distinta dal vecchio
+// `InitiativeMode` del roster, che nessun flusso legge più.
+export type InitiativeRollMode = RollMode;
+export type SessionMode = 'exploration' | 'combat';
 
 export type DndSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan';
 
@@ -71,6 +75,8 @@ export interface TokenWalkEvent {
   id: string;
   tokenId: string;
   waypoints: GridPosition[];
+  // Falso per un passo singolo da tastiera: animazione senza binario del percorso.
+  showTrack: boolean;
 }
 
 // Motivo per cui il server ha rifiutato un movimento, tenuto fuori dallo stato condiviso perche
@@ -145,6 +151,10 @@ export interface BattleMapState {
   diceLogs: DiceRollLog[];
   latestDicePreview: DicePreviewState | null;
   combatAnnouncement: CombatAnnouncement | null;
+  sessionMode: SessionMode;
+  // Solo in combattimento: false durante la fase di tiro, true da quando il Master avvia il round 1.
+  isRoundStarted: boolean;
+  playersCanEndTurn: boolean;
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
   roundNumber: number;
@@ -166,6 +176,10 @@ export interface BattleMapSharedState {
   diceLogs: DiceRollLog[];
   latestDicePreview: DicePreviewState | null;
   combatAnnouncement: CombatAnnouncement | null;
+  sessionMode: SessionMode;
+  // Solo in combattimento: false durante la fase di tiro, true da quando il Master avvia il round 1.
+  isRoundStarted: boolean;
+  playersCanEndTurn: boolean;
   initiatives: InitiativeEntry[];
   activeTurnTokenId: string | null;
   roundNumber: number;
@@ -282,4 +296,10 @@ export interface InitiativeEntry {
   tokenId: string;
   value: number;
   source: 'rolled' | 'manual';
+  // Modificatore di Destrezza registrato alla creazione della voce, usato per lo spareggio. Il
+  // server lo completa sempre; manca solo su una voce manuale non ancora accettata.
+  dexModifier?: number;
+  // Frazione di spareggio in [0, 1), generata dal server; mai mostrata, assente per gli Adventurer.
+  tiebreaker?: number;
+  mode?: InitiativeRollMode;
 }

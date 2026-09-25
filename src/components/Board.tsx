@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BlockIcon, BookIcon, CircleTemplateIcon, CloseIcon, CollapseIcon, ConeTemplateIcon, ExpandIcon, LineTemplateIcon, MapIcon,
+  PingIcon, RulerIcon, SearchIcon, SparkIcon,
+} from './UiIcons';
 import type { CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { BOARD_CONFIG } from '../constants/board';
@@ -105,6 +109,9 @@ interface BoardProps {
   tokenWalkEvents?: TokenWalkEvent[];
   movementNotice?: MovementNotice | null;
   onDismissMovementNotice?: () => void;
+  // Segnala quando la tastiera appartiene alla mappa (pianificazione di un percorso, righello,
+  // sagome): in quel momento le frecce non devono muovere token dall'esterno.
+  onMapInteractionChange?: (isActive: boolean) => void;
   onPresentationHostChange?: (host: HTMLDivElement | null) => void;
 }
 
@@ -465,6 +472,7 @@ export function Board({
   ephemeralTemplates = [],
   movementNotice = null,
   onDismissMovementNotice,
+  onMapInteractionChange,
   onPresentationHostChange,
 }: BoardProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -679,6 +687,11 @@ export function Board({
   }, [focusRequest, tokens, viewportCells.columns, viewportCells.rows]);
 
   const planInteraction = interaction?.mode === 'plan' ? interaction : null;
+  const isMapInteractionActive = planInteraction !== null || isRulerActive || activeTemplateShape !== null;
+  useEffect(() => {
+    onMapInteractionChange?.(isMapInteractionActive);
+  }, [isMapInteractionActive, onMapInteractionChange]);
+  useEffect(() => () => onMapInteractionChange?.(false), [onMapInteractionChange]);
   // Durante la pianificazione il pezzo resta disegnato alla posizione di partenza: la destinazione
   // la mostrano il percorso e l'evidenziazione, non lo spostamento del pezzo, così si vede da dove
   // si è partiti. Queste posizioni servono solo a sapere in anticipo se il percorso finirebbe
@@ -805,7 +818,7 @@ export function Board({
   // colore e icone, che da soli non raggiungono chi non li vede. La stessa riga fa da live region
   // per blocco, budget e destinazione occupata.
   const planHintText = planInteraction
-    ? 'Spazio muove il token dove punti · Click aggiunge un waypoint · Backspace toglie l’ultimo · Esc annulla'
+    ? 'Spazio muove il token dove punti · Click su una casella aggiunge un waypoint · Click su un token lo seleziona · Backspace toglie l’ultimo · Esc annulla'
     : null;
   const planWarningText = !planInteraction
     ? null
@@ -866,6 +879,7 @@ export function Board({
     tokenId: string,
     points: GridPosition[],
     { msPerCell, minDuration, maxDuration }: { msPerCell: number; minDuration: number; maxDuration: number },
+    showTrack = true,
   ) => {
     if (points.length < 2) {
       return;
@@ -878,7 +892,13 @@ export function Board({
         duration: Math.min(maxDuration, Math.max(minDuration, (points.length - 1) * msPerCell)),
       },
     };
-    setWalkTrackPaths((current) => ({ ...current, [tokenId]: points }));
+    setWalkTrackPaths((current) => {
+      if (showTrack) return { ...current, [tokenId]: points };
+      if (!(tokenId in current)) return current;
+      const next = { ...current };
+      delete next[tokenId];
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -902,12 +922,14 @@ export function Board({
           const localT = segments === 0 ? 1 : scaled - index;
           const from = animation.points[index];
           const to = animation.points[index + 1] ?? from;
-          nextPositions[tokenId] = {
-            x: from.x + (to.x - from.x) * localT,
-            y: from.y + (to.y - from.y) * localT,
-          };
-
+          // Un'animazione conclusa esce anche dalle posizioni mostrate: il token torna a seguire la
+          // posizione dello stato condiviso. Lasciarla lì bloccava il token sull'ultimo arrivo,
+          // ignorando ogni aggiornamento successivo senza animazione (undo, rifiuto, mosse di gruppo).
           if (t < 1) {
+            nextPositions[tokenId] = {
+              x: from.x + (to.x - from.x) * localT,
+              y: from.y + (to.y - from.y) * localT,
+            };
             stillRunning[tokenId] = animation;
           } else {
             finishedTokenIds.push(tokenId);
@@ -942,7 +964,7 @@ export function Board({
         continue;
       }
       processedTokenWalkEventIdsRef.current.add(event.id);
-      startWalkAnimation(event.tokenId, walkPathPoints(event.waypoints), WALK_PACE);
+      startWalkAnimation(event.tokenId, walkPathPoints(event.waypoints), WALK_PACE, event.showTrack);
     }
   }, [tokenWalkEvents]);
 
@@ -1384,11 +1406,19 @@ export function Board({
     // Mentre si pianifica, il pointer sulla mappa appartiene al percorso: lasciar passare il
     // trascinamento della visuale sostituirebbe l'interazione e butterebbe via i waypoint scelti.
     // I pulsanti di zoom restano comunque raggiungibili fuori dalla mappa.
+    // Durante la pianificazione un click su un token lo seleziona, non aggiunge un waypoint: i
+    // punti del percorso si mettono solo sulle caselle. Sul token (o gruppo) che si sta muovendo
+    // non succede nulla; su un altro token la pianificazione corrente si chiude e il click
+    // prosegue come selezione normale, che su un token muovibile riapre il percorso da lì.
     if (interaction?.mode === 'plan') {
       event.preventDefault();
       event.stopPropagation();
-      addPlanWaypoint(interaction, event);
-      return;
+      const isPlannedToken =
+        token.id === interaction.tokenId || interaction.offsets.some((offset) => offset.tokenId === token.id);
+      if (isPlannedToken) {
+        return;
+      }
+      setInteraction(null);
     }
 
     if ((isRulerActive || isPingToolActive || activeTemplateShape) && stageRef.current) {
@@ -1813,7 +1843,6 @@ export function Board({
     <section className={`board-panel ${isFullscreen ? 'board-panel--fullscreen' : ''}`}>
       <div className="board-panel__header">
         <div>
-          <p className="eyebrow">Interactive board</p>
           <h2 className="board-title">
             <span className="board-title__campaign">Gli ammazza-keebler</span>
             <span className="board-title__aside">(di ghigno)</span>
@@ -1821,16 +1850,16 @@ export function Board({
         </div>
         <div className="board-actions">
           <button type="button" onClick={onToggleFullscreen}>
-            🤓 {isFullscreen ? 'Chiudi full screen' : 'Full screen'}
+            {isFullscreen ? <><CollapseIcon /> Chiudi full screen</> : <><ExpandIcon /> Full screen</>}
           </button>
           <button type="button" onClick={onOpenElementsListModal}>
-            🔎 Elementi in mappa
+            <SearchIcon /> Elementi in mappa
           </button>
           <button type="button" onClick={onOpenMap}>
-            🗺️ Averno
+            <MapIcon /> Averno
           </button>
           <button type="button" onClick={onOpenManual}>
-            📖 Manuale
+            <BookIcon /> Manuale
           </button>
         </div>
       </div>
@@ -1863,7 +1892,7 @@ export function Board({
             title="Righello: misura una distanza senza spostare token (R)"
             aria-label="Righello, misura una distanza senza spostare token. Scorciatoia R"
           >
-            <span aria-hidden="true">📏</span>
+            <RulerIcon />
           </button>
           <button
             type="button"
@@ -1873,7 +1902,7 @@ export function Board({
             title="Ping: segnala un punto della mappa a tutti (P)"
             aria-label="Ping, segnala un punto della mappa a tutti. Scorciatoia P"
           >
-            <span aria-hidden="true">📍</span>
+            <PingIcon />
           </button>
           <button
             type="button"
@@ -1883,7 +1912,7 @@ export function Board({
             title="Sagoma cerchio (C)"
             aria-label="Sagoma cerchio. Scorciatoia C"
           >
-            <span aria-hidden="true">⭕</span>
+            <CircleTemplateIcon />
           </button>
           <button
             type="button"
@@ -1893,7 +1922,7 @@ export function Board({
             title="Sagoma cono (O)"
             aria-label="Sagoma cono. Scorciatoia O"
           >
-            <span aria-hidden="true">🔺</span>
+            <ConeTemplateIcon />
           </button>
           <button
             type="button"
@@ -1903,7 +1932,7 @@ export function Board({
             title="Sagoma linea (L)"
             aria-label="Sagoma linea. Scorciatoia L"
           >
-            <span aria-hidden="true">📐</span>
+            <LineTemplateIcon />
           </button>
           {activeTool ? (
             <button
@@ -1913,7 +1942,7 @@ export function Board({
               title="Esci dallo strumento (Esc)"
               aria-label="Esci dallo strumento attivo. Scorciatoia Esc"
             >
-              <span aria-hidden="true">✕</span>
+              <CloseIcon size="0.9em" />
             </button>
           ) : null}
           <span className="board-tool-controls__rule" title="Regola delle diagonali e unità di misura correnti">
@@ -1926,7 +1955,7 @@ export function Board({
           </p>
           {movementNotice ? (
             <p className="board-hint board-hint--rejected" role="alert">
-              <span aria-hidden="true">⛔ </span>
+              <BlockIcon />
               {movementNotice.message}
               <button
                 type="button"
@@ -1934,7 +1963,7 @@ export function Board({
                 onClick={() => onDismissMovementNotice?.()}
                 aria-label="Chiudi l'avviso di movimento rifiutato"
               >
-                ✕
+                <CloseIcon size="0.9em" />
               </button>
             </p>
           ) : null}
@@ -2248,7 +2277,7 @@ export function Board({
                   title={`Rimuovi luce raggio ${light.radiusCells} caselle`}
                   aria-label={`Rimuovi luce raggio ${light.radiusCells} caselle`}
                 >
-                  ✦
+                  <SparkIcon />
                 </button>
               ))
             ) : null}
@@ -2325,9 +2354,9 @@ export function Board({
                         <>
                           <text x={tip.x} y={tip.y - 16} textAnchor="middle" className="board-path-layer__label">
                             {planIsBlocked
-                              ? '⛔ Percorso bloccato'
+                              ? 'Percorso bloccato'
                               : planExceedsBudget
-                                ? '⚠️ Fuori budget'
+                                ? 'Fuori budget'
                                 : formatRulerMeasurement(cost.cells, measurementUnit)}
                           </text>
                           {residualCells !== null && !isWarning ? (

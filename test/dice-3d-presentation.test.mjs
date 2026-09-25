@@ -53,7 +53,7 @@ test('una voce storica con un dado scartato resta presentabile e conserva la dis
   assert.deepEqual(result.presentation.groups[0].dice.map(({ disposition }) => disposition), ['kept', 'discarded']);
 });
 
-test('preserva gruppi e disposizioni per il result rail', () => {
+test('preserva gruppi e disposizioni nella presentazione', () => {
   const result = buildDicePresentation(log('groups', [
     die('a', 20, 18, 'attack', 'kept'),
     die('b', 20, 4, 'attack', 'discarded'),

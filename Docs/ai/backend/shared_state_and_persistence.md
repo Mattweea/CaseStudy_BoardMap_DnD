@@ -6,7 +6,7 @@ Define the lifecycle and compatibility rules for shared game state, user-specifi
 
 ## Canonical shape
 
-`BattleMapSharedState` is the client-side type contract. The server owns an equivalent normalized JavaScript shape. It includes tokens, dice logs and preview, combat announcement, initiatives, active turn and round, movement bookkeeping (`movementUsedByTokenId`, `diagonalParityByTokenId`), the game's `diagonalRule` and `measurementUnit`, board lighting flags, shared notes, and light sources.
+`BattleMapSharedState` is the client-side type contract. The server owns an equivalent normalized JavaScript shape. It includes tokens, dice logs and preview, combat announcement, session mode (`sessionMode`, `isRoundStarted`, `playersCanEndTurn`), initiatives, active turn and round, movement bookkeeping (`movementUsedByTokenId`, `diagonalParityByTokenId`), the game's `diagonalRule` and `measurementUnit`, board lighting flags, shared notes, and light sources.
 
 Zoom and other presentation-only UI state are not shared.
 
@@ -24,6 +24,13 @@ Both client and server normalize incoming state because data can come from older
 Every new shared field requires coordinated defaults and validation on both sides. Saved snapshots without the new field must still load safely.
 
 `movementAxisUsageByTokenId` (the pre-P0.7 per-axis movement counter) is removed from the shape. Normalization converts it into `movementUsedByTokenId` with the old rule — `max(horizontal, vertical)` — only for a token that does not already have a `movementUsedByTokenId` entry, then discards it; this is a one-time, conservative compatibility conversion and must not otherwise be referenced. `diagonalParityByTokenId` and `diagonalRule`/`measurementUnit` default to `{}`, `'standard'`, and `{ label: 'm', cellsValue: 1.5 }` respectively when absent from an older snapshot.
+
+Session mode and initiative (P0.8a) follow invariants enforced by both normalizers:
+
+- `sessionMode` defaults to `'exploration'`, `playersCanEndTurn` to `false`. A snapshot without `sessionMode` infers it: initiative entries present → `'combat'` with `isRoundStarted = activeTurnTokenId !== null` (an encounter in progress keeps order, active turn, round, and movement already charged); no entries → `'exploration'`.
+- In `'exploration'`, `initiatives` is empty, `activeTurnTokenId` is null, and `isRoundStarted` is false. During the roll phase (`combat` without `isRoundStarted`) `activeTurnTokenId` is null.
+- Each initiative entry is deduplicated per token and requires a finite `value`. A missing `dexModifier` is derived by the server (linked sheet Dexterity, else `initiativeModifier`). A missing `tiebreaker` is generated **only by the server** with `crypto`; the client normalizer leaves it absent, because client randomness would produce diverging orders. An existing tiebreaker is never regenerated, so the order stays stable across updates and legacy entries keep their sequence.
+- A master full-state commit may add manual entries without `dexModifier`/`tiebreaker`; the `PUT` route places each new or changed entry with the shared insertion rule after completing it, leaving existing positions untouched.
 
 ## Validation and commit
 
@@ -43,7 +50,8 @@ Before an adventurer receives a snapshot:
 - remove invisible tokens not owned by that user;
 - remove initiative entries for removed tokens;
 - clear the active turn when it points to a removed token;
-- filter dice logs by public/secret visibility before every HTTP or SSE delivery.
+- filter dice logs by public/secret visibility before every HTTP or SSE delivery;
+- remove the initiative `tiebreaker` from every entry (the order arrives already decided). The master keeps it, because full-state master commits must send it back intact.
 
 `latestDicePreview` remains in the snapshot shape only for compatibility with older snapshots. The server-authoritative roll flow clears it and presents accepted results through the authorized dice log; new behavior must not depend on a flavored preview being populated.
 
@@ -57,7 +65,7 @@ Ping, template-drawing, and token-walk events (`ephemeral-ping`, `ephemeral-temp
 - derive their author from the authenticated session, never from a client-declared field;
 - for a template or a token-walk, are filtered per recipient using the same token-visibility predicate (`isTokenVisibleToUser`) that sanitizes the shared state for that user — keyed on whichever token (if any) occupies the template's origin cell, or on the moved token itself for `token-walk`; a ping has no such filter and reaches every connected client.
 
-`token-walk` carries the exact waypoints of a move that `moveOwnedToken` just accepted, purely so every connected client can play the same walking animation instead of only seeing the token's final cell once the snapshot arrives; it is broadcast in addition to, never instead of, the normal snapshot broadcast for that move.
+`token-walk` carries the exact waypoints of a move that `moveOwnedToken` just accepted, purely so every connected client can play the same walking animation instead of only seeing the token's final cell once the snapshot arrives; it is broadcast in addition to, never instead of, the normal snapshot broadcast for that move. `showTrack` is `false` for an `x`/`y` single-step request (keyboard or movement pad), so clients animate it without the path track.
 
 A client that reconnects after a ping, a template, or a walk animation has finished receives no trace of it in either the snapshot or a replayed event, because nothing about them is retained anywhere once the SSE write completes.
 
@@ -85,6 +93,7 @@ SQLite is a separate persistence boundary:
 - Adventurer undo stores up to 40 user-specific inverse actions for movement, dash, owned-token updates, and extra movement.
 - Undo stacks are in memory and are not persisted in session snapshots.
 - Adding a mutation requires an explicit decision: master snapshot undo, adventurer inverse undo, both, or intentionally non-undoable.
+- Combat endpoints: entering/leaving combat, starting round one, the master's turn advance, and the `playersCanEndTurn` setting use master snapshot undo. Initiative rolls (single or roll-all) are intentionally non-undoable, since undoing would also remove the log entry; the master corrects with edit or removal. An adventurer's end of turn has no inverse; the master can move the turn back.
 
 ## Verification
 

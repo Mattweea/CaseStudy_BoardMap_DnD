@@ -46,6 +46,13 @@ interface CardModel {
 // Un bersaglio della scheda (P0.5 Fase B) porta `log.source`: distingue le forme di voce. Il dado
 // vita e i salvataggi contro morte restano un tiro singolo: nessuno dei due ha nozione di
 // vantaggio/svantaggio in 5e, a differenza degli altri bersagli `1d20`.
+// Il tiro d'iniziativa (P0.8a) è risolto dal server in un valore solo, anche con vantaggio o
+// svantaggio: una sola casella, mai la coppia. Il tiro di un token senza scheda non porta `source`,
+// quindi si riconosce anche dall'azione.
+function isInitiativeLog(log: DiceRollLog) {
+  return log.source?.target === 'initiative' || (!log.source && log.actionLabel === 'Iniziativa');
+}
+
 function sourceKind(target: string | undefined): 'single' | 'damage' | 'dual' | 'free' {
   if (!target) return 'free';
   if (target === 'hit-dice' || target === 'death-saves') return 'single';
@@ -59,6 +66,17 @@ function highlightFor(natural: number): 'crit' | 'fumble' | undefined {
 
 function buildModel(log: DiceRollLog, onRoll?: (request: DiceRollSourceRequest) => void): CardModel {
   const kind = sourceKind(log.source?.target);
+
+  if (isInitiativeLog(log)) {
+    const kept = log.keptRolls[0] ?? log.rolls[0];
+    const modeLabel = log.mode === 'advantage' ? ' (vantaggio)' : log.mode === 'disadvantage' ? ' (svantaggio)' : '';
+    return {
+      formula: log.formula,
+      results: [{ value: log.total, highlight: highlightFor(kept) }],
+      detailGroups: [{ key: 'initiative', label: log.rolls.length > 1 ? `Dado tenuto: ${kept}` : undefined, sides: 20, rolls: log.rolls, modifier: log.modifier, total: log.total }],
+      caption: <span>{`${log.actionLabel ?? log.label}${modeLabel}`}</span>,
+    };
+  }
 
   if (kind === 'dual') {
     const [naturalA, naturalB] = log.rolls;

@@ -22,7 +22,10 @@ import { rollCharacterSheetTarget } from './character-sheet-roll-resolver.mjs';
 import { createAuthoritativeRoll } from './authoritative-roll.mjs';
 import { canUserSeeDiceLog, visibleDiceLogsForUser } from './dice-log-visibility.mjs';
 import { PortraitStorage } from './portrait-storage.mjs';
+import { findCharacterTokenForOwner, rollInitiative } from './initiative-roll.mjs';
+import { insertInitiativeEntry } from '../shared/initiative-order.mjs';
 import { isValidCellsValue, pathCost } from '../shared/grid-movement.mjs';
+import { abilityModifier } from '../shared/dnd-rules.mjs';
 
 const app = Fastify({
   logger: true,
@@ -55,6 +58,9 @@ const initialSharedState = {
   diceLogs: [],
   latestDicePreview: null,
   combatAnnouncement: null,
+  sessionMode: 'exploration',
+  isRoundStarted: false,
+  playersCanEndTurn: false,
   initiatives: [],
   activeTurnTokenId: null,
   roundNumber: 1,
@@ -71,7 +77,11 @@ const initialSharedState = {
 };
 
 const MAX_MOVEMENT_WAYPOINTS = 40;
+const INITIATIVE_ROLL_MODES = new Set(['normal', 'advantage', 'disadvantage']);
 
+// Dichiarato prima del primo `normalizeSharedState`: la normalizzazione delle voci d'iniziativa
+// lo consulta per ricavare il modificatore di Destrezza dalla scheda collegata a un token.
+let characterSheetService;
 let battleMapState = normalizeSharedState(initialSharedState);
 let battleMapVersion = 1;
 let turnTransitionId = 0;
@@ -252,9 +262,20 @@ function normalizeSharedState(parsed) {
         };
       })
     : initialSharedState.tokens;
-  const initiatives = Array.isArray(parsed?.initiatives)
-    ? parsed.initiatives.filter((entry) => tokens.some((token) => token.id === entry.tokenId))
-    : [];
+  // Modalità di sessione (P0.8a). Uno snapshot precedente non ha `sessionMode`: con voci
+  // d'iniziativa è un incontro in corso (a round avviato se c'è un turno attivo), senza voci è
+  // esplorazione. Le invarianti per modalità valgono per ogni stato, legacy o no.
+  const rawInitiatives = normalizeInitiativeEntries(parsed?.initiatives, tokens);
+  const rawActiveTurnTokenId =
+    typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null;
+  const hasSessionMode = parsed?.sessionMode === 'exploration' || parsed?.sessionMode === 'combat';
+  const sessionMode = hasSessionMode
+    ? parsed.sessionMode
+    : rawInitiatives.length > 0 ? 'combat' : 'exploration';
+  const isRoundStarted = sessionMode === 'combat' &&
+    (hasSessionMode ? parsed?.isRoundStarted === true : rawActiveTurnTokenId !== null);
+  const initiatives = sessionMode === 'combat' ? rawInitiatives : [];
+  const activeTurnTokenId = isRoundStarted ? rawActiveTurnTokenId : null;
   const lightSources = Array.isArray(parsed?.lightSources)
     ? parsed.lightSources.flatMap((light) => {
         if (
@@ -378,9 +399,11 @@ function normalizeSharedState(parsed) {
             message: parsed.combatAnnouncement.message,
           }
         : null,
+    sessionMode,
+    isRoundStarted,
+    playersCanEndTurn: parsed?.playersCanEndTurn === true,
     initiatives,
-    activeTurnTokenId:
-      typeof parsed?.activeTurnTokenId === 'string' ? parsed.activeTurnTokenId : null,
+    activeTurnTokenId,
     roundNumber: typeof parsed?.roundNumber === 'number' && parsed.roundNumber > 0 ? parsed.roundNumber : 1,
     movementUsedByTokenId,
     diagonalParityByTokenId,
@@ -411,6 +434,63 @@ function normalizeSharedState(parsed) {
     sharedNotes: typeof parsed?.sharedNotes === 'string' ? parsed.sharedNotes : '',
     lightSources,
   };
+}
+
+// Token collegato a una scheda: il personaggio (non famiglio) di un utente. La scheda è quella
+// del proprietario, la stessa usata dalla proiezione scheda → token.
+function findLinkedSheetId(token) {
+  if (!token || token.type !== 'player' || token.isFamiliar === true || !token.ownerUserId) return null;
+  try {
+    return characterSheetService?.findIdByOwner(token.ownerUserId) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Modificatore di Destrezza per lo spareggio: dal punteggio della scheda collegata, altrimenti
+// dal modificatore d'iniziativa del token (un PNG senza scheda non ha una Destrezza separata).
+function dexModifierForToken(token) {
+  const sheetId = findLinkedSheetId(token);
+  if (sheetId) {
+    try {
+      const modifier = abilityModifier(characterSheetService.readInternal(sheetId).character.abilities.dexterity.score);
+      if (modifier !== null) return modifier;
+    } catch {
+      // Scheda illeggibile: si ricade sul modificatore del token.
+    }
+  }
+  return typeof token?.initiativeModifier === 'number' ? token.initiativeModifier : 0;
+}
+
+function createTiebreaker() {
+  return randomBytes(4).readUInt32BE(0) / 0x1_0000_0000;
+}
+
+// Completa ogni voce: una per token esistente, valore numerico, Destrezza registrata e frazione
+// di spareggio. Solo il server genera la frazione mancante; una frazione esistente resta stabile.
+function normalizeInitiativeEntries(rawEntries, tokens) {
+  if (!Array.isArray(rawEntries)) return [];
+  const tokenById = new Map(tokens.map((token) => [token.id, token]));
+  const seen = new Set();
+  return rawEntries.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || typeof entry.tokenId !== 'string') return [];
+    const token = tokenById.get(entry.tokenId);
+    if (!token || seen.has(entry.tokenId) || typeof entry.value !== 'number' || !Number.isFinite(entry.value)) return [];
+    seen.add(entry.tokenId);
+    const normalized = {
+      tokenId: entry.tokenId,
+      value: entry.value,
+      source: entry.source === 'rolled' ? 'rolled' : 'manual',
+      dexModifier: typeof entry.dexModifier === 'number' && Number.isFinite(entry.dexModifier)
+        ? entry.dexModifier
+        : dexModifierForToken(token),
+      tiebreaker: typeof entry.tiebreaker === 'number' && entry.tiebreaker >= 0 && entry.tiebreaker < 1
+        ? entry.tiebreaker
+        : createTiebreaker(),
+    };
+    if (INITIATIVE_ROLL_MODES.has(entry.mode)) normalized.mode = entry.mode;
+    return [normalized];
+  });
 }
 
 function gridDistance(from, to) {
@@ -643,7 +723,7 @@ function sanitizeStateForUser(state, user) {
   const visibleDicePreview =
     state.latestDicePreview?.rollerUserId === user.id ? state.latestDicePreview : null;
 
-  return normalizeSharedState({
+  const sanitized = normalizeSharedState({
     ...state,
     tokens: visibleTokens,
     latestDicePreview: visibleDicePreview,
@@ -652,10 +732,15 @@ function sanitizeStateForUser(state, user) {
     diceLogs: visibleDiceLogs,
     latestDicePreview: visiblePreview,
   });
+  // La frazione di spareggio non raggiunge mai un Adventurer: l'ordine gli arriva già deciso.
+  return {
+    ...sanitized,
+    initiatives: sanitized.initiatives.map(({ tiebreaker: _tiebreaker, ...entry }) => entry),
+  };
 }
 
 function getTurnNotice(user) {
-  if (!user || user.role === 'master' || !battleMapState.activeTurnTokenId) return null;
+  if (!user || user.role === 'master' || !battleMapState.isRoundStarted || !battleMapState.activeTurnTokenId) return null;
   const ownToken = battleMapState.tokens.find((token) => token.ownerUserId === user.id && token.type === 'player');
   const activeIndex = battleMapState.initiatives.findIndex((entry) => entry.tokenId === battleMapState.activeTurnTokenId);
   const ownIndex = battleMapState.initiatives.findIndex((entry) => entry.tokenId === ownToken?.id);
@@ -790,8 +875,10 @@ function broadcastEphemeralEvent(type, payload, { filterByOriginToken = null } =
 // Trasmette il percorso di un movimento appena accettato così ogni client (non solo chi lo ha
 // mosso) possa riprodurre la stessa camminata animata invece di vedere solo la posizione finale.
 // Puramente presentazionale: non tocca battleMapState, la versione o lo snapshot.
-function broadcastTokenWalk(token, waypoints) {
-  broadcastEphemeralEvent('token-walk', { tokenId: token.id, waypoints }, { filterByOriginToken: token });
+// `showTrack` è falso per un passo singolo da tastiera o dal pad: il token si anima comunque, ma
+// senza il binario del percorso, che serve solo a leggere un movimento pianificato.
+function broadcastTokenWalk(token, waypoints, showTrack = true) {
+  broadcastEphemeralEvent('token-walk', { tokenId: token.id, waypoints, showTrack }, { filterByOriginToken: token });
 }
 
 function sendPing(user, position) {
@@ -943,18 +1030,168 @@ function updateSharedNotes(user, notes) {
   return nextSnapshot(user);
 }
 
-function startCombatAnnouncement() {
+// Azzeramenti comuni a ingresso e uscita dal combattimento: tracker, turno, round e contabilità
+// del movimento ripartono da zero.
+const COMBAT_RESET = Object.freeze({
+  initiatives: [],
+  activeTurnTokenId: null,
+  isRoundStarted: false,
+  roundNumber: 1,
+  movementUsedByTokenId: {},
+  diagonalParityByTokenId: {},
+  dashUsedByTokenId: {},
+  extraMovementByTokenId: {},
+});
+
+// Ingresso in Combattimento: tracker vuoto, fase di tiro aperta, nuovo annuncio (un id nuovo per
+// ogni ingresso, così ogni client lo mostra una volta sola).
+function enterCombat() {
+  if (battleMapState.sessionMode === 'combat') {
+    return { status: 400, message: 'La sessione è già in Combattimento.' };
+  }
   return commitBattleMapState({
     ...battleMapState,
+    ...COMBAT_RESET,
+    sessionMode: 'combat',
     combatAnnouncement: {
       id: randomUUID(),
-      title: 'Il combattimento ha inzio...',
+      title: 'Il combattimento ha inizio',
       message: '"C vol la iaul? C VOL LA IAAAAAUL!?!?"',
     },
   }, {
     recordMasterUndo: true,
     validate: false,
   });
+}
+
+function exitCombat() {
+  if (battleMapState.sessionMode !== 'combat') {
+    return { status: 400, message: 'La sessione è già in Esplorazione.' };
+  }
+  return commitBattleMapState({
+    ...battleMapState,
+    ...COMBAT_RESET,
+    sessionMode: 'exploration',
+  }, { recordMasterUndo: true, validate: false });
+}
+
+function startFirstRound() {
+  if (battleMapState.sessionMode !== 'combat') {
+    return { status: 400, message: 'Avvia prima il combattimento.' };
+  }
+  if (battleMapState.isRoundStarted) {
+    return { status: 400, message: 'Il round è già cominciato.' };
+  }
+  if (battleMapState.initiatives.length === 0) {
+    return { status: 400, message: "Nessuna voce d'iniziativa: il round 1 non può cominciare con un ordine vuoto." };
+  }
+  return commitBattleMapState({
+    ...battleMapState,
+    isRoundStarted: true,
+    roundNumber: 1,
+    activeTurnTokenId: battleMapState.initiatives[0].tokenId,
+  }, { recordMasterUndo: true, validate: false });
+}
+
+// Avanzamento del turno. Il Master avanza e arretra; l'Adventurer può solo chiudere il proprio
+// turno (`next`), quando il Master lo consente e il token attivo è il suo personaggio.
+function advanceTurn(user, direction) {
+  if (direction !== 'next' && direction !== 'previous') {
+    return { status: 400, message: 'Direzione del turno non valida.' };
+  }
+  if (battleMapState.sessionMode !== 'combat') {
+    return { status: 400, message: 'La sessione è in Esplorazione: non ci sono turni da avanzare.' };
+  }
+  if (!battleMapState.isRoundStarted) {
+    return { status: 400, message: 'Il round non è ancora cominciato.' };
+  }
+  const { initiatives } = battleMapState;
+  if (initiatives.length === 0) {
+    return { status: 400, message: "Nessuna voce d'iniziativa." };
+  }
+  if (user.role !== 'master') {
+    const activeToken = battleMapState.tokens.find((token) => token.id === battleMapState.activeTurnTokenId);
+    if (direction !== 'next') {
+      return { status: 403, message: 'Solo il Master può tornare al turno precedente.' };
+    }
+    if (!battleMapState.playersCanEndTurn) {
+      return { status: 403, message: 'Il Master non consente ai giocatori di terminare il proprio turno.' };
+    }
+    if (!activeToken || activeToken.ownerUserId !== user.id || activeToken.type !== 'player') {
+      return { status: 403, message: 'Puoi terminare solo il tuo turno.' };
+    }
+  }
+
+  const activeIndex = initiatives.findIndex((entry) => entry.tokenId === battleMapState.activeTurnTokenId);
+  const startIndex = activeIndex >= 0 ? activeIndex : direction === 'next' ? -1 : 0;
+  const nextIndex = direction === 'next'
+    ? (startIndex + 1) % initiatives.length
+    : (startIndex - 1 + initiatives.length) % initiatives.length;
+  return commitBattleMapState({
+    ...applyRoundWrapState(battleMapState, direction),
+    activeTurnTokenId: initiatives[nextIndex].tokenId,
+  }, { recordMasterUndo: user.role === 'master', validate: false });
+}
+
+function setPlayersCanEndTurn(enabled) {
+  if (typeof enabled !== 'boolean') {
+    return { status: 400, message: 'Impostazione non valida.' };
+  }
+  return commitBattleMapState({ ...battleMapState, playersCanEndTurn: enabled }, { recordMasterUndo: true, validate: false });
+}
+
+const EXPLORATION_ROLL_ERROR =
+  "La sessione è in Esplorazione: il tiro d'iniziativa si abilita quando il Master avvia il combattimento.";
+
+// Tiro d'iniziativa: voce nel tracker e log nella stessa commit, un solo incremento di versione.
+// Il gestore è sincrono dal controllo alla commit, quindi due richieste per lo stesso token si
+// serializzano e la seconda trova la voce già presente. Nessun undo: il Master corregge con
+// modifica o rimozione della voce.
+function commitInitiativeRoll(user, tokenId, requestedMode) {
+  const result = rollInitiative({ user, state: battleMapState, service: characterSheetService, tokenId, requestedMode });
+  if (result.error) return { status: result.status, message: result.error };
+  return commitBattleMapState({
+    ...battleMapState,
+    initiatives: insertInitiativeEntry(battleMapState.initiatives, result.entry),
+    diceLogs: [result.log, ...battleMapState.diceLogs].slice(0, 30),
+    latestDicePreview: null,
+  }, { recordMasterUndo: false, validate: false });
+}
+
+// «Tira per tutti»: ogni creatura non esclusa priva di voce, nell'ordine dei token, in una sola
+// commit. Le voci esistenti non vengono mai sovrascritte.
+function commitInitiativeRollAll(user) {
+  if (battleMapState.sessionMode !== 'combat') {
+    return { status: 400, message: EXPLORATION_ROLL_ERROR };
+  }
+  let workingState = battleMapState;
+  const logs = [];
+  const skipped = [];
+  for (const token of battleMapState.tokens) {
+    if (!isCreatureToken(token) || token.excludeFromInitiative === true) continue;
+    if (workingState.initiatives.some((entry) => entry.tokenId === token.id)) continue;
+    const result = rollInitiative({ user, state: workingState, service: characterSheetService, tokenId: token.id });
+    if (result.error) {
+      skipped.push(token.name);
+      continue;
+    }
+    workingState = { ...workingState, initiatives: insertInitiativeEntry(workingState.initiatives, result.entry) };
+    logs.push(result.log);
+  }
+  if (logs.length === 0) {
+    return {
+      status: 400,
+      message: skipped.length
+        ? `Nessun tiro riuscito: ${skipped.join(', ')}.`
+        : "Ogni creatura ha già una voce d'iniziativa.",
+    };
+  }
+  const committed = commitBattleMapState({
+    ...workingState,
+    diceLogs: [...logs.reverse(), ...battleMapState.diceLogs].slice(0, 30),
+    latestDicePreview: null,
+  }, { recordMasterUndo: false, validate: false });
+  return { ...committed, skipped };
 }
 
 function clearBattleMapDiceLogs(user) {
@@ -1029,7 +1266,7 @@ function applyRoundWrapState(nextState, direction) {
     : nextState;
 }
 
-function moveOwnedToken(user, tokenId, waypoints) {
+function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
   const tokenIndex = battleMapState.tokens.findIndex((token) => token.id === tokenId);
   if (tokenIndex === -1) {
     return { status: 404, message: 'Token non trovato.' };
@@ -1059,7 +1296,9 @@ function moveOwnedToken(user, tokenId, waypoints) {
     return { status: 403, message: 'Puoi muovere solo il tuo personaggio o il mezzo a cui sei assegnato.' };
   }
 
-  const hasInitiativeOrder = battleMapState.initiatives.length > 0;
+  // Il budget vale solo in Combattimento a round avviato. In Esplorazione e durante la fase di
+  // tiro (il Master può chiedere ai giocatori di disporsi) il movimento è libero e non addebitato.
+  const budgetApplies = battleMapState.sessionMode === 'combat' && battleMapState.isRoundStarted;
   const movementSourceToken = isControlledVehicle
     ? battleMapState.tokens.find(
         (candidate) =>
@@ -1078,7 +1317,7 @@ function moveOwnedToken(user, tokenId, waypoints) {
     diagonalParity: previousDiagonalParity,
   });
 
-  if (hasInitiativeOrder && user.role !== 'master' && usedCells + moveDistance > movementBudget) {
+  if (budgetApplies && user.role !== 'master' && usedCells + moveDistance > movementBudget) {
     return {
       status: 400,
       message: `Movimento insufficiente: restano ${Math.max(0, movementBudget - usedCells)} caselle in questo round.`,
@@ -1113,13 +1352,13 @@ function moveOwnedToken(user, tokenId, waypoints) {
   const nextState = normalizeSharedState({
     ...battleMapState,
     tokens: nextTokens,
-    movementUsedByTokenId: hasInitiativeOrder
+    movementUsedByTokenId: budgetApplies
       ? {
           ...battleMapState.movementUsedByTokenId,
           [movementSourceId]: usedCells + moveDistance,
         }
       : battleMapState.movementUsedByTokenId,
-    diagonalParityByTokenId: hasInitiativeOrder
+    diagonalParityByTokenId: budgetApplies
       ? {
           ...battleMapState.diagonalParityByTokenId,
           [movementSourceId]: nextDiagonalParity,
@@ -1137,7 +1376,7 @@ function moveOwnedToken(user, tokenId, waypoints) {
 
   if (user.role === 'master') {
     const result = commitBattleMapState(nextState, { recordMasterUndo: true, validate: false });
-    broadcastTokenWalk(token, waypoints);
+    broadcastTokenWalk(token, waypoints, showTrack);
     return result;
   }
 
@@ -1154,7 +1393,7 @@ function moveOwnedToken(user, tokenId, waypoints) {
   }
   bumpBattleMapVersion();
   broadcastSnapshot();
-  broadcastTokenWalk(token, waypoints);
+  broadcastTokenWalk(token, waypoints, showTrack);
   return { status: 200, snapshot: nextSnapshot() };
 }
 
@@ -1414,7 +1653,6 @@ const sessionStore = new Map();
 let database;
 let userRepository;
 let authService;
-let characterSheetService;
 const characterSheetPolicy = new CharacterSheetPolicy();
 const portraitStorage = new PortraitStorage(PORTRAIT_STORAGE_PATH);
 
@@ -1749,7 +1987,7 @@ app.put('/api/battle-map/state', async (request, reply) => {
   }
 
   const body = request.body ?? {};
-  const nextState = normalizeSharedState(body.state);
+  const nextState = normalizeSharedState(placeNewManualInitiatives(body.state));
   const baseVersion = typeof body.baseVersion === 'number' ? body.baseVersion : null;
 
   if (baseVersion !== null && baseVersion !== battleMapVersion) {
@@ -1779,6 +2017,17 @@ app.post('/api/battle-map/rolls', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  // Il bersaglio Iniziativa della scheda è il tiro d'iniziativa autorevole: scrive il tracker e
+  // ignora l'interruttore segreto della scheda (la visibilità la decide il modulo d'iniziativa).
+  if (body.source?.target === 'initiative') {
+    const tokenResult = resolveSheetInitiativeToken(user, body.source.sheetId);
+    if (tokenResult.error) {
+      reply.code(tokenResult.status);
+      return { message: tokenResult.error, ...nextSnapshot(user) };
+    }
+    return sendMutationResult(reply, user, commitInitiativeRoll(user, tokenResult.tokenId));
+  }
+
   const result = body.source
     ? rollCharacterSheetTarget(user, characterSheetService, body)
     : createAuthoritativeRoll(user, body);
@@ -1789,6 +2038,54 @@ app.post('/api/battle-map/rolls', async (request, reply) => {
 
   return appendDiceLog(user, result.log);
 });
+
+// Una voce manuale nuova del Master arriva senza frazione né Destrezza, che il client non conosce.
+// Il server la colloca con la regola d'inserimento condivisa, dopo averla completata; le voci già
+// presenti (e quindi gli spostamenti del Master) restano dove sono.
+function placeNewManualInitiatives(rawState) {
+  if (!rawState || typeof rawState !== 'object' || !Array.isArray(rawState.initiatives)) return rawState;
+  const current = new Map(battleMapState.initiatives.map((entry) => [entry.tokenId, entry]));
+  const isFresh = (entry) => entry && typeof entry === 'object' && typeof entry.tiebreaker !== 'number' && (
+    !current.has(entry.tokenId) ||
+    current.get(entry.tokenId).value !== entry.value ||
+    current.get(entry.tokenId).source !== entry.source
+  );
+  const freshEntries = rawState.initiatives.filter(isFresh);
+  if (freshEntries.length === 0) return rawState;
+  const tokens = Array.isArray(rawState.tokens) ? rawState.tokens : [];
+  const placed = normalizeInitiativeEntries(freshEntries, tokens).reduce(
+    (entries, entry) => insertInitiativeEntry(entries, entry),
+    rawState.initiatives.filter((entry) => !isFresh(entry)),
+  );
+  return { ...rawState, initiatives: placed };
+}
+
+function resolveSheetInitiativeToken(user, sheetId) {
+  if (typeof sheetId !== 'string' || !sheetId) return { status: 400, error: 'Bersaglio di tiro non valido.' };
+  if (battleMapState.sessionMode !== 'combat') return { status: 400, error: EXPLORATION_ROLL_ERROR };
+  let sheet;
+  try {
+    sheet = characterSheetService.get(user, sheetId);
+  } catch (error) {
+    return { status: 400, error: error?.message ?? 'Impossibile leggere la scheda.' };
+  }
+  const token = findCharacterTokenForOwner(battleMapState.tokens, sheet.ownerUserId);
+  if (!token) {
+    return { status: 400, error: "Questa scheda non ha un token sulla mappa: l'iniziativa si tira per un token presente." };
+  }
+  return { tokenId: token.id };
+}
+
+// Risposta comune delle mutazioni dedicate: un errore riporta motivo e snapshot sanitizzato per
+// il riallineamento; un successo restituisce lo snapshot per l'utente che ha chiesto.
+function sendMutationResult(reply, user, result) {
+  if (result.status && result.status !== 200) {
+    reply.code(result.status);
+    return { message: result.message, ...nextSnapshot(user) };
+  }
+  const response = nextSnapshot(user);
+  return result.skipped?.length ? { ...response, skipped: result.skipped } : response;
+}
 
 app.delete('/api/battle-map/dice-logs', async (request, reply) => {
   const user = requireUser(request, reply);
@@ -1825,7 +2122,66 @@ app.post('/api/battle-map/combat/start', async (request, reply) => {
     return;
   }
 
-  return startCombatAnnouncement();
+  return sendMutationResult(reply, user, enterCombat());
+});
+
+app.post('/api/battle-map/combat/end', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) {
+    return;
+  }
+
+  return sendMutationResult(reply, user, exitCombat());
+});
+
+app.post('/api/battle-map/combat/round/start', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) {
+    return;
+  }
+
+  return sendMutationResult(reply, user, startFirstRound());
+});
+
+app.post('/api/battle-map/turn/advance', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  return sendMutationResult(reply, user, advanceTurn(user, request.body?.direction));
+});
+
+app.post('/api/battle-map/settings/players-can-end-turn', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) {
+    return;
+  }
+
+  return sendMutationResult(reply, user, setPlayersCanEndTurn(request.body?.enabled));
+});
+
+app.post('/api/battle-map/initiative/roll', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const body = request.body ?? {};
+  if (typeof body.tokenId !== 'string' || !body.tokenId) {
+    reply.code(400);
+    return { message: 'Payload tiro iniziativa non valido.', ...nextSnapshot(user) };
+  }
+  return sendMutationResult(reply, user, commitInitiativeRoll(user, body.tokenId, body.mode));
+});
+
+app.post('/api/battle-map/initiative/roll-all', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) {
+    return;
+  }
+
+  return sendMutationResult(reply, user, commitInitiativeRollAll(user));
 });
 
 app.post('/api/battle-map/move', async (request, reply) => {
@@ -1856,7 +2212,7 @@ app.post('/api/battle-map/move', async (request, reply) => {
     return { message: 'Payload movimento non valido.' };
   }
 
-  const result = moveOwnedToken(user, tokenId, waypoints);
+  const result = moveOwnedToken(user, tokenId, waypoints, { showTrack: Array.isArray(body.waypoints) });
   if (result.status && result.status !== 200) {
     reply.code(result.status);
     return {
@@ -2143,6 +2499,12 @@ export const __testing = {
     battleMapVersion = 1;
   },
   getBattleMapState: () => battleMapState,
+  setCharacterSheetService: (service) => {
+    characterSheetService = service;
+  },
+  sanitizeStateForUser,
+  nextSnapshot,
+  normalizeSharedState,
   getBattleMapVersion: () => battleMapVersion,
   applyRoundWrapState,
   streamClients,
