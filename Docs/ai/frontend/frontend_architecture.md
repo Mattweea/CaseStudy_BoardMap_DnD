@@ -10,7 +10,9 @@ Define the stable React boundaries and client-state rules used by D&D Battle Map
 - `src/App.tsx` is the composition root for authentication gates, sidebar sections, modals, board actions, keyboard commands, notes, session controls, and combat announcements.
 - `src/hooks/useAuthSession.ts` owns session discovery, login, logout, and authentication feedback.
 - `src/hooks/useBattleMapState.ts` owns the client copy of shared game state, SSE subscription, version tracking, optimistic mutations, mutation serialization, and local zoom.
+- `src/hooks/useSceneCatalog.ts` owns the Master-only scene catalog request state, management selection, local edit draft reconciliation, and version-conflict feedback. Catalog selection is not active-scene selection and never mutates the battle-map snapshot.
 - `src/components/Board.tsx` owns board-space rendering and pointer interaction.
+- `src/components/SceneCatalogPanel.tsx` is the dedicated Master workspace surface for creating, listing, selecting and renaming persisted scenes. It is not mounted for an Adventurer and exposes no delete, archive or activation control.
 - `src/components/Dice3DOverlay.tsx` owns the single client-local 3D dice scene, its FIFO presentation queue, and capability fallback. It draws no textual result summary over the map: the dice log is the only place where a roll is read. `App.tsx` points it at the currently active normal or fullscreen board host; individual `Board` instances do not own renderer instances.
 - Feature components receive state and actions through typed props; they must not create a second shared-state source.
 
@@ -55,6 +57,7 @@ Do not add a shared game field only to React state. A shared field requires the 
 - Authentication remains gated until the initial session request finishes.
 - Shared-state UI remains gated until the first authenticated snapshot is loaded.
 - Mutating feedback must not imply success before the server accepts the change unless rollback is implemented.
+- Scene catalog forms keep edits local until submit. A `409` replaces catalog/detail data with the server-provided current scene and asks the Master to review the newer version before retrying.
 - Network and validation errors should be user-actionable; unexpected errors may also be logged for diagnosis.
 
 ## Verification

@@ -12,6 +12,7 @@ import { InitiativeRollModal } from './components/InitiativeRollModal';
 import { InitiativePanel } from './components/InitiativePanel';
 import { Modal } from './components/Modal';
 import { CombatEmblem } from './components/CombatEmblem';
+import { SceneCatalogPanel } from './components/SceneCatalogPanel';
 import {
   BlockIcon, BookIcon, ChatDiceIcon, CloseIcon, CrossedSwordsIcon, DashIcon, DirectionArrowIcon, GearIcon, KeyboardIcon,
   MapIcon, MoonIcon, PawnIcon, PinIcon, PlusIcon, ResumeIcon, SaveIcon, SearchIcon, SidebarIcon, SpeakerIcon, TrashIcon, UndoIcon,
@@ -42,8 +43,8 @@ const COMBAT_ANNOUNCEMENT_STORAGE_KEY = 'dnd-battle-map:last-combat-announcement
 const MANUAL_PDF_PATH =
   'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
 
-type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'movement' | 'notes' | 'dice' | 'initiative' | 'characters' | 'settings' | 'legend';
-type WorkspaceTabId = 'chat' | 'initiative' | 'characters' | 'settings' | 'legend';
+type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'movement' | 'notes' | 'dice' | 'scenes' | 'initiative' | 'characters' | 'settings' | 'legend';
+type WorkspaceTabId = 'chat' | 'scenes' | 'initiative' | 'characters' | 'settings' | 'legend';
 
 const KEYBOARD_MOVEMENTS: Record<string, { dx: number; dy: number }> = {
   ArrowUp: { dx: 0, dy: -1 },
@@ -293,6 +294,10 @@ function App() {
     setMeasurementUnitDraft({ label: state.measurementUnit.label, cellsValue: String(state.measurementUnit.cellsValue) });
   }, [state.measurementUnit.label, state.measurementUnit.cellsValue]);
   const canManageBattleMap = user?.role === 'master';
+
+  useEffect(() => {
+    if (!canManageBattleMap && workspaceTab === 'scenes') setWorkspaceTab('chat');
+  }, [canManageBattleMap, workspaceTab]);
   const hasUnsavedNotes = draftNotes !== state.sharedNotes;
   const sessionCharacter = findCharacterProfileByKey(user?.characterKey);
   const sessionSheet = characterSheets.find((sheet) => sheet.ownerUserId === user?.id) ?? null;
@@ -1077,6 +1082,8 @@ function App() {
         return (
           <DicePanel key="dice" onRoll={rollDice} />
         );
+      case 'scenes':
+        return canManageBattleMap ? <SceneCatalogPanel key="scenes" /> : null;
       case 'settings':
         return (
           <section key="settings" className="sidebar__section settings-panel">
@@ -1660,9 +1667,14 @@ function App() {
               {canManageBattleMap ? renderSidebarSection('lighting') : null}
               {canManageBattleMap ? renderSidebarSection('movement') : null}
             </div>
-            <div className="workspace-tabs" role="tablist" aria-label="Pannello sessione">
+            <div className={`workspace-tabs ${canManageBattleMap ? 'workspace-tabs--master' : ''}`} role="tablist" aria-label="Pannello sessione">
               {([
-                ['chat', 'Chat + Dadi', <ChatDiceIcon key="chat" />], ['initiative', 'Turni di iniziativa', <CrossedSwordsIcon key="initiative" size="1.1em" />], ['characters', 'Personaggi', <PawnIcon key="characters" />], ['settings', 'Impostazioni', <GearIcon key="settings" />], ['legend', 'Legenda dei comandi', <KeyboardIcon key="legend" />],
+                ['chat', 'Chat + Dadi', <ChatDiceIcon key="chat" />],
+                ...(canManageBattleMap ? [['scenes', 'Catalogo scene', <MapIcon key="scenes" />] as [WorkspaceTabId, string, ReactNode]] : []),
+                ['initiative', 'Turni di iniziativa', <CrossedSwordsIcon key="initiative" size="1.1em" />],
+                ['characters', 'Personaggi', <PawnIcon key="characters" />],
+                ['settings', 'Impostazioni', <GearIcon key="settings" />],
+                ['legend', 'Legenda dei comandi', <KeyboardIcon key="legend" />],
               ] as Array<[WorkspaceTabId, string, ReactNode]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
             </div>
             <div id={`panel-${workspaceTab}`} role="tabpanel" aria-labelledby={`tab-${workspaceTab}`} className="workspace-tabpanel">

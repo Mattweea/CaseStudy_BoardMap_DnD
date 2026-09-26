@@ -15,6 +15,7 @@ import { UserRepository } from './user-repository.mjs';
 import { bootstrapCharacterSheets } from './character-sheet-bootstrap.mjs';
 import { bootstrapScenes } from './scene-bootstrap.mjs';
 import { SceneRepository } from './scene-repository.mjs';
+import { registerSceneRoutes } from './scene-routes.mjs';
 import { SceneService } from './scene-service.mjs';
 import { CharacterSheetPolicy } from './character-sheet-policy.mjs';
 import { broadcastCharacterSheetEvent as broadcastSheetEvent } from './character-sheet-events.mjs';
@@ -2465,6 +2466,7 @@ async function start() {
   }
   await portraitStorage.initialize();
   await registerCharacterSheetRoutes(app, { service: characterSheetService, portraitStorage, getUser: getSessionUser });
+  registerSceneRoutes(app, { service: sceneService, getUser: getSessionUser });
   app.addHook('onClose', async () => {
     characterSheetService.flushAll();
     database.close();

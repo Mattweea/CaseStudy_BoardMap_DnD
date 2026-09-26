@@ -92,6 +92,7 @@ SQLite is a separate persistence boundary:
 - Character-sheet live state is versioned in the service, broadcast immediately, and flushed to SQLite with a short debounce plus explicit lifecycle flushes.
 - Portraits live under ignored server runtime storage and are served through authenticated routes rather than as public files.
 - The scene catalog, normalized scene configuration, optimistic version and active-scene reference are persisted in SQLite. Scene services persist before replacing their in-memory projection.
+- The Master catalog reads and mutates this persistence boundary through dedicated authorized routes. Its selected detail is local management state: reading or editing an inactive scene does not alter the persisted active-scene reference and does not broadcast it to Player clients.
 - When the scene catalog is empty, startup creates one initial scene and imports only supported board configuration from the legacy suspend snapshot. Existing scenes prevent every later reimport; absent or malformed legacy data produces safe defaults.
 - Battle-map suspend/resume remains responsible for the current live snapshot. Scene persistence does not recover runtime tokens, round, hit points, movement, initiative or logs; complete automatic live recovery remains a separate capability.
 

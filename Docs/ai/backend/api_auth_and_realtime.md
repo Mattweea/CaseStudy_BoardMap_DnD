@@ -24,6 +24,7 @@ Define the Fastify server boundary, authorization model, HTTP contracts, and SSE
 - Authenticated state: state read, session status, authoritative dice rolls, notes, movement, owned token changes, extra movement, undo, authorized character-sheet routes, portrait delivery, and SSE.
 - Owner-scoped with role rules: `POST /api/battle-map/initiative/roll` (an adventurer only for their own character without an entry; the master for any creature) and `POST /api/battle-map/turn/advance` (the master in both directions; an adventurer only `next`, only with `playersCanEndTurn`, only on their own active token).
 - Master-only: full state replacement, combat start/end (`/combat/start`, `/combat/end`), round start (`/combat/round/start`), initiative roll-all (`/initiative/roll-all`), the `playersCanEndTurn` setting (`/settings/players-can-end-turn`), snapshot suspend, and snapshot resume.
+- Master-only scene catalog: list, create, read and versioned update under `/api/scenes`. Reading one scene is a management selection only; it never activates or broadcasts that scene. No delete or archive route exists until lifecycle semantics are approved.
 
 Ownership-aware endpoints must validate the current server token and user. New mutations must be assigned deliberately to public, authenticated, owner-scoped, or master-only access.
 
@@ -34,6 +35,7 @@ Ownership-aware endpoints must validate the current server token and user. New m
 - Invalid authentication returns `401`; insufficient authority returns `403`; invalid data or rule violations return `400`; stale versioned commits return `409`; missing resources return `404`.
 - Rejected state mutations should return the current sanitized snapshot when the client can use it to reconcile.
 - Full state replacement accepts `baseVersion` and rejects stale commits.
+- Scene updates accept `baseVersion`; a stale update returns `409` with `currentScene` so the Master client can replace its obsolete draft base. Scene names are labels rather than identities, so duplicate names remain valid and stable scene IDs disambiguate them.
 
 ## Realtime
 
