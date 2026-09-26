@@ -13,6 +13,9 @@ import { openDatabase } from '../database/connection.mjs';
 import { bootstrapRoster, AuthService } from './auth-service.mjs';
 import { UserRepository } from './user-repository.mjs';
 import { bootstrapCharacterSheets } from './character-sheet-bootstrap.mjs';
+import { bootstrapScenes } from './scene-bootstrap.mjs';
+import { SceneRepository } from './scene-repository.mjs';
+import { SceneService } from './scene-service.mjs';
 import { CharacterSheetPolicy } from './character-sheet-policy.mjs';
 import { broadcastCharacterSheetEvent as broadcastSheetEvent } from './character-sheet-events.mjs';
 import { CharacterSheetRepository } from './character-sheet-repository.mjs';
@@ -82,6 +85,7 @@ const INITIATIVE_ROLL_MODES = new Set(['normal', 'advantage', 'disadvantage']);
 // Dichiarato prima del primo `normalizeSharedState`: la normalizzazione delle voci d'iniziativa
 // lo consulta per ricavare il modificatore di Destrezza dalla scheda collegata a un token.
 let characterSheetService;
+let sceneService;
 let battleMapState = normalizeSharedState(initialSharedState);
 let battleMapVersion = 1;
 let turnTransitionId = 0;
@@ -2447,13 +2451,24 @@ async function start() {
     emit: broadcastCharacterSheetEvent,
     projectToken: projectCharacterSheetToToken,
   });
+  await loadPersistedSessionMetadata();
+  try {
+    bootstrapScenes(database, { legacySnapshot: lastSessionSnapshot });
+    sceneService = new SceneService({
+      repository: new SceneRepository(database),
+      campaignId: 'local-campaign',
+    });
+    sceneService.load();
+  } catch (error) {
+    database.close();
+    throw new Error(`Persistenza scene non pronta: ${error.message} Esegui npm run db:migrate.`);
+  }
   await portraitStorage.initialize();
   await registerCharacterSheetRoutes(app, { service: characterSheetService, portraitStorage, getUser: getSessionUser });
   app.addHook('onClose', async () => {
     characterSheetService.flushAll();
     database.close();
   });
-  await loadPersistedSessionMetadata();
   await app.listen({ port: PORT, host: HOST });
   let isShuttingDown = false;
   const shutdown = async (signal) => {

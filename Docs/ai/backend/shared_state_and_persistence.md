@@ -14,7 +14,7 @@ Zoom and other presentation-only UI state are not shared.
 
 The shared/scene-model.mjs module owns the runtime-neutral scene contract used by both Node and Vite. A scene has a stable identifier, trimmed name, positive concurrency version, and an explicitly versioned document. The document keeps background, board configuration, drawings, scene elements, entity references, prepared placements, and runtime tokens in separate sections. Its normalizer supplies defaults for older partial documents and rejects unsupported versions, duplicate identifiers within one collection, orphan placement references, unsafe coordinates, invalid board values, non-JSON data, and documents over the declared size limit.
 
-Scene configuration and live runtime use distinct adapters. captureSceneConfiguration removes runtime tokens and unrelated live-session fields; projectSceneRuntime combines normalized configuration with an explicitly supplied runtime without mutating either input. Until the later active-scene and persistence changes are applied, this model does not add fields to BattleMapSharedState, replace snapshot behavior, or make round, initiative, hit-point, movement, or dice-log recovery durable.
+Scene configuration and live runtime use distinct adapters. captureSceneConfiguration removes runtime tokens and unrelated live-session fields; projectSceneRuntime combines normalized configuration with an explicitly supplied runtime without mutating either input. Scene persistence stores only the captured configuration in SQLite and does not add fields to BattleMapSharedState, replace snapshot behavior, or make round, initiative, hit-point, movement, or dice-log recovery durable.
 
 ## Normalization
 
@@ -91,7 +91,9 @@ SQLite is a separate persistence boundary:
 - Users, roles, campaigns, and character sheets are persisted in SQLite.
 - Character-sheet live state is versioned in the service, broadcast immediately, and flushed to SQLite with a short debounce plus explicit lifecycle flushes.
 - Portraits live under ignored server runtime storage and are served through authenticated routes rather than as public files.
-- Battle-map suspend/resume snapshots are not replaced by SQLite unless a future approved specification explicitly migrates that boundary.
+- The scene catalog, normalized scene configuration, optimistic version and active-scene reference are persisted in SQLite. Scene services persist before replacing their in-memory projection.
+- When the scene catalog is empty, startup creates one initial scene and imports only supported board configuration from the legacy suspend snapshot. Existing scenes prevent every later reimport; absent or malformed legacy data produces safe defaults.
+- Battle-map suspend/resume remains responsible for the current live snapshot. Scene persistence does not recover runtime tokens, round, hit points, movement, initiative or logs; complete automatic live recovery remains a separate capability.
 
 ## Undo
 
