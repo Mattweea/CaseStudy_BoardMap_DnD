@@ -10,6 +10,12 @@ Define the lifecycle and compatibility rules for shared game state, user-specifi
 
 Zoom and other presentation-only UI state are not shared.
 
+## Scene model foundation
+
+The shared/scene-model.mjs module owns the runtime-neutral scene contract used by both Node and Vite. A scene has a stable identifier, trimmed name, positive concurrency version, and an explicitly versioned document. The document keeps background, board configuration, drawings, scene elements, entity references, prepared placements, and runtime tokens in separate sections. Its normalizer supplies defaults for older partial documents and rejects unsupported versions, duplicate identifiers within one collection, orphan placement references, unsafe coordinates, invalid board values, non-JSON data, and documents over the declared size limit.
+
+Scene configuration and live runtime use distinct adapters. captureSceneConfiguration removes runtime tokens and unrelated live-session fields; projectSceneRuntime combines normalized configuration with an explicitly supplied runtime without mutating either input. Until the later active-scene and persistence changes are applied, this model does not add fields to BattleMapSharedState, replace snapshot behavior, or make round, initiative, hit-point, movement, or dice-log recovery durable.
+
 ## Normalization
 
 Both client and server normalize incoming state because data can come from older snapshots, HTTP responses, optimistic updates, or untyped JavaScript.

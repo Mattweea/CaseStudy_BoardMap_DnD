@@ -1,6 +1,20 @@
 import type { RolledDie } from '../../shared/dice-engine.mjs';
 
 export type { DieDisposition, RolledDie } from '../../shared/dice-engine.mjs';
+export type {
+  BlankSceneBackground,
+  SceneBoardConfig,
+  SceneConfigurationDocument,
+  SceneDocument,
+  SceneDrawing,
+  SceneElement,
+  SceneEntityReference,
+  ScenePreparedPlacement,
+  SceneRuntime,
+  SceneRuntimeToken,
+  Scene,
+  SceneMetadata,
+} from '../../shared/scene-model.mjs';
 
 export type TokenType = 'player' | 'enemy' | 'object' | 'vehicle';
 export type UserRole = 'master' | 'adventurer';
