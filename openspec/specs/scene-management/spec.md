@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Scene Management Specification
+
+## Purpose
+
+Definire il contratto condiviso, versionato e normalizzato delle scene, separando la configurazione preparata dallo stato live della sessione.
+
+## Requirements
 
 ### Requirement: P0.9a.1 Modello di scena versionato e normalizzato
 Il sistema SHALL rappresentare ogni scena con identificatore stabile, metadati, versione e documento JSON normalizzato, mantenendo sezioni distinte per background, configurazione board, disegni, elementi scenici, placement preparati, token runtime e riferimenti ad altre entità.
