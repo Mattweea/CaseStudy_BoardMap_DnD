@@ -471,7 +471,7 @@ Il tooltip non è una perdita: non è raggiungibile da tastiera e non è annunci
 - [x] Ricevere «Sei il prossimo!» e «Tocca a te!» con un suono, e vedere il movimento residuo nel turno.
 - [x] Terminare il proprio turno quando il Master lo consente.
 - [ ] Aggiornare gli HP del proprio PG scrivendo `-N` o `+N` su token o scheda.
-- [ ] Applicare e togliere condizioni sul proprio token dal menu radiale, e alzarsi da prono con «Alzati».
+- [x] Applicare e togliere condizioni sul proprio token dal menu radiale, e alzarsi da prono con «Alzati».
 - [ ] Definire nella scheda l'aura del proprio personaggio e accenderla o spegnerla dal menu radiale del token.
 
 **Master**
@@ -479,7 +479,8 @@ Il tooltip non è una perdita: non è raggiungibile da tastiera e non è annunci
 - [x] Passare fra Esplorazione e Combattimento, con annuncio sonoro all'avvio.
 - [x] Avanzare e correggere turno e round, tirare l'iniziativa al posto di un Player e inserire o spostare una voce in qualunque posizione, con valore manuale o tirato.
 - [x] Consentire o no ai Player di terminare il proprio turno.
-- [ ] Aggiornare HP e condizioni di qualunque token.
+- [x] Applicare e togliere condizioni su qualunque token dal menu radiale.
+- [ ] Aggiornare gli HP di qualunque token.
 
 **Sistema**
 
@@ -487,10 +488,10 @@ Il tooltip non è una perdita: non è raggiungibile da tastiera e non è annunci
 - [x] Risolvere lato server il tiro d'iniziativa con la modalità della scheda e collegarlo alla voce corretta del tracker.
 - [x] Ordinare per valore, modificatore di Destrezza e frazione nascosta, conservando l'ordine esplicito del Master.
 - [ ] Applicare `±N` con l'ordine PHB degli HP temporanei, aggiornando scheda e token insieme, e Privo di sensi a 0 HP.
-- [ ] Ricavare la velocità disponibile dalle condizioni attive, addebitare «Alzati» sul budget del turno e raddoppiare il costo del movimento di un token prono.
+- [x] Ricavare la velocità disponibile dalle condizioni attive, addebitare «Alzati» sul budget del turno e raddoppiare il costo del movimento di un token prono.
 - [ ] Disegnare le aure sulla griglia a partire dal bordo del token, con la regola delle diagonali della partita, senza applicarne gli effetti.
 
-**Stato attuale:** `p0-8a` completata e archiviata (change `p0-8a-combat-mode-initiative`). La sessione ha le modalità Esplorazione e Combattimento, con fase di tiro prima del round 1; il budget di movimento vale solo a round avviato. Il tiro d'iniziativa è risolto dal server (`server/initiative-roll.mjs`) dalla scheda o dalla tab Turni, con la modalità salvata nella scheda, e scrive voce e log in una sola commit; l'ordine segue valore, Destrezza e frazione nascosta, e gli spostamenti del Master restano. Il Master avanza i turni dal server e può consentire ai Player di chiudere il proprio; annuncio con emblema, corno da battaglia e tamburi per «Tocca a te!» (asset CC0 locali), con volume e silenziamento locali. Restano da fare, in quest'ordine: condizioni PHB con velocità (`p0-8c`, proposta pronta), aure (`p0-8d`) e HP con `±N` (`p0-8b`). Le condizioni attuali non sono ancora quelle del PHB.
+**Stato attuale:** `p0-8a` completata e archiviata (change `p0-8a-combat-mode-initiative`). La sessione ha le modalità Esplorazione e Combattimento, con fase di tiro prima del round 1; il budget di movimento vale solo a round avviato. Il tiro d'iniziativa è risolto dal server (`server/initiative-roll.mjs`) dalla scheda o dalla tab Turni, con la modalità salvata nella scheda, e scrive voce e log in una sola commit; l'ordine segue valore, Destrezza e frazione nascosta, e gli spostamenti del Master restano. Il Master avanza i turni dal server e può consentire ai Player di chiudere il proprio; annuncio con emblema, corno da battaglia e tamburi per «Tocca a te!» (asset CC0 locali), con volume e silenziamento locali. `p0-8c` completata e archiviata (change `p0-8c-token-conditions`). Le condizioni sono le quattordici del PHB 2014 più Indebolimento a livello, da un catalogo unico in `shared/token-conditions.mjs`; ogni aggiunta o rimozione passa da `POST /api/battle-map/token-conditions` come operazione singola, così le modifiche contemporanee di Master e Player si compongono, e Privo di sensi porta con sé Prono. Il server ricava la velocità effettiva dalle condizioni, rifiuta il movimento a velocità 0 anche in Esplorazione, addebita «Alzati» (`POST /api/battle-map/stand-up`) per metà della velocità a round avviato e raddoppia il costo delle caselle di chi striscia; la pianificazione mostra lo stesso costo. Il menu radiale si apre con click destro, `S` o `Shift+F10`, con tasti d'accesso, frecce e selettore di Indebolimento; i badge sul token sono tre più «+N» con icone game-icons.net, e Invisibile rende il token semitrasparente. La modale di modifica del token è nascosta. Restano da fare, in quest'ordine: aure (`p0-8d`) e HP con `±N` (`p0-8b`).
 
 **Accettazione:** il Master passa in Combattimento e tutti vedono e sentono l'annuncio; un Player imposta Vantaggio accanto all'Iniziativa, tira dalla scheda e il tracker colloca il valore in ordine decrescente, con due valori pari ordinati per Destrezza. Il Master tira per un Player assente, sposta una voce a mano e avanza i turni; solo il Player interessato vede e sente «Sei il prossimo!» e «Tocca a te!». Un PG con 5 HP temporanei che riceve `-8` perde 5 temporanei e 3 normali; a 0 HP diventa Privo di sensi. Un token Afferrato non può muoversi; un token prono che usa «Alzati» perde metà della velocità del turno, mentre uno che striscia per due caselle ne paga quattro. Tornando in Esplorazione il movimento è libero e il tracker è vuoto.
 
