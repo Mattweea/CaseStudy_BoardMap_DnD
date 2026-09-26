@@ -25,11 +25,25 @@ export type TokenAffiliation = 'player' | 'enemy';
 
 export type VehicleKind = 'infernal-bike' | 'tormentor' | 'demon-grinder';
 
+// Le quattordici condizioni del PHB 5e 2014 per le creature, più il catalogo separato dei
+// veicoli (P0.8c). `dead`, `conditioned` e `inspired` sono uscite dal catalogo: uno snapshot che
+// le contiene le perde in normalizzazione. Vedi shared/token-conditions.mjs, unica fonte del
+// catalogo condiviso fra client e server.
 export type TokenCondition =
-  | 'dead'
+  | 'blinded'
+  | 'charmed'
+  | 'deafened'
+  | 'frightened'
+  | 'grappled'
+  | 'incapacitated'
+  | 'invisible'
+  | 'paralyzed'
+  | 'petrified'
+  | 'poisoned'
   | 'prone'
-  | 'conditioned'
-  | 'inspired'
+  | 'restrained'
+  | 'stunned'
+  | 'unconscious'
   | 'broken'
   | 'overturned';
 
@@ -130,6 +144,8 @@ export interface UnitToken {
   excludeFromInitiative?: boolean;
   auras?: TokenAura[];
   conditions: TokenCondition[];
+  // Livello di Indebolimento, intero 0-6 (0 = assente). Sempre 0 per oggetti e veicoli (P0.8c).
+  exhaustionLevel?: number;
 }
 
 export interface DicePreviewState {

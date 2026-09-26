@@ -386,3 +386,118 @@ test('uno snapshot legacy con un incontro in corso mantiene il movimento già ad
   assert.equal(response.statusCode, 400);
   assert.match(response.json().message, /restano 1 caselle/);
 });
+
+// --- P0.8c: velocità derivata dalle condizioni --------------------------------------------------
+
+test('Afferrato in Esplorazione: il movimento è rifiutato citando Afferrato e il token resta fermo', async () => {
+  __testing.setBattleMapState({
+    tokens: [heroToken({ movementCells: 6, conditions: ['grappled'] })],
+    sessionMode: 'exploration',
+  });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 1, y: 0 }] });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /Afferrato/);
+  assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
+});
+
+test('Trattenuto con scatto: il budget resta 0 e il movimento è rifiutato a round avviato', async () => {
+  __testing.setBattleMapState({
+    ...withActiveTurn({
+      tokens: [heroToken({ movementCells: 6, conditions: ['restrained'] })],
+      dashUsedByTokenId: { 'hero-1': true },
+    }),
+    sessionMode: 'combat',
+    isRoundStarted: true,
+  });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 1, y: 0 }] });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /Trattenuto/);
+});
+
+test('Indebolimento 2: il budget è 2, o 4 dopo lo scatto', async () => {
+  __testing.setBattleMapState({
+    ...withActiveTurn({ tokens: [heroToken({ movementCells: 5, exhaustionLevel: 2 })] }),
+    sessionMode: 'combat',
+    isRoundStarted: true,
+  });
+  const tooFar = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 3, y: 0 }] });
+  assert.equal(tooFar.statusCode, 400);
+  const within = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 2, y: 0 }] });
+  assert.equal(within.statusCode, 200);
+  assert.equal(__testing.getBattleMapState().movementUsedByTokenId['hero-1'], 2);
+
+  __testing.setBattleMapState({
+    ...withActiveTurn({
+      tokens: [heroToken({ movementCells: 5, exhaustionLevel: 2 })],
+      dashUsedByTokenId: { 'hero-1': true },
+    }),
+    sessionMode: 'combat',
+    isRoundStarted: true,
+  });
+  const dashed = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 4, y: 0 }] });
+  assert.equal(dashed.statusCode, 200);
+  assert.equal(__testing.getBattleMapState().movementUsedByTokenId['hero-1'], 4);
+});
+
+test('un veicolo guidato da un conducente Afferrato si muove normalmente, senza riduzione', async () => {
+  const vehicle = {
+    id: 'vehicle-1',
+    name: 'Biruote infernale',
+    type: 'vehicle',
+    size: 'large',
+    position: { x: 0, y: 0 },
+    color: '#495057',
+    initiativeModifier: 0,
+    vehicleKind: 'infernal-bike',
+    vehicleOccupantIds: ['hero-1'],
+    conditions: [],
+  };
+  __testing.setBattleMapState({
+    ...withActiveTurn({ tokens: [heroToken({ movementCells: 6, conditions: ['grappled'] }), vehicle] }),
+    sessionMode: 'combat',
+    isRoundStarted: true,
+  });
+  const response = await move(PLAYER, {
+    tokenId: 'vehicle-1',
+    waypoints: [{ x: 0, y: 0 }, { x: 6, y: 0 }],
+  });
+  assert.equal(response.statusCode, 200);
+});
+
+test('strisciare (Prono) raddoppia il costo e un percorso oltre il budget è rifiutato', async () => {
+  __testing.setBattleMapState({
+    ...withActiveTurn({
+      tokens: [heroToken({ movementCells: 6, conditions: ['prone'] })],
+      movementUsedByTokenId: { 'hero-1': 3 },
+    }),
+    sessionMode: 'combat',
+    isRoundStarted: true,
+  });
+  // Restano 3 caselle di budget: due caselle strisciando costano 4, quindi il movimento è rifiutato.
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 2, y: 0 }] });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /Movimento insufficiente/);
+  assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
+});
+
+test('strisciare (Prono) addebita il doppio del costo quando rientra nel budget', async () => {
+  __testing.setBattleMapState({
+    ...withActiveTurn({ tokens: [heroToken({ movementCells: 6, conditions: ['prone'] })] }),
+    sessionMode: 'combat',
+    isRoundStarted: true,
+  });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 2, y: 0 }] });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().state.movementUsedByTokenId['hero-1'], 4);
+});
+
+test('il Master resta libero di muovere un token Afferrato o Prono senza riduzione', async () => {
+  __testing.setBattleMapState({
+    ...withActiveTurn({ tokens: [heroToken({ movementCells: 1, conditions: ['grappled', 'prone'] })] }),
+    sessionMode: 'combat',
+    isRoundStarted: true,
+  });
+  const response = await move(MASTER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 5, y: 0 }] });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().state.tokens[0].position, { x: 5, y: 0 });
+});

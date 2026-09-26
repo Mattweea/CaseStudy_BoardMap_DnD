@@ -67,6 +67,22 @@ test('pathCost alternating parity continues across two calls the same as a singl
   assert.equal(secondLeg.nextDiagonalParity, singleCall.nextDiagonalParity);
 });
 
+test('pathCost with the default stepCostMultiplier matches every existing caller result', () => {
+  const waypoints = [{ x: 0, y: 0 }, { x: 3, y: 0 }, { x: 3, y: 3 }];
+  assert.equal(pathCost(waypoints, { rule: 'standard' }).cells, pathCost(waypoints, { rule: 'standard', stepCostMultiplier: 1 }).cells);
+  assert.equal(pathCost(waypoints, { rule: 'alternating' }).cells, pathCost(waypoints, { rule: 'alternating', stepCostMultiplier: 1 }).cells);
+});
+
+test('pathCost doubles two straight steps while crawling (stepCostMultiplier: 2) to 4', () => {
+  const waypoints = [{ x: 0, y: 0 }, { x: 2, y: 0 }];
+  assert.equal(pathCost(waypoints, { rule: 'standard', stepCostMultiplier: 2 }).cells, 4);
+});
+
+test('pathCost doubles two alternating diagonal steps (1 + 2) while crawling to 6', () => {
+  const waypoints = [{ x: 0, y: 0 }, { x: 2, y: 2 }];
+  assert.equal(pathCost(waypoints, { rule: 'alternating', diagonalParity: 0, stepCostMultiplier: 2 }).cells, 6);
+});
+
 test('cellsToUnit converts cells with the per-cell unit value', () => {
   assert.equal(cellsToUnit(6, 1.5), 9);
 });

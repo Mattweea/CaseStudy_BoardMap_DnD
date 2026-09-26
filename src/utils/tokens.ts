@@ -9,6 +9,11 @@ import type {
   UnitToken,
   VehicleKind,
 } from '../types';
+import {
+  CREATURE_CONDITIONS as SHARED_CREATURE_CONDITIONS,
+  VEHICLE_CONDITIONS as SHARED_VEHICLE_CONDITIONS,
+  conditionCatalogFor,
+} from '../../shared/token-conditions.mjs';
 
 export const DEFAULT_TOKEN_COLORS: Record<Exclude<TokenType, 'vehicle'>, string> = {
   player: '#4a6fd4',
@@ -40,8 +45,14 @@ export const VEHICLE_PRESETS: Record<
   'demon-grinder': { label: 'Tritademoni', size: 'gargantuan', capacity: 8, icon: '🚂' },
 };
 
-export const CREATURE_CONDITIONS: TokenCondition[] = ['dead', 'prone', 'conditioned', 'inspired'];
-export const VEHICLE_CONDITIONS: TokenCondition[] = ['broken', 'overturned'];
+// Cataloghi riesportati da shared/token-conditions.mjs, unica fonte condivisa con il server
+// (P0.8c): nessun duplicato delle quattordici condizioni PHB 2014 o del catalogo dei veicoli.
+export const CREATURE_CONDITIONS = SHARED_CREATURE_CONDITIONS as TokenCondition[];
+export const VEHICLE_CONDITIONS = SHARED_VEHICLE_CONDITIONS as TokenCondition[];
+
+// Le quattro condizioni frequenti del menu radiale (design, decisione 6); le altre dieci vanno
+// nel pannello `+`.
+export const FREQUENT_CREATURE_CONDITIONS: TokenCondition[] = ['prone', 'grappled', 'restrained', 'poisoned'];
 
 export function defaultVehicleColor(affiliation: TokenAffiliation): string {
   return affiliation === 'player' ? '#6e6e6e' : '#111111';
@@ -105,6 +116,7 @@ export function createToken(
     blocksMovement: false,
     excludeFromInitiative: false,
     conditions: [],
+    exhaustionLevel: 0,
   };
 }
 
@@ -275,16 +287,38 @@ export function sizeLabel(size: DndSize): string {
   }
 }
 
+// Etichette italiane del catalogo PHB 2014 (P0.8c). Il catalogo stesso vive nel modulo condiviso;
+// solo la traduzione resta locale al client.
 export function conditionLabel(condition: TokenCondition): string {
   switch (condition) {
-    case 'dead':
-      return 'Morto';
+    case 'blinded':
+      return 'Accecato';
+    case 'charmed':
+      return 'Affascinato';
+    case 'deafened':
+      return 'Assordato';
+    case 'frightened':
+      return 'Spaventato';
+    case 'grappled':
+      return 'Afferrato';
+    case 'incapacitated':
+      return 'Incapacitato';
+    case 'invisible':
+      return 'Invisibile';
+    case 'paralyzed':
+      return 'Paralizzato';
+    case 'petrified':
+      return 'Pietrificato';
+    case 'poisoned':
+      return 'Avvelenato';
     case 'prone':
       return 'Prono';
-    case 'conditioned':
-      return 'Condizionato';
-    case 'inspired':
-      return 'Ispirato';
+    case 'restrained':
+      return 'Trattenuto';
+    case 'stunned':
+      return 'Stordito';
+    case 'unconscious':
+      return 'Privo di sensi';
     case 'broken':
       return 'Rotto';
     case 'overturned':
@@ -294,18 +328,32 @@ export function conditionLabel(condition: TokenCondition): string {
   }
 }
 
+// Tasti d'accesso del menu radiale (design, decisione 6): una lettera per condizione, unica nel
+// catalogo del proprio tipo di token e presente nell'etichetta italiana, dove viene sottolineata.
+// Creature e veicoli hanno cataloghi disgiunti, quindi R e B possono ripetersi tra i due.
+export const CONDITION_ACCESS_KEYS: Record<TokenCondition, string> = {
+  prone: 'P',
+  grappled: 'A',
+  restrained: 'T',
+  poisoned: 'V',
+  blinded: 'C',
+  charmed: 'F',
+  deafened: 'D',
+  frightened: 'S',
+  incapacitated: 'I',
+  invisible: 'B',
+  paralyzed: 'R',
+  petrified: 'E',
+  stunned: 'O',
+  unconscious: 'N',
+  broken: 'R',
+  overturned: 'B',
+};
+
 export function tokenConditionOptions(token: UnitToken): TokenCondition[] {
-  return token.type === 'vehicle' ? VEHICLE_CONDITIONS : CREATURE_CONDITIONS;
+  return conditionCatalogFor(token.type) as TokenCondition[];
 }
 
 export function canUseCondition(tokenType: TokenType, condition: TokenCondition): boolean {
-  if (tokenType === 'vehicle') {
-    return VEHICLE_CONDITIONS.includes(condition);
-  }
-
-  if (tokenType === 'player' || tokenType === 'enemy') {
-    return CREATURE_CONDITIONS.includes(condition);
-  }
-
-  return false;
+  return (conditionCatalogFor(tokenType) as TokenCondition[]).includes(condition);
 }

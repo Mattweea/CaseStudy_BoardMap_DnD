@@ -71,7 +71,9 @@ interface ElementsListModalProps {
   onClose: () => void;
   onRemoveToken: (tokenId: string) => void;
   onLocateToken: (tokenId: string) => void;
-  onEditToken: (tokenId: string) => void;
+  // Assente finché la modale di modifica resta nascosta (P0.8c, design decisione 8): la riga non
+  // offre allora alcun comando di modifica, invece di chiamarne uno che non farebbe nulla.
+  onEditToken?: (tokenId: string) => void;
   onToggleVisibility?: (tokenId: string) => void;
   onDuplicateToken?: (tokenId: string) => void;
 }
@@ -1918,9 +1920,11 @@ export function ElementsListModal({
                     </button>
                     {!readOnly ? (
                       <>
-                        <button type="button" className="secondary-button secondary-button--small" onClick={() => onEditToken(token.id)}>
-                          Modifica
-                        </button>
+                        {onEditToken ? (
+                          <button type="button" className="secondary-button secondary-button--small" onClick={() => onEditToken(token.id)}>
+                            Modifica
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className="secondary-button secondary-button--small"

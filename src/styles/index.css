@@ -1671,15 +1671,33 @@ button {
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--aura-color) 38%, transparent));
 }
 
+/* Barra degli strumenti e riga degli avvisi partono oltre la colonna delle lettere della griglia
+   (30px, `BOARD_GUTTER` in Board.tsx) e finiscono prima della colonna dello zoom (44px), così non
+   coprono né le coordinate né i pulsanti di zoom. */
 .board-tool-controls {
   position: absolute;
-  left: 0.9rem;
+  left: calc(30px + 0.6rem);
+  right: calc(0.9rem + 44px + 0.6rem);
   bottom: 0.9rem;
   z-index: 4;
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  flex-wrap: wrap;
+  pointer-events: none;
+}
+
+.board-tool-controls > * {
+  flex: 0 0 auto;
+  pointer-events: auto;
+}
+
+/* La guida dei gesti occupa lo spazio accanto agli strumenti e va a capo dentro la pillola invece
+   di spingere la barra su più righe. */
+.board-tool-controls > .board-hint--guide {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: 0.35rem;
+  pointer-events: none;
 }
 
 .board-tool-button {
@@ -1704,23 +1722,13 @@ button {
   color: #ffb3b3;
 }
 
-.board-tool-controls__rule {
-  margin-left: 0.35rem;
-  padding: 0.3rem 0.6rem;
-  border-radius: 10px;
-  background: rgba(18, 7, 9, 0.82);
-  color: #f2cfbc;
-  font-size: 0.78rem;
-  white-space: nowrap;
-}
-
-/* La riga dei suggerimenti sta sopra la barra degli strumenti e resta nel flusso della mappa:
-   e' l'unico posto in cui blocco, budget e rifiuti del server sono testo leggibile, quindi non
-   deve mai essere nascosta ai lettori di schermo. */
+/* La riga degli avvisi sta sopra la barra degli strumenti: il rifiuto del server è testo leggibile
+   e `role="alert"`, quindi non deve mai essere nascosto ai lettori di schermo. La guida dei gesti,
+   con blocco e fuori budget, sta invece nella barra stessa (`.board-hint--guide`). */
 .board-hint-bar {
   position: absolute;
-  left: 0.9rem;
-  right: 0.9rem;
+  left: calc(30px + 0.6rem);
+  right: calc(0.9rem + 44px + 0.6rem);
   bottom: 3.6rem;
   z-index: 5;
   display: flex;
@@ -1971,6 +1979,12 @@ button {
   opacity: 0.42;
   border-style: dashed;
   box-shadow: 0 0 0 2px rgba(255, 223, 179, 0.12), 0 8px 22px rgba(0, 0, 0, 0.18);
+}
+
+/* Invisibile (P0.8c) è solo un marcatore: il token resta visibile a tutti, reso semitrasparente.
+   Distinto da `.token--ghost`, che è il nascondimento del Master (`isInvisible`). */
+.token--invisible-marker {
+  opacity: 0.55;
 }
 
 .token__name {
@@ -2670,28 +2684,392 @@ button {
   display: none;
 }
 
-.condition-badge--dead {
-  color: #ffd2d2;
+/* Catalogo PHB 2014 (P0.8c): un colore per condizione, distinguibile anche senza contare sul
+   colore da solo grazie all'icona e al `title`/nome accessibile di ConditionBadge. */
+.condition-badge--blinded { color: #cfcfcf; }
+.condition-badge--charmed { color: #ffb3d1; }
+.condition-badge--deafened { color: #b9c4cf; }
+.condition-badge--frightened { color: #c9a6ff; }
+.condition-badge--grappled { color: #ffb27e; }
+.condition-badge--incapacitated { color: #d8d2ff; }
+.condition-badge--invisible { color: #cdeaff; }
+.condition-badge--paralyzed { color: #ffe08a; }
+.condition-badge--petrified { color: #b9b0a0; }
+.condition-badge--poisoned { color: #9be08a; }
+.condition-badge--prone { color: #ffe2ae; }
+.condition-badge--restrained { color: #ffb2b2; }
+.condition-badge--stunned { color: #ffe48d; }
+.condition-badge--unconscious { color: #ffd2d2; }
+.condition-badge--broken { color: #ffd5aa; }
+.condition-badge--overturned { color: #d6f0ff; }
+
+.condition-badge--exhaustion,
+.condition-badge--more {
+  color: #f2e6d8;
+  font-weight: 700;
+  font-size: 0.7rem;
 }
 
-.condition-badge--prone {
-  color: #ffe2ae;
+.token__conditions .condition-badge--exhaustion,
+.token__conditions .condition-badge--more {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(16, 5, 7, 0.82);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.24);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.condition-badge--conditioned {
-  color: #d8d2ff;
+.condition-badge__level {
+  font-weight: 700;
 }
 
-.condition-badge--inspired {
-  color: #ffe48d;
+/* Menu radiale delle condizioni (P0.8c): le condizioni frequenti stanno su una corona circolare
+   attorno al token (`__ring`/`__ring-item`, posizionati via `transform` inline calcolato in
+   TokenRadialMenu.tsx, che per questo anima con la proprietà `scale` solo il contenuto). Sotto la
+   corona un'etichetta con nome, stato e tasto della voce indicata (`__caption`) e la riga di
+   «Altre» e delle azioni «Alzati» e «Scatto» (`__extras`). Il pannello «+» (`__panel`) si apre accanto al token, dal lato
+   scelto in TokenRadialMenu.tsx. Lo stato attivo usa il crema del testo con una spunta, non
+   l'arancio d'accento, che coincide con il colore di Afferrato e resta riservato al fuoco. */
+.token-radial-menu {
+  position: absolute;
+  z-index: 20;
 }
 
-.condition-badge--broken {
-  color: #ffd5aa;
+.token-radial-menu__ring {
+  position: relative;
 }
 
-.condition-badge--overturned {
-  color: #d6f0ff;
+.token-radial-menu__ring-item {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background: rgba(12, 5, 7, 0.94);
+  color: inherit;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  transition:
+    border-color 140ms var(--ease-out-quart),
+    background-color 140ms var(--ease-out-quart);
+}
+
+/* L'apertura anima il contenuto e non il pulsante: il pulsante resta a grandezza piena, così la
+   misura che tiene il menu dentro la mappa (TokenRadialMenu.tsx) non vede la scala ridotta. */
+.token-radial-menu__ring-item > * {
+  animation: token-radial-menu-open 180ms var(--ease-out-expo);
+}
+
+.token-radial-menu__ring-item .condition-badge,
+.token-radial-menu__item .condition-badge {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.token-radial-menu__ring-item .condition-badge svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.token-radial-menu__ring-item:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+  background-color: rgba(38, 18, 20, 0.96);
+}
+
+.token-radial-menu__ring-item:focus-visible {
+  outline: 2px solid #ffb27e;
+  outline-offset: 2px;
+}
+
+.token-radial-menu__ring-item--active {
+  background: rgba(243, 230, 219, 0.16);
+  border-color: #f3e6db;
+}
+
+@keyframes token-radial-menu-open {
+  from {
+    scale: 0.82;
+    opacity: 0.4;
+  }
+}
+
+.token-radial-menu__pip {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: #f3e6db;
+  color: #12090c;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.token-radial-menu__pip svg {
+  width: 0.65rem;
+  height: 0.65rem;
+}
+
+/* Larghezza fissa (inline) pari al diametro esterno della corona: l'ingombro del menu non cambia
+   con la voce indicata, quindi lo spostamento al bordo della mappa resta fermo mentre il puntatore
+   passa da una voce all'altra. */
+.token-radial-menu__caption {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 201, 154, 0.32);
+  background: rgba(12, 5, 7, 0.94);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  color: #f3e6db;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.token-radial-menu__caption--idle {
+  visibility: hidden;
+}
+
+.token-radial-menu__caption-name {
+  font-weight: 700;
+}
+
+.token-radial-menu__caption-detail {
+  color: rgba(243, 230, 219, 0.72);
+}
+
+.token-radial-menu__kbd {
+  min-width: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: 0.3rem;
+  border: 1px solid rgba(243, 230, 219, 0.35);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.token-radial-menu__access-key {
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+
+.token-radial-menu__extras {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.token-radial-menu__panel {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border-radius: 0.75rem;
+  background: rgba(12, 5, 7, 0.96);
+  border: 1px solid rgba(255, 201, 154, 0.32);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  min-width: 15rem;
+}
+
+.token-radial-menu__panel--right {
+  transform: translate(0, -50%);
+}
+
+.token-radial-menu__panel--left {
+  transform: translate(-100%, -50%);
+}
+
+.token-radial-menu__items {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.3rem;
+}
+
+.token-radial-menu__item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition:
+    border-color 140ms var(--ease-out-quart),
+    background-color 140ms var(--ease-out-quart);
+}
+
+.token-radial-menu__item:hover {
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.token-radial-menu__item:focus-visible,
+.token-radial-menu__back:focus-visible,
+.token-radial-menu__step:focus-visible {
+  outline: 2px solid #ffb27e;
+  outline-offset: 1px;
+}
+
+.token-radial-menu__item--active {
+  background: rgba(243, 230, 219, 0.12);
+  border-color: rgba(243, 230, 219, 0.6);
+}
+
+.token-radial-menu__item .token-radial-menu__pip {
+  top: -5px;
+  right: -5px;
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.token-radial-menu__item--more,
+.token-radial-menu__item--action {
+  justify-content: center;
+  padding: 0.35rem 0.65rem;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+
+.token-radial-menu__item--more {
+  background: rgba(12, 5, 7, 0.94);
+}
+
+/* «Alzati» e «Scatto» sono azioni, non condizioni: pieni nel tono d'accento, così non si
+   confondono con gli interruttori della corona. */
+.token-radial-menu__item--action {
+  background: rgba(96, 38, 22, 0.96);
+  border-color: rgba(255, 178, 126, 0.6);
+  color: #ffe3cf;
+}
+
+.token-radial-menu__item[aria-disabled='true'],
+.token-radial-menu__step[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.token-radial-menu__glyph {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: 0 0 auto;
+}
+
+.token-radial-menu__back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: none;
+  border: none;
+  border-radius: 0.4rem;
+  color: rgba(243, 230, 219, 0.8);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0.15rem 0.35rem 0.15rem 0.1rem;
+}
+
+.token-radial-menu__back:hover {
+  color: #f3e6db;
+}
+
+.token-radial-menu__exhaustion {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.15rem 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.72rem;
+}
+
+.token-radial-menu__exhaustion-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.token-radial-menu__exhaustion-name svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  color: #f2e6d8;
+}
+
+.token-radial-menu__stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.token-radial-menu__step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  cursor: pointer;
+}
+
+.token-radial-menu__step:hover {
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.token-radial-menu__level {
+  min-width: 1.2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.token-radial-menu__hint {
+  grid-column: 1 / -1;
+  color: rgba(243, 230, 219, 0.62);
+  font-size: 0.64rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .token-radial-menu__ring-item,
+  .token-radial-menu__item {
+    transition: none;
+  }
+
+  .token-radial-menu__ring-item > * {
+    animation: none;
+  }
 }
 
 .condition-toggle-grid {

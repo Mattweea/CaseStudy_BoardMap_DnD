@@ -16,6 +16,7 @@ import type {
   MeasurementUnit,
   MovementNotice,
   TemplateShape,
+  TokenCondition,
   TokenMovementBudget,
   TokenWalkEvent,
   UnitToken,
@@ -25,11 +26,15 @@ import {
   clampZoom,
   getTokenFootprint,
   gridRowToLabel,
+  gridToPixels,
   viewportPointToWorldCell,
 } from '../utils/board';
 import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
 import { cellsToUnit, pathCost } from '../../shared/grid-movement';
+import { effectiveSpeed } from '../../shared/token-conditions.mjs';
+import { conditionLabel } from '../utils/tokens';
 import { Token } from './Token';
+import { TokenRadialMenu } from './TokenRadialMenu';
 
 function formatNumber(value: number): string {
   return value % 1 === 0 ? String(value) : value.toFixed(1);
@@ -81,6 +86,22 @@ interface BoardProps {
   onOpenManual: () => void;
   onOpenElementsListModal: () => void;
   onOpenEditTokenModal: (tokenId: string) => void;
+  // Menu radiale delle condizioni (P0.8c): unica superficie di modifica delle condizioni dopo che
+  // la modale di modifica è stata nascosta. `onApplyTokenCondition`/`onStandUpToken` restano
+  // opzionali per non rompere un consumatore di test che non li passa.
+  onApplyTokenCondition?: (
+    tokenId: string,
+    op:
+      | { type: 'add'; condition: TokenCondition }
+      | { type: 'remove'; condition: TokenCondition }
+      | { type: 'set-exhaustion'; level: number },
+  ) => void;
+  onStandUpToken?: (tokenId: string) => void;
+  // Scatto (P0.8c): il pulsante in barra laterale seguiva solo il personaggio principale
+  // dell'Adventurer; il menu radiale lo espone anche sul famiglio quando è il suo turno.
+  dashUsedByTokenId?: Record<string, boolean>;
+  canDashTokenIds?: ReadonlySet<string>;
+  onDashToken?: (tokenId: string) => void;
   onToggleFullscreen: () => void;
   onMoveTokens: (moves: Array<{ tokenId: string; x: number; y: number }>, anchorWaypoints?: GridPosition[]) => void;
   onSelectionChange: (tokenIds: string[]) => void;
@@ -410,12 +431,13 @@ function segmentCosts(
   waypoints: GridPosition[],
   rule: DiagonalRule,
   startParity: DiagonalParity,
+  stepCostMultiplier = 1,
 ): number[] {
   const costs: number[] = [];
   let parity = startParity;
 
   for (let index = 0; index < waypoints.length - 1; index += 1) {
-    const result = pathCost([waypoints[index], waypoints[index + 1]], { rule, diagonalParity: parity });
+    const result = pathCost([waypoints[index], waypoints[index + 1]], { rule, diagonalParity: parity, stepCostMultiplier });
     costs.push(result.cells);
     parity = result.nextDiagonalParity;
   }
@@ -457,6 +479,11 @@ export function Board({
   onOpenManual,
   onOpenElementsListModal,
   onOpenEditTokenModal,
+  onApplyTokenCondition,
+  onStandUpToken,
+  dashUsedByTokenId,
+  canDashTokenIds,
+  onDashToken,
   onToggleFullscreen,
   onMoveTokens,
   onSelectionChange,
@@ -478,6 +505,26 @@ export function Board({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [interaction, setInteraction] = useState<InteractionState | null>(null);
+  // Menu radiale delle condizioni (P0.8c): un solo token alla volta, chiuso non appena una
+  // pianificazione, un righello o una sagoma prendono la tastiera/il pointer della mappa.
+  const [radialMenuTokenId, setRadialMenuTokenId] = useState<string | null>(null);
+  // Vero tra il pointerdown destro che annulla una pianificazione e il suo `contextmenu`: quel
+  // `contextmenu` arriva quando l'interazione è già chiusa e non deve aprire il menu radiale. Si
+  // azzera al pointerdown successivo (in cattura, prima di qualunque gestore), così un secondo
+  // click destro voluto apre il menu normalmente.
+  const suppressNextTokenMenuRef = useRef(false);
+  useEffect(() => {
+    const clear = () => {
+      suppressNextTokenMenuRef.current = false;
+    };
+    window.addEventListener('pointerdown', clear, true);
+    return () => window.removeEventListener('pointerdown', clear, true);
+  }, []);
+  useEffect(() => {
+    if (interaction) {
+      setRadialMenuTokenId(null);
+    }
+  }, [interaction]);
   const [lightPreviewCell, setLightPreviewCell] = useState<GridPosition | null>(null);
   const [activeTool, setActiveTool] = useState<MapTool | null>(null);
   const [rulerWaypoints, setRulerWaypoints] = useState<GridPosition[]>([]);
@@ -528,6 +575,24 @@ export function Board({
           target.tagName === 'TEXTAREA' ||
           target.tagName === 'SELECT')
       ) {
+        return;
+      }
+
+      // Menu radiale delle condizioni (P0.8c): `S` o `Shift+F10` sul token che ha il fuoco da
+      // tastiera, alle stesse condizioni del click destro (nessuna interazione di mappa in corso,
+      // già garantito dal primo `return` dell'effetto quando `interaction` è valorizzato). `S`
+      // senza un token a fuoco resta libero per lo spostamento WASD esistente in `App.tsx`
+      // (KEYBOARD_MOVEMENTS): la propagazione si interrompe solo quando il menu apre davvero,
+      // altrimenti il tasto raggiunge normalmente quel gestore.
+      if (event.code === 'KeyS' || (event.key === 'F10' && event.shiftKey)) {
+        const activeElement = document.activeElement;
+        const focusedTokenId =
+          activeElement instanceof HTMLElement ? activeElement.getAttribute('data-token-id') : null;
+        if (focusedTokenId && (canManageTokens || editableTokenIdSet.has(focusedTokenId))) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setRadialMenuTokenId(focusedTokenId);
+        }
         return;
       }
 
@@ -799,12 +864,30 @@ export function Board({
       : planInteraction.waypoints
     : null;
   const planBudget = planTargetToken ? movementBudgetByTokenId[planTargetToken.id] ?? null : null;
+  // Velocità effettiva e strisciare (P0.8c): solo per una creatura mossa dall'Adventurer, mai per
+  // un veicolo o per il Master, che restano liberi come oggi.
+  const planIsAdventurerCreatureMove = !canManageTokens && Boolean(planTargetToken) && planTargetToken?.type !== 'vehicle';
+  const planEffectiveSpeed =
+    planIsAdventurerCreatureMove && planTargetToken
+      ? effectiveSpeed(planTargetToken.movementCells ?? null, planTargetToken.conditions, planTargetToken.exhaustionLevel)
+      : null;
+  const planIsCrawling = Boolean(planIsAdventurerCreatureMove && planTargetToken?.conditions.includes('prone'));
+  const planStepCostMultiplier = planIsCrawling ? 2 : 1;
   const planPathCost = useMemo(() => {
     if (!planPath) {
       return null;
     }
-    return pathCost(planPath, { rule: diagonalRule, diagonalParity: planBudget?.diagonalParity ?? 0 });
-  }, [planPath, diagonalRule, planBudget]);
+    return pathCost(planPath, {
+      rule: diagonalRule,
+      diagonalParity: planBudget?.diagonalParity ?? 0,
+      stepCostMultiplier: planStepCostMultiplier,
+    });
+  }, [planPath, diagonalRule, planBudget, planStepCostMultiplier]);
+  const planConditionText = planIsCrawling
+    ? 'Stai strisciando: il percorso costa il doppio.'
+    : planEffectiveSpeed?.reason
+      ? `Velocità ridotta: ${planEffectiveSpeed.reason === 'exhaustion' ? 'Indebolimento' : conditionLabel(planEffectiveSpeed.reason as Parameters<typeof conditionLabel>[0])}.`
+      : null;
   const planIsBlocked = useMemo(() => {
     if (!planPath || !planTargetToken) {
       return false;
@@ -818,7 +901,7 @@ export function Board({
   // colore e icone, che da soli non raggiungono chi non li vede. La stessa riga fa da live region
   // per blocco, budget e destinazione occupata.
   const planHintText = planInteraction
-    ? 'Spazio muove il token dove punti · Click su una casella aggiunge un waypoint · Click su un token lo seleziona · Backspace toglie l’ultimo · Esc annulla'
+    ? 'Spazio muove il token dove punti · Click su una casella aggiunge un waypoint · Click su un token lo seleziona · Backspace toglie l’ultimo · Esc o tasto destro annulla'
     : null;
   const planWarningText = !planInteraction
     ? null
@@ -831,10 +914,18 @@ export function Board({
           : null;
   const planMeasureText =
     planPathCost && planPath && planPath.length > 1
-      ? `Percorso ${formatRulerMeasurement(planPathCost.cells, measurementUnit)}${
+      ? // La distanza percorsa e' il numero di caselle attraversate (`steps.length`), non il costo
+        // (`cells`): quando si striscia il costo raddoppia ma la distanza fisica resta la stessa,
+        // altrimenti l'etichetta mostrerebbe il doppio dei metri realmente percorsi. Lo stesso vale
+        // per il residuo: il budget che avanza è in unità di costo, quindi va diviso per il
+        // moltiplicatore per dire quante caselle fisiche restano davvero percorribili.
+        `Percorso ${formatRulerMeasurement(planPathCost.steps.length, measurementUnit)}${
           planBudget?.totalCells != null
             ? `, residuo ${formatRulerMeasurement(
-                Math.max(0, planBudget.totalCells - planBudget.usedCells - planPathCost.cells),
+                Math.floor(
+                  Math.max(0, planBudget.totalCells - planBudget.usedCells - planPathCost.cells) /
+                    planStepCostMultiplier,
+                ),
                 measurementUnit,
               )}`
             : ''
@@ -847,13 +938,13 @@ export function Board({
       : activeTemplateShape
         ? 'Sagoma: trascina dall’origine verso la direzione, rilascia per farla sparire.'
         : null;
-  const hasSelectedMovableToken = selectedTokenIds.some(
-    (tokenId) => canManageTokens || movableTokenIdSet.has(tokenId),
-  );
+  // La guida di base resta visibile anche senza selezione: un click sulla mappa vuota deseleziona,
+  // ma il gesto per iniziare un movimento non cambia. Manca solo a chi non ha token da muovere.
+  const canMoveAnyToken = canManageTokens || movableTokenIdSet.size > 0;
   const boardHintText = planInteraction
-    ? [planMeasureText, planWarningText, planHintText].filter(Boolean).join(' — ')
+    ? [planConditionText, planWarningText, planHintText].filter(Boolean).join(' — ')
     : toolHintText ??
-      (hasSelectedMovableToken
+      (canMoveAnyToken
         ? 'Clicca un token che puoi muovere per pianificarne il movimento.'
         : null);
 
@@ -992,7 +1083,14 @@ export function Board({
   };
 
   const addPlanWaypoint = (plan: PlanInteraction, event: ReactPointerEvent<Element>) => {
-    if (event.button !== 0 && event.button !== 2) {
+    // Il tasto destro annulla la pianificazione come `Esc`, ovunque cada (mappa, token, ostacoli),
+    // senza aprire il menu radiale sul token cliccato (vedi suppressNextTokenMenuRef).
+    if (event.button === 2) {
+      suppressNextTokenMenuRef.current = true;
+      setInteraction(null);
+      return;
+    }
+    if (event.button !== 0) {
       return;
     }
     if (!stageRef.current) {
@@ -1413,6 +1511,12 @@ export function Board({
     if (interaction?.mode === 'plan') {
       event.preventDefault();
       event.stopPropagation();
+      // Il click destro su un token annulla la pianificazione come `Esc` (vedi addPlanWaypoint) e
+      // non apre il menu radiale: il menu si apre solo con un altro click destro a mappa libera.
+      if (event.button === 2) {
+        addPlanWaypoint(interaction, event);
+        return;
+      }
       const isPlannedToken =
         token.id === interaction.tokenId || interaction.offsets.some((offset) => offset.tokenId === token.id);
       if (isPlannedToken) {
@@ -1945,14 +2049,15 @@ export function Board({
               <CloseIcon size="0.9em" />
             </button>
           ) : null}
-          <span className="board-tool-controls__rule" title="Regola delle diagonali e unità di misura correnti">
-            {diagonalRule === 'alternating' ? '5-10-5' : 'Standard'} · 1 casella = {measurementUnit.cellsValue} {measurementUnit.label}
-          </span>
-        </div>
-        <div className="board-hint-bar">
-          <p className="board-hint" role="status" aria-live="polite">
+          {/* La guida dei gesti sta accanto agli strumenti. Distanza e residuo sono già scritti
+              sul percorso, quindi a video la guida li omette; restano nella stessa live region,
+              nascosti alla vista, perché le etichette del percorso non vengono annunciate. */}
+          <p className="board-hint board-hint--guide" role="status" aria-live="polite">
+            {planMeasureText && planInteraction ? <span className="visually-hidden">{planMeasureText} — </span> : null}
             {boardHintText ?? ''}
           </p>
+        </div>
+        <div className="board-hint-bar">
           {movementNotice ? (
             <p className="board-hint board-hint--rejected" role="alert">
               <BlockIcon />
@@ -2176,11 +2281,77 @@ export function Board({
                   footprint={footprint}
                   zoom={zoom}
                   canEdit={canManageTokens || editableTokenIdSet.has(token.id)}
+                  mapInteractionActive={Boolean(interaction)}
                   onPointerDown={handlePiecePointerDown}
-                  onEdit={onOpenEditTokenModal}
+                  onOpenMenu={(tokenId) => {
+                    if (interaction) {
+                      return;
+                    }
+                    // Lo stesso click destro che ha appena annullato una pianificazione non apre
+                    // anche il menu: il suo `contextmenu` arriva quando l'interazione è già chiusa.
+                    if (suppressNextTokenMenuRef.current) {
+                      suppressNextTokenMenuRef.current = false;
+                      return;
+                    }
+                    setRadialMenuTokenId(tokenId);
+                  }}
                 />
               );
             })}
+
+            {radialMenuTokenId
+              ? (() => {
+                  const menuToken = tokens.find((candidate) => candidate.id === radialMenuTokenId);
+                  if (!menuToken) {
+                    return null;
+                  }
+                  const canEditMenuToken = canManageTokens || editableTokenIdSet.has(menuToken.id);
+                  if (!canEditMenuToken) {
+                    return null;
+                  }
+                  const menuFootprint = getTokenFootprint(menuToken);
+                  const menuPixelPosition = gridToPixels({
+                    x: menuToken.position.x - camera.x,
+                    y: menuToken.position.y - camera.y,
+                  });
+                  const screenPosition = {
+                    x: (menuPixelPosition.x + (menuFootprint.width * BOARD_CONFIG.cellSize) / 2) * zoom,
+                    y: (menuPixelPosition.y + (menuFootprint.height * BOARD_CONFIG.cellSize) / 2) * zoom,
+                  };
+
+                  return (
+                    <TokenRadialMenu
+                      key={menuToken.id}
+                      token={menuToken}
+                      screenPosition={screenPosition}
+                      tokenRadius={
+                        (Math.max(menuFootprint.width, menuFootprint.height) * BOARD_CONFIG.cellSize * zoom) / 2
+                      }
+                      onClose={() => {
+                        setRadialMenuTokenId(null);
+                        const tokenButton = stageRef.current?.querySelector<HTMLButtonElement>(
+                          `[data-token-id="${menuToken.id}"]`,
+                        );
+                        tokenButton?.focus();
+                      }}
+                      onToggleCondition={(condition) => {
+                        const hasCondition = menuToken.conditions.includes(condition);
+                        onApplyTokenCondition?.(
+                          menuToken.id,
+                          hasCondition ? { type: 'remove', condition } : { type: 'add', condition },
+                        );
+                      }}
+                      onSetExhaustion={(level) => {
+                        onApplyTokenCondition?.(menuToken.id, { type: 'set-exhaustion', level });
+                      }}
+                      onStandUp={() => onStandUpToken?.(menuToken.id)}
+                      canDash={canDashTokenIds?.has(menuToken.id) ?? false}
+                      dashUsed={dashUsedByTokenId?.[menuToken.id] === true}
+                      onDash={() => onDashToken?.(menuToken.id)}
+                    />
+                  );
+                })()
+              : null}
 
             {obstacleClusters.map((cluster) => {
               const displayCells = cluster.tokenIds
@@ -2313,7 +2484,12 @@ export function Board({
                   const tip = points[points.length - 1];
                   const residualCells =
                     planPath && planBudget?.totalCells != null && cost
-                      ? Math.max(0, planBudget.totalCells - planBudget.usedCells - cost.cells)
+                      ? // Il residuo e' in caselle fisiche, non in unita' di costo: vedi la stessa
+                        // nota su `planMeasureText`.
+                        Math.floor(
+                          Math.max(0, planBudget.totalCells - planBudget.usedCells - cost.cells) /
+                            planStepCostMultiplier,
+                        )
                       : null;
 
                   const variantClass = planPath ? 'board-path-layer__line--plan' : 'board-path-layer__line--ruler';
@@ -2321,7 +2497,12 @@ export function Board({
                   // spezzato il solo totale non dice quale tratto è costato quanto.
                   const perSegment =
                     points.length > 2
-                      ? segmentCosts(path, diagonalRule, planPath ? planBudget?.diagonalParity ?? 0 : 0)
+                      ? segmentCosts(
+                          path,
+                          diagonalRule,
+                          planPath ? planBudget?.diagonalParity ?? 0 : 0,
+                          planPath ? planStepCostMultiplier : 1,
+                        )
                       : [];
 
                   return (
@@ -2357,7 +2538,9 @@ export function Board({
                               ? 'Percorso bloccato'
                               : planExceedsBudget
                                 ? 'Fuori budget'
-                                : formatRulerMeasurement(cost.cells, measurementUnit)}
+                                : // Distanza fisica (caselle attraversate), non il costo: vedi la
+                                  // stessa nota su `planMeasureText`.
+                                  formatRulerMeasurement(cost.steps.length, measurementUnit)}
                           </text>
                           {residualCells !== null && !isWarning ? (
                             <text x={tip.x} y={tip.y - 34} textAnchor="middle" className="board-path-layer__label board-path-layer__label--secondary">

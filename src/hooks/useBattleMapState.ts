@@ -19,12 +19,14 @@ import type {
   LightSource,
   MeasurementUnit,
   TemplateShape,
+  TokenCondition,
   TokenWalkEvent,
   MovementNotice,
   UnitToken,
 } from '../types';
 import { clampZoom, getTokenFootprint } from '../utils/board';
 import { isValidCellsValue, pathCost } from '../../shared/grid-movement';
+import { normalizeConditionsForType } from '../../shared/token-conditions.mjs';
 import {
   DEFAULT_TOKEN_COLORS,
   VEHICLE_PRESETS,
@@ -272,7 +274,10 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
                   color: token.color,
                 }]
               : [],
-          conditions: Array.isArray(token.conditions) ? token.conditions : [],
+          ...(normalizeConditionsForType(type, token.conditions, token.exhaustionLevel) as {
+            conditions: UnitToken['conditions'];
+            exhaustionLevel: number;
+          }),
         };
       })
     : initialSharedState.tokens;
@@ -1276,6 +1281,123 @@ export function useBattleMapState(isAuthenticated: boolean) {
     });
   };
 
+  // Operazione singola sulle condizioni (P0.8c): aggiungi/togli una condizione o imposta il
+  // livello di Indebolimento, mai l'elenco intero. Aggiornamento ottimistico locale, poi
+  // riallineamento dallo snapshot autoritativo del server (che applica anche l'automatismo
+  // Privo di sensi -> Prono); un rifiuto mostra il motivo nel toast già usato per i movimenti.
+  const applyTokenCondition = async (
+    tokenId: string,
+    op:
+      | { type: 'add'; condition: TokenCondition }
+      | { type: 'remove'; condition: TokenCondition }
+      | { type: 'set-exhaustion'; level: number },
+  ) => {
+    return enqueueMutation(async () => {
+      const previousState = sharedStateRef.current;
+      const previousVersion = versionRef.current;
+      const optimisticState = normalizeSharedState({
+        ...previousState,
+        tokens: previousState.tokens.map((token) => {
+          if (token.id !== tokenId) {
+            return token;
+          }
+
+          if (op.type === 'add') {
+            return {
+              ...token,
+              conditions: token.conditions.includes(op.condition)
+                ? token.conditions
+                : [...token.conditions, op.condition],
+            };
+          }
+
+          if (op.type === 'remove') {
+            return { ...token, conditions: token.conditions.filter((condition) => condition !== op.condition) };
+          }
+
+          return { ...token, exhaustionLevel: op.level };
+        }),
+      });
+      setOptimisticState(optimisticState);
+
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/token-conditions',
+          {
+            method: 'POST',
+            body: JSON.stringify({ tokenId, op }),
+          },
+        );
+        applySnapshot(payload.state, payload.version);
+        setMovementNotice(null);
+      } catch (error) {
+        console.error(error);
+        const payload =
+          error instanceof Error && 'payload' in error
+            ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+            : undefined;
+
+        if (payload?.state && typeof payload.version === 'number') {
+          applySnapshot(payload.state, payload.version);
+        } else {
+          applySnapshot(previousState, previousVersion);
+        }
+
+        setMovementNotice({
+          id: crypto.randomUUID(),
+          message: error instanceof Error ? error.message : 'Condizione rifiutata dal server.',
+        });
+      }
+    });
+  };
+
+  // «Alzati» (P0.8c): toglie Prono, con o senza costo di movimento secondo la modalità di
+  // sessione e il ruolo. Stesso schema ottimistico/riallineamento delle condizioni.
+  const standUpToken = async (tokenId: string) => {
+    return enqueueMutation(async () => {
+      const previousState = sharedStateRef.current;
+      const previousVersion = versionRef.current;
+      const optimisticState = normalizeSharedState({
+        ...previousState,
+        tokens: previousState.tokens.map((token) =>
+          token.id === tokenId
+            ? { ...token, conditions: token.conditions.filter((condition) => condition !== 'prone') }
+            : token,
+        ),
+      });
+      setOptimisticState(optimisticState);
+
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/stand-up',
+          {
+            method: 'POST',
+            body: JSON.stringify({ tokenId }),
+          },
+        );
+        applySnapshot(payload.state, payload.version);
+        setMovementNotice(null);
+      } catch (error) {
+        console.error(error);
+        const payload =
+          error instanceof Error && 'payload' in error
+            ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+            : undefined;
+
+        if (payload?.state && typeof payload.version === 'number') {
+          applySnapshot(payload.state, payload.version);
+        } else {
+          applySnapshot(previousState, previousVersion);
+        }
+
+        setMovementNotice({
+          id: crypto.randomUUID(),
+          message: error instanceof Error ? error.message : 'Alzati rifiutato dal server.',
+        });
+      }
+    });
+  };
+
   const addOwnedExtraMovement = async (tokenId: string, amount = 1) => {
     return enqueueMutation(async () => {
       const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
@@ -1490,6 +1612,8 @@ export function useBattleMapState(isAuthenticated: boolean) {
     moveOwnedTokenBy,
     useDashAction,
     updateOwnedToken,
+    applyTokenCondition,
+    standUpToken,
     addOwnedExtraMovement,
     addTokens,
     updateToken,

@@ -14,6 +14,8 @@ export interface PathStep extends GridPosition {
 export interface PathCostOptions {
   rule?: DiagonalRule;
   diagonalParity?: DiagonalParity;
+  // Moltiplicatore del costo di ogni passo (default 1); 2 per chi si muove strisciando da prono.
+  stepCostMultiplier?: number;
 }
 
 export interface PathCostResult {

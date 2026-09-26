@@ -26,6 +26,13 @@ import { findCharacterTokenForOwner, rollInitiative } from './initiative-roll.mj
 import { insertInitiativeEntry } from '../shared/initiative-order.mjs';
 import { isValidCellsValue, pathCost } from '../shared/grid-movement.mjs';
 import { abilityModifier } from '../shared/dnd-rules.mjs';
+import {
+  conditionCatalogFor,
+  effectiveSpeed,
+  movementBudget as computeMovementBudget,
+  normalizeConditionsForType,
+  standUpCost,
+} from '../shared/token-conditions.mjs';
 
 const app = Fastify({
   logger: true,
@@ -52,6 +59,33 @@ const VEHICLE_PRESETS = {
   tormentor: { size: 'huge', capacity: 4 },
   'demon-grinder': { size: 'gargantuan', capacity: 8 },
 };
+
+// Etichette italiane usate solo nei messaggi di rifiuto del server (`conditionReasonLabel`), non
+// nel catalogo: la fonte di verità del catalogo resta shared/token-conditions.mjs. Duplica solo
+// il testo mostrato all'utente, non la logica di validazione o le regole di velocità.
+const CONDITION_REASON_LABELS = {
+  blinded: 'Accecato',
+  charmed: 'Affascinato',
+  deafened: 'Assordato',
+  frightened: 'Spaventato',
+  grappled: 'Afferrato',
+  incapacitated: 'Incapacitato',
+  invisible: 'Invisibile',
+  paralyzed: 'Paralizzato',
+  petrified: 'Pietrificato',
+  poisoned: 'Avvelenato',
+  prone: 'Prono',
+  restrained: 'Trattenuto',
+  stunned: 'Stordito',
+  unconscious: 'Privo di sensi',
+  broken: 'Rotto',
+  overturned: 'Ribaltato',
+  exhaustion: "l'Indebolimento",
+};
+
+function conditionReasonLabel(reason) {
+  return CONDITION_REASON_LABELS[reason] ?? reason;
+}
 
 const initialSharedState = {
   tokens: [],
@@ -258,7 +292,7 @@ function normalizeSharedState(parsed) {
                   color: token.color,
                 }]
               : [],
-          conditions: Array.isArray(token.conditions) ? token.conditions : [],
+          ...normalizeConditionsForType(type, token.conditions, token.exhaustionLevel),
         };
       })
     : initialSharedState.tokens;
@@ -1306,21 +1340,47 @@ function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
       ) ?? null
     : token;
   const movementSourceId = movementSourceToken?.id ?? tokenId;
-  const movementCells = typeof movementSourceToken?.movementCells === 'number' ? movementSourceToken.movementCells : 0;
+  const rawMovementCells =
+    typeof movementSourceToken?.movementCells === 'number' ? movementSourceToken.movementCells : 0;
+  // La velocità effettiva sostituisce `movementCells` grezzo solo quando l'Adventurer muove
+  // direttamente la propria creatura (design, decisione 5): un veicolo guidato usa la velocità
+  // grezza del conducente, senza le sue condizioni, come già avveniva; il Master resta libero.
+  const isAdventurerCreatureMove = user.role !== 'master' && isOwnedPlayer;
+  const { cells: creatureEffectiveCells, reason: speedZeroReason } = isAdventurerCreatureMove
+    ? effectiveSpeed(rawMovementCells, token.conditions, token.exhaustionLevel)
+    : { cells: rawMovementCells, reason: null };
+
+  // Velocità 0: rifiuto in ogni modalità di sessione, prima del controllo del budget.
+  if (isAdventurerCreatureMove && creatureEffectiveCells === 0 && speedZeroReason) {
+    return {
+      status: 400,
+      message: `Non puoi muoverti: ${conditionReasonLabel(speedZeroReason)} porta la tua velocità a 0.`,
+      snapshot: nextSnapshot(),
+    };
+  }
+
   const extraMovement = battleMapState.extraMovementByTokenId[movementSourceId] ?? 0;
   const usedCells = battleMapState.movementUsedByTokenId[movementSourceId] ?? 0;
   const previousDiagonalParity = battleMapState.diagonalParityByTokenId[movementSourceId] ?? 0;
   const hasDashed = battleMapState.dashUsedByTokenId[movementSourceId] === true;
-  const movementBudget = movementCells * (hasDashed ? 2 : 1) + extraMovement;
+  const movementBudgetValue = computeMovementBudget({
+    effectiveCells: isAdventurerCreatureMove ? creatureEffectiveCells : rawMovementCells,
+    dashed: hasDashed,
+    extra: extraMovement,
+  });
+  // Strisciare (Prono, creatura mossa dall'Adventurer) raddoppia il costo di ogni passo.
+  const stepCostMultiplier =
+    isAdventurerCreatureMove && Array.isArray(token.conditions) && token.conditions.includes('prone') ? 2 : 1;
   const { cells: moveDistance, nextDiagonalParity } = pathCost(waypoints, {
     rule: battleMapState.diagonalRule,
     diagonalParity: previousDiagonalParity,
+    stepCostMultiplier,
   });
 
-  if (budgetApplies && user.role !== 'master' && usedCells + moveDistance > movementBudget) {
+  if (budgetApplies && user.role !== 'master' && usedCells + moveDistance > movementBudgetValue) {
     return {
       status: 400,
-      message: `Movimento insufficiente: restano ${Math.max(0, movementBudget - usedCells)} caselle in questo round.`,
+      message: `Movimento insufficiente: restano ${Math.max(0, movementBudgetValue - usedCells)} caselle in questo round.`,
       snapshot: nextSnapshot(),
     };
   }
@@ -1456,9 +1516,10 @@ function updateOwnedToken(user, tokenId, updates) {
     nextUpdates.maxHitPoints = null;
   }
 
-  if (Array.isArray(updates?.conditions)) {
-    nextUpdates.conditions = updates.conditions.filter((condition) => typeof condition === 'string');
-  }
+  // `conditions` è ignorato di proposito (design, decisione 3): resta nel payload solo per
+  // compatibilità con client non aggiornati. Le condizioni cambiano solo tramite
+  // `/api/battle-map/token-conditions`, che applica un'operazione singola invece di sostituire
+  // l'intero elenco.
 
   if (user.role === 'master' && typeof updates?.excludeFromInitiative === 'boolean') {
     nextUpdates.excludeFromInitiative = updates.excludeFromInitiative;
@@ -1511,7 +1572,6 @@ function updateOwnedToken(user, tokenId, updates) {
       previousValues: {
         hitPoints: token.hitPoints ?? null,
         maxHitPoints: token.maxHitPoints ?? null,
-        conditions: token.conditions ?? [],
         isInvisible: token.isInvisible === true,
         auras: token.auras ?? [],
       },
@@ -1567,6 +1627,182 @@ function addExtraMovement(user, tokenId, amount) {
     });
   }
 
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+  return { status: 200, snapshot: nextSnapshot() };
+}
+
+// Operazione singola sulle condizioni (design, decisione 3): aggiungi/togli una condizione o
+// imposta il livello di Indebolimento, applicata alle condizioni correnti del token invece di
+// sostituire l'intero elenco. Autorizzato per il Master su ogni token, e per l'Adventurer sui
+// propri token, famiglio compreso (stesso `ownerUserId` di un personaggio normale).
+function applyTokenCondition(user, tokenId, op) {
+  const token = battleMapState.tokens.find((entry) => entry.id === tokenId);
+  if (!token) {
+    return { status: 404, message: 'Token non trovato.' };
+  }
+
+  if (user.role !== 'master' && token.ownerUserId !== user.id) {
+    return { status: 403, message: 'Puoi modificare solo le condizioni dei tuoi token.' };
+  }
+
+  const catalog = conditionCatalogFor(token.type);
+  const currentConditions = Array.isArray(token.conditions) ? token.conditions : [];
+  let nextConditions = currentConditions;
+  let nextExhaustion = token.exhaustionLevel ?? 0;
+  const added = [];
+  const removed = [];
+  let exhaustionChanged = false;
+
+  if (op?.type === 'add') {
+    const condition = op.condition;
+    if (typeof condition !== 'string' || !catalog.includes(condition)) {
+      return { status: 400, message: 'Condizione non valida per questo tipo di token.' };
+    }
+    if (!currentConditions.includes(condition)) {
+      nextConditions = [...currentConditions, condition];
+      added.push(condition);
+      // Automatismo PHB 2014: Privo di sensi porta anche Prono, se non già presente.
+      if (condition === 'unconscious' && catalog.includes('prone') && !nextConditions.includes('prone')) {
+        nextConditions.push('prone');
+        added.push('prone');
+      }
+    }
+  } else if (op?.type === 'remove') {
+    const condition = op.condition;
+    if (typeof condition !== 'string' || !catalog.includes(condition)) {
+      return { status: 400, message: 'Condizione non valida per questo tipo di token.' };
+    }
+    if (currentConditions.includes(condition)) {
+      nextConditions = currentConditions.filter((entry) => entry !== condition);
+      removed.push(condition);
+    }
+  } else if (op?.type === 'set-exhaustion') {
+    if (token.type !== 'player' && token.type !== 'enemy') {
+      return { status: 400, message: "L'Indebolimento vale solo per le creature." };
+    }
+    const level = op.level;
+    if (!Number.isInteger(level) || level < 0 || level > 6) {
+      return { status: 400, message: 'Livello di Indebolimento non valido: deve essere un intero da 0 a 6.' };
+    }
+    if (level !== nextExhaustion) {
+      exhaustionChanged = true;
+      nextExhaustion = level;
+    }
+  } else {
+    return { status: 400, message: 'Operazione non valida.' };
+  }
+
+  const previousExhaustion = token.exhaustionLevel ?? 0;
+  const changed = added.length > 0 || removed.length > 0 || exhaustionChanged;
+  if (!changed) {
+    // No-op: lo stato non cambia, la versione non si incrementa (spec token-conditions).
+    return { status: 200, snapshot: nextSnapshot() };
+  }
+
+  const nextState = normalizeSharedState({
+    ...battleMapState,
+    tokens: battleMapState.tokens.map((entry) =>
+      entry.id === tokenId ? { ...entry, conditions: nextConditions, exhaustionLevel: nextExhaustion } : entry,
+    ),
+  });
+
+  if (user.role === 'master') {
+    return commitBattleMapState(nextState, { recordMasterUndo: true, validate: false });
+  }
+
+  battleMapState = nextState;
+  pushPlayerUndoAction(user.id, {
+    type: 'token-conditions',
+    tokenId,
+    added,
+    removed,
+    exhaustionChanged,
+    previousExhaustion,
+  });
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+  return { status: 200, snapshot: nextSnapshot() };
+}
+
+// «Alzati» (design, decisione 4): stesse autorizzazioni delle condizioni. Il Master toglie Prono
+// senza costo in ogni modalità; l'Adventurer paga metà della velocità effettiva a round avviato,
+// niente in Esplorazione, ed è rifiutato durante la fase di tiro o con velocità 0.
+function standUpToken(user, tokenId) {
+  const token = battleMapState.tokens.find((entry) => entry.id === tokenId);
+  if (!token) {
+    return { status: 404, message: 'Token non trovato.' };
+  }
+
+  if (user.role !== 'master' && token.ownerUserId !== user.id) {
+    return { status: 403, message: 'Puoi alzare solo i tuoi token.' };
+  }
+
+  if (!Array.isArray(token.conditions) || !token.conditions.includes('prone')) {
+    // No-op: nessuna condizione Prono da togliere.
+    return { status: 200, snapshot: nextSnapshot() };
+  }
+
+  if (user.role === 'master') {
+    const nextState = normalizeSharedState({
+      ...battleMapState,
+      tokens: battleMapState.tokens.map((entry) =>
+        entry.id === tokenId
+          ? { ...entry, conditions: entry.conditions.filter((condition) => condition !== 'prone') }
+          : entry,
+      ),
+    });
+    return commitBattleMapState(nextState, { recordMasterUndo: true, validate: false });
+  }
+
+  if (battleMapState.sessionMode === 'combat' && !battleMapState.isRoundStarted) {
+    return { status: 400, message: "Non puoi alzarti durante la fase di tiro dell'iniziativa." };
+  }
+
+  const { cells: effectiveCells, reason } = effectiveSpeed(
+    token.movementCells,
+    token.conditions,
+    token.exhaustionLevel,
+  );
+  if (effectiveCells === 0 && reason) {
+    return { status: 400, message: `Non puoi alzarti: ${conditionReasonLabel(reason)} porta la tua velocità a 0.` };
+  }
+
+  const budgetApplies = battleMapState.sessionMode === 'combat' && battleMapState.isRoundStarted;
+  const cost = standUpCost(effectiveCells);
+  const usedCells = battleMapState.movementUsedByTokenId[tokenId] ?? 0;
+  let nextMovementUsed = battleMapState.movementUsedByTokenId;
+  let chargedCells = 0;
+
+  if (budgetApplies) {
+    const budgetValue = computeMovementBudget({
+      effectiveCells,
+      dashed: battleMapState.dashUsedByTokenId[tokenId] === true,
+      extra: battleMapState.extraMovementByTokenId[tokenId] ?? 0,
+    });
+    const remaining = Math.max(0, budgetValue - usedCells);
+    if (cost > remaining) {
+      return {
+        status: 400,
+        message: `Alzarsi costa ${cost} caselle: ne restano ${remaining} in questo round.`,
+      };
+    }
+    chargedCells = cost;
+    nextMovementUsed = { ...battleMapState.movementUsedByTokenId, [tokenId]: usedCells + cost };
+  }
+
+  const nextState = normalizeSharedState({
+    ...battleMapState,
+    tokens: battleMapState.tokens.map((entry) =>
+      entry.id === tokenId
+        ? { ...entry, conditions: entry.conditions.filter((condition) => condition !== 'prone') }
+        : entry,
+    ),
+    movementUsedByTokenId: nextMovementUsed,
+  });
+
+  battleMapState = nextState;
+  pushPlayerUndoAction(user.id, { type: 'stand-up', tokenId, chargedCells });
   bumpBattleMapVersion();
   broadcastSnapshot();
   return { status: 200, snapshot: nextSnapshot() };
@@ -1630,6 +1866,55 @@ function undoLastAction(user) {
       tokens: battleMapState.tokens.map((token) =>
         token.id === action.tokenId ? { ...token, ...action.previousValues } : token,
       ),
+    });
+  }
+
+  if (action.type === 'token-conditions') {
+    battleMapState = normalizeSharedState({
+      ...battleMapState,
+      tokens: battleMapState.tokens.map((token) => {
+        if (token.id !== action.tokenId) {
+          return token;
+        }
+
+        let conditions = Array.isArray(token.conditions) ? token.conditions : [];
+        // Toglie ciò che quell'operazione ha aggiunto, se è ancora presente; rimette ciò che ha
+        // tolto, se ancora manca. Non tocca condizioni cambiate da altri nel frattempo.
+        if (action.added.length > 0) {
+          conditions = conditions.filter((condition) => !action.added.includes(condition));
+        }
+        if (action.removed.length > 0) {
+          const restored = action.removed.filter((condition) => !conditions.includes(condition));
+          conditions = [...conditions, ...restored];
+        }
+
+        return {
+          ...token,
+          conditions,
+          exhaustionLevel: action.exhaustionChanged ? action.previousExhaustion : token.exhaustionLevel,
+        };
+      }),
+    });
+  }
+
+  if (action.type === 'stand-up') {
+    battleMapState = normalizeSharedState({
+      ...battleMapState,
+      tokens: battleMapState.tokens.map((token) => {
+        if (token.id !== action.tokenId) {
+          return token;
+        }
+
+        const conditions = Array.isArray(token.conditions) ? token.conditions : [];
+        return {
+          ...token,
+          conditions: conditions.includes('prone') ? conditions : [...conditions, 'prone'],
+        };
+      }),
+      movementUsedByTokenId: {
+        ...battleMapState.movementUsedByTokenId,
+        [action.tokenId]: Math.max(0, (battleMapState.movementUsedByTokenId[action.tokenId] ?? 0) - action.chargedCells),
+      },
     });
   }
 
@@ -2312,6 +2597,57 @@ app.post('/api/battle-map/token-update', async (request, reply) => {
   }
 
   const result = updateOwnedToken(user, tokenId, body.updates);
+  if (result.status && result.status !== 200) {
+    reply.code(result.status);
+    return {
+      message: result.message,
+      ...nextSnapshot(user),
+    };
+  }
+
+  return nextSnapshot(user);
+});
+
+app.post('/api/battle-map/token-conditions', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const body = request.body ?? {};
+  const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
+  const op = body.op;
+  if (!tokenId || !op || typeof op !== 'object' || typeof op.type !== 'string') {
+    reply.code(400);
+    return { message: 'Payload condizioni non valido.' };
+  }
+
+  const result = applyTokenCondition(user, tokenId, op);
+  if (result.status && result.status !== 200) {
+    reply.code(result.status);
+    return {
+      message: result.message,
+      ...nextSnapshot(user),
+    };
+  }
+
+  return nextSnapshot(user);
+});
+
+app.post('/api/battle-map/stand-up', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const body = request.body ?? {};
+  const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
+  if (!tokenId) {
+    reply.code(400);
+    return { message: 'Payload Alzati non valido.' };
+  }
+
+  const result = standUpToken(user, tokenId);
   if (result.status && result.status !== 200) {
     reply.code(result.status);
     return {

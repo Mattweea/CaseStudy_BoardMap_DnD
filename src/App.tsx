@@ -28,6 +28,7 @@ import { getTokenFootprint } from './utils/board';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
 import { characterSheetApi } from './utils/characterSheetApi';
+import { effectiveSpeed, movementBudget as computeMovementBudget } from '../shared/token-conditions.mjs';
 import { playCombatSound } from './utils/combatAudio';
 import type { CharacterSheetRosterEntry, PublicPortraitEntry } from './utils/characterSheetApi';
 import type { CombatAnnouncement, DiceRollLog, GridPosition, TokenMovementBudget, UnitToken } from './types';
@@ -41,6 +42,11 @@ const BOOT_LOADER_STORAGE_PREFIX = 'dnd-battle-map:intro-seen';
 const COMBAT_ANNOUNCEMENT_STORAGE_KEY = 'dnd-battle-map:last-combat-announcement';
 const MANUAL_PDF_PATH =
   'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
+// Modale di modifica del token nascosta (P0.8c, design decisione 8): nessun punto d'ingresso
+// della GUI la apre più finché resta `false`. `EditElementModal` e `openEditTokenModal` restano
+// nel codice, pronti per essere riesposti da una capability successiva (P0.9), cambiando solo
+// questo valore.
+const TOKEN_EDIT_MODAL_ENABLED = false;
 
 type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'movement' | 'notes' | 'dice' | 'initiative' | 'characters' | 'settings' | 'legend';
 type WorkspaceTabId = 'chat' | 'initiative' | 'characters' | 'settings' | 'legend';
@@ -205,6 +211,8 @@ function App() {
     useDashAction,
     updateToken,
     updateOwnedToken,
+    applyTokenCondition,
+    standUpToken,
     setZoom,
     sessionStatus,
     suspendSession,
@@ -330,9 +338,15 @@ function App() {
 
       const hasDashed = state.dashUsedByTokenId[token.id] === true;
       const extra = state.extraMovementByTokenId[token.id] ?? 0;
+      // Velocità effettiva (P0.8c) solo per una creatura: un veicolo mostra la velocità grezza del
+      // conducente, invariata, come già oggi.
+      const isCreatureToken = token.type === 'player' || token.type === 'enemy';
+      const effectiveCells = isCreatureToken
+        ? effectiveSpeed(token.movementCells, token.conditions, token.exhaustionLevel).cells
+        : token.movementCells;
       budgets[token.id] = {
         usedCells: state.movementUsedByTokenId[token.id] ?? 0,
-        totalCells: token.movementCells * (hasDashed ? 2 : 1) + extra,
+        totalCells: computeMovementBudget({ effectiveCells, dashed: hasDashed, extra }),
         diagonalParity: state.diagonalParityByTokenId[token.id] ?? 0,
       };
     });
@@ -346,6 +360,19 @@ function App() {
     state.movementUsedByTokenId,
     state.diagonalParityByTokenId,
   ]);
+  // Scatto dal menu radiale (P0.8c): stesse condizioni del pulsante in barra laterale, ma per
+  // ciascun token proprio la cui iniziativa e' quella attiva, famiglio compreso, non solo la
+  // scheda principale (`sessionToken`).
+  const canDashTokenIds = useMemo(() => {
+    if (canManageBattleMap || !budgetApplies || !user) {
+      return new Set<string>();
+    }
+    return new Set(
+      state.tokens
+        .filter((token) => token.ownerUserId === user.id && token.id === state.activeTurnTokenId)
+        .map((token) => token.id),
+    );
+  }, [canManageBattleMap, budgetApplies, state.tokens, state.activeTurnTokenId, user]);
   // La mappa a schermo intero e quella normale muovono i token allo stesso modo: un solo
   // gestore, così le due copie non possono divergere.
   const handleBoardMoveTokens = (
@@ -751,6 +778,10 @@ function App() {
   };
 
   const openEditTokenModal = (tokenId: string) => {
+    if (!TOKEN_EDIT_MODAL_ENABLED) {
+      return;
+    }
+
     const isOwnedEditableToken = editableTokenIds.includes(tokenId);
     if (!canManageBattleMap && !isOwnedEditableToken) {
       return;
@@ -1191,6 +1222,13 @@ function App() {
                 <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>.
               </p>
               <p className="settings-panel__attribution">
+                Icone delle condizioni: <cite>game-icons.net</cite>, di{' '}
+                <a href="https://game-icons.net/1x1/delapouite/" target="_blank" rel="noreferrer">Delapouite</a>,{' '}
+                <a href="https://game-icons.net/1x1/lorc/" target="_blank" rel="noreferrer">Lorc</a> e{' '}
+                <a href="https://game-icons.net/1x1/sbed/" target="_blank" rel="noreferrer">sbed</a>, sotto licenza{' '}
+                <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>.
+              </p>
+              <p className="settings-panel__attribution">
                 Suoni di combattimento, tutti{' '}
                 <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noreferrer">CC0</a>: corno
                 d'inizio da{' '}
@@ -1545,13 +1583,16 @@ function App() {
                 <p><strong>Presentazione dadi</strong>: animazione e suoni sono preferenze locali nella tab Impostazioni.</p>
                 <p><strong className="command-legend__icon" aria-label="Lista elementi"><SearchIcon /></strong>: lista elementi.</p>
                 <p><strong className="command-legend__icon" aria-label="Manuale"><BookIcon /></strong>: manuale.</p>
+                <p><strong>Tasto destro / S / Shift+F10</strong> su un token che puoi modificare: menu delle condizioni (nessuna interazione di mappa in corso).</p>
+                <p>
+                  <strong>Nel menu delle condizioni</strong>: la lettera sottolineata attiva la condizione (P Prono, A Afferrato, T Trattenuto, V Avvelenato, C Accecato, F Affascinato, D Assordato, S Spaventato, I Incapacitato, B Invisibile, R Paralizzato, E Pietrificato, O Stordito, N Privo di sensi; veicoli: R Rotto, B Ribaltato). P toglie Prono senza costo (per esempio quando un alleato aiuta a rialzarsi); <strong>L</strong>: Alzati, che costa metà del movimento. <strong>0–6</strong>: livello di Indebolimento.
+                </p>
               </div>
 
               {canManageBattleMap ? (
                 <div className="command-legend__group">
                   <p className="command-legend__title">Master</p>
                   <p><strong>Drag</strong>: muovi token selezionati.</p>
-                  <p><strong>Tasto destro</strong>: edit completo.</p>
                   <p><strong>+</strong>: apre la card Azioni nella sidebar.</p>
                   <p><strong className="command-legend__icon" aria-label="Aggiungi selezionati"><CrossedSwordsIcon size="1.1em" /></strong>: aggiungi selezionati ai turni.</p>
                   <p><strong className="command-legend__icon" aria-label="Rimuovi selezionati"><TrashIcon /></strong>: rimuovi selezionati.</p>
@@ -1563,12 +1604,12 @@ function App() {
               ) : (
                 <div className="command-legend__group">
                   <p className="command-legend__title">Player</p>
-                  <p><strong>Tasto destro sul tuo PG</strong>: menu personale.</p>
                   <p><strong>Frecce</strong>: muovi il tuo PG.</p>
                   <p><strong>Home / PgUp / End / PgDn</strong>: diagonali.</p>
                   <p><strong>-1 / +1</strong>: rimuovi o aggiungi movimento extra.</p>
                   <p><strong className="command-legend__icon" aria-label="Scatto"><DashIcon /></strong>: scatto.</p>
                   <p><strong>PF</strong>: aggiorna i tuoi punti ferita.</p>
+                  <p><strong>Alzati</strong>: nel menu delle condizioni, solo quando sei Prono.</p>
                   <p><strong className="command-legend__icon"><UndoIcon aria-label="Annulla" /> / Ctrl+Z</strong>: undo della tua ultima azione.</p>
                 </div>
               )}
@@ -1702,6 +1743,11 @@ function App() {
           onOpenManual={() => setIsManualModalOpen(true)}
           onOpenElementsListModal={() => setIsElementsListModalOpen(true)}
           onOpenEditTokenModal={openEditTokenModal}
+          onApplyTokenCondition={applyTokenCondition}
+          onStandUpToken={standUpToken}
+          dashUsedByTokenId={state.dashUsedByTokenId}
+          canDashTokenIds={canDashTokenIds}
+          onDashToken={(tokenId) => void useDashAction(tokenId)}
           onMoveTokens={handleBoardMoveTokens}
           onSelectionChange={setSelectedTokenIds}
           onZoomChange={setZoom}
@@ -1775,6 +1821,11 @@ function App() {
             onOpenManual={() => setIsManualModalOpen(true)}
             onOpenElementsListModal={() => setIsElementsListModalOpen(true)}
             onOpenEditTokenModal={openEditTokenModal}
+            onApplyTokenCondition={applyTokenCondition}
+            onStandUpToken={standUpToken}
+            dashUsedByTokenId={state.dashUsedByTokenId}
+            canDashTokenIds={canDashTokenIds}
+            onDashToken={(tokenId) => void useDashAction(tokenId)}
             onMoveTokens={handleBoardMoveTokens}
             onSelectionChange={setSelectedTokenIds}
             onZoomChange={setZoom}
@@ -1877,7 +1928,7 @@ function App() {
           }
         }}
         onLocateToken={locateToken}
-        onEditToken={openEditTokenModal}
+        onEditToken={TOKEN_EDIT_MODAL_ENABLED ? openEditTokenModal : undefined}
         onToggleVisibility={(tokenId) => {
           if (!canManageBattleMap) {
             return;
