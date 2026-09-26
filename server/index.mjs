@@ -33,6 +33,7 @@ import {
   normalizeConditionsForType,
   standUpCost,
 } from '../shared/token-conditions.mjs';
+import { projectSheetAuras } from '../shared/token-auras.mjs';
 
 const app = Fastify({
   logger: true,
@@ -221,7 +222,9 @@ function applyVehicleAwareUpdates(tokens) {
 function normalizeSharedState(parsed) {
   const tokens = Array.isArray(parsed?.tokens)
     ? parsed.tokens.map((token) => {
-        const { aura: legacyAura, ...tokenWithoutLegacyAura } = token;
+        // `aura` (singolare) è una forma pre-P0.8 mai più scritta; `auras` in ingresso, in ogni
+        // forma, è comunque ignorato più sotto e ricalcolato da resolveTokenAuras.
+        const { aura: _legacyAura, auras: _incomingAuras, ...tokenWithoutLegacyAura } = token;
         const type = token.type ?? 'object';
         const affiliation =
           token.affiliation ??
@@ -270,28 +273,9 @@ function normalizeSharedState(parsed) {
           isFamiliar: token.isFamiliar === true,
           blocksMovement: token.blocksMovement === true,
           excludeFromInitiative: token.excludeFromInitiative === true,
-          auras: Array.isArray(token.auras)
-            ? token.auras.flatMap((aura, index) =>
-                aura && typeof aura.radiusCells === 'number'
-                  ? [{
-                      id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
-                      radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
-                      isVisible: aura.isVisible !== false,
-                      color: typeof aura.color === 'string' ? aura.color : token.color,
-                    }]
-                  : [],
-              )
-            : legacyAura &&
-                typeof legacyAura === 'object' &&
-                legacyAura.enabled === true &&
-                typeof legacyAura.radiusCells === 'number'
-              ? [{
-                  id: `${token.id}-aura-legacy`,
-                  radiusCells: Math.max(0, Math.floor(legacyAura.radiusCells)),
-                  isVisible: true,
-                  color: token.color,
-                }]
-              : [],
+          // Le aure sono sempre ricalcolate dalla scheda collegata: il valore in ingresso, in
+          // ogni forma (nuova o legacy), è ignorato (design, decisione 3, P0.8d).
+          auras: resolveTokenAuras({ type, ownerUserId: token.ownerUserId, isFamiliar: token.isFamiliar === true }),
           ...normalizeConditionsForType(type, token.conditions, token.exhaustionLevel),
         };
       })
@@ -478,6 +462,19 @@ function findLinkedSheetId(token) {
     return characterSheetService?.findIdByOwner(token.ownerUserId) ?? null;
   } catch {
     return null;
+  }
+}
+
+// Aure del token canonico di un personaggio (P0.8d): proiettate dalla collezione `auras` della
+// scheda collegata a ogni normalizzazione. Un familiare, un nemico, un oggetto, un veicolo o un
+// personaggio senza scheda collegata non hanno aure; una scheda illeggibile non ne aggiunge.
+function resolveTokenAuras(token) {
+  const sheetId = findLinkedSheetId(token);
+  if (!sheetId) return [];
+  try {
+    return projectSheetAuras(characterSheetService.readInternal(sheetId).character.auras);
+  } catch {
+    return [];
   }
 }
 
@@ -1532,21 +1529,8 @@ function updateOwnedToken(user, tokenId, updates) {
     nextUpdates.isInvisible = updates.isInvisible;
   }
 
-  if (
-    (token.type === 'player' || token.type === 'enemy') &&
-    Array.isArray(updates?.auras)
-  ) {
-    nextUpdates.auras = updates.auras.flatMap((aura, index) =>
-      aura && typeof aura.radiusCells === 'number'
-        ? [{
-            id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
-            radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
-            isVisible: aura.isVisible !== false,
-            color: typeof aura.color === 'string' ? aura.color : token.color,
-          }]
-        : [],
-    );
-  }
+  // `auras` non è più nel payload inoltrato (design, decisione 3, P0.8d): il token le riceve solo
+  // dalla scheda collegata, e la normalizzazione le ignorerebbe comunque se qui restassero.
 
   if (Object.keys(nextUpdates).length === 0) {
     return { status: 400, message: 'Nessun aggiornamento valido.' };
@@ -1573,7 +1557,6 @@ function updateOwnedToken(user, tokenId, updates) {
         hitPoints: token.hitPoints ?? null,
         maxHitPoints: token.maxHitPoints ?? null,
         isInvisible: token.isInvisible === true,
-        auras: token.auras ?? [],
       },
     });
   }
@@ -1722,6 +1705,62 @@ function applyTokenCondition(user, tokenId, op) {
   });
   bumpBattleMapVersion();
   broadcastSnapshot();
+  return { status: 200, snapshot: nextSnapshot() };
+}
+
+// Interruttore delle aure (design, decisione 4): stesse autorizzazioni delle condizioni, ma la
+// mutazione passa dalla scheda, non dallo stato della mappa. Il token si aggiorna quando
+// #projectOperations chiede la proiezione e la normalizzazione successiva la ricalcola (task 1.3
+// e 2.1). Nessun annullamento: un secondo interruttore corregge senza toccare la cronologia.
+function commitTokenAuraToggle(user, tokenId, auraId, active) {
+  const token = battleMapState.tokens.find((entry) => entry.id === tokenId);
+  if (!token) {
+    return { status: 404, message: 'Token non trovato.' };
+  }
+
+  if (token.type !== 'player' || token.isFamiliar === true || !token.ownerUserId) {
+    return { status: 400, message: 'Il token non ha aure proprie.' };
+  }
+
+  if (user.role !== 'master' && token.ownerUserId !== user.id) {
+    return { status: 403, message: 'Puoi accendere solo le aure del tuo personaggio.' };
+  }
+
+  const sheetId = findLinkedSheetId(token);
+  if (!sheetId) {
+    return { status: 404, message: 'Scheda non trovata.' };
+  }
+
+  let sheet;
+  try {
+    sheet = characterSheetService.get(user, sheetId);
+  } catch (error) {
+    return { status: error?.status ?? 404, message: error?.message ?? 'Scheda non trovata.' };
+  }
+
+  const aura = sheet.data.character.auras.find((row) => row.id === auraId);
+  if (!aura) {
+    return { status: 404, message: 'Aura non trovata nella scheda.' };
+  }
+
+  if (typeof active !== 'boolean') {
+    return { status: 400, message: 'Stato aura non valido.' };
+  }
+
+  if (aura.active === active) {
+    // No-op: lo stato non cambia, la versione della mappa non si incrementa.
+    return { status: 200, snapshot: nextSnapshot() };
+  }
+
+  try {
+    characterSheetService.applyPatch(user, sheetId, {
+      baseVersion: sheet.version,
+      operations: [{ op: 'set', path: `character.auras.${auraId}.active`, value: active }],
+    });
+  } catch (error) {
+    return { status: error?.status ?? 400, message: error?.message ?? "Impossibile aggiornare l'aura." };
+  }
+
   return { status: 200, snapshot: nextSnapshot() };
 }
 
@@ -2634,6 +2673,32 @@ app.post('/api/battle-map/token-conditions', async (request, reply) => {
   return nextSnapshot(user);
 });
 
+app.post('/api/battle-map/token-auras', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) {
+    return;
+  }
+
+  const body = request.body ?? {};
+  const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
+  const auraId = typeof body.auraId === 'string' ? body.auraId : '';
+  if (!tokenId || !auraId) {
+    reply.code(400);
+    return { message: 'Payload aure non valido.', ...nextSnapshot(user) };
+  }
+
+  const result = commitTokenAuraToggle(user, tokenId, auraId, body.active);
+  if (result.status && result.status !== 200) {
+    reply.code(result.status);
+    return {
+      message: result.message,
+      ...nextSnapshot(user),
+    };
+  }
+
+  return nextSnapshot(user);
+});
+
 app.post('/api/battle-map/stand-up', async (request, reply) => {
   const user = requireUser(request, reply);
   if (!user) {
@@ -2838,6 +2903,9 @@ export const __testing = {
   setCharacterSheetService: (service) => {
     characterSheetService = service;
   },
+  // Un test costruisce un CharacterSheetService di scena e deve poterlo collegare al token come
+  // fa `start()` in produzione, per esercitare la proiezione scheda -> token end-to-end.
+  projectCharacterSheetToToken,
   sanitizeStateForUser,
   nextSnapshot,
   normalizeSharedState,

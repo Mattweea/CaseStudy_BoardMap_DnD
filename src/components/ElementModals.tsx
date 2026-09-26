@@ -5,7 +5,6 @@ import type {
   DndSize,
   TokenAffiliation,
   TokenCondition,
-  TokenAura,
   TokenType,
   UnitToken,
   VehicleKind,
@@ -58,7 +57,7 @@ interface EditElementModalProps {
   onSaveToken: (tokenId: string, updates: Partial<UnitToken>) => void;
   onSaveOwnedToken?: (
     tokenId: string,
-    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative' | 'auras'>>,
+    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative'>>,
   ) => void;
   onRemoveToken: (tokenId: string) => void;
   onDuplicateToken?: (tokenId: string) => void;
@@ -116,19 +115,6 @@ function nextColor(type: TokenType, affiliation: TokenAffiliation, keepCurrent: 
 
 function buildProgressiveName(baseName: string, index: number, total: number): string {
   return total === 1 ? baseName : `${baseName} ${index + 1}`;
-}
-
-function createAura(color: string): TokenAura {
-  const id = typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `aura-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-  return {
-    id,
-    radiusCells: 3,
-    isVisible: true,
-    color,
-  };
 }
 
 function createEmptySeats(count: number): string[] {
@@ -980,8 +966,6 @@ export function EditElementModal({
   const [excludeFromInitiative, setExcludeFromInitiative] = useState(false);
   const [blocksMovement, setBlocksMovement] = useState(false);
   const [familiarName, setFamiliarName] = useState('');
-  const [auras, setAuras] = useState<TokenAura[]>([]);
-  const [openAuraColorId, setOpenAuraColorId] = useState<string | null>(null);
   const [isSaveFooterVisible, setIsSaveFooterVisible] = useState(false);
   const saveFooterRef = useRef<HTMLDivElement | null>(null);
 
@@ -1019,8 +1003,6 @@ export function EditElementModal({
     setExcludeFromInitiative(token.excludeFromInitiative === true);
     setBlocksMovement(token.blocksMovement === true);
     setFamiliarName('');
-    setAuras(token.auras ?? []);
-    setOpenAuraColorId(null);
   }, [token]);
 
   useEffect(() => {
@@ -1133,12 +1115,6 @@ export function EditElementModal({
         maxHitPoints: parsedMaxHitPoints,
         conditions: conditions.filter((condition) => canUseCondition(type, condition)),
         isInvisible: token.isFamiliar ? isInvisible : token.isInvisible,
-        auras: type === 'player' || type === 'enemy'
-          ? auras.map((aura) => ({
-              ...aura,
-              radiusCells: Math.max(0, Math.floor(aura.radiusCells) || 0),
-            }))
-          : token.auras ?? [],
       });
       onClose();
       return;
@@ -1240,12 +1216,6 @@ export function EditElementModal({
       isInvisible,
       blocksMovement: type === 'object' ? blocksMovement : false,
       excludeFromInitiative,
-      auras: type === 'player' || type === 'enemy'
-        ? auras.map((aura) => ({
-            ...aura,
-            radiusCells: Math.max(0, Math.floor(aura.radiusCells) || 0),
-          }))
-        : [],
       conditions: nextConditions,
     });
     onClose();
@@ -1600,105 +1570,6 @@ export function EditElementModal({
             />
             <span>Invisibile per gli altri player</span>
           </label>
-        ) : null}
-
-        {type === 'player' || type === 'enemy' ? (
-          <fieldset className="token-form__fieldset token-form__fieldset--aura">
-            <legend>Aura</legend>
-            <div className="aura-settings__header">
-              <span>{auras.length === 0 ? 'Nessuna aura configurata' : `${auras.length} ${auras.length === 1 ? 'aura' : 'aure'}`}</span>
-              <button
-                type="button"
-                className="aura-settings__add"
-                onClick={() => setAuras((current) => [...current, createAura(color)])}
-                aria-label="Aggiungi un'aura"
-                title="Aggiungi un'aura"
-              >
-                +1
-              </button>
-            </div>
-            <div className="aura-settings__list">
-              {auras.map((aura, index) => (
-                <div className="aura-settings__row" key={aura.id}>
-                  <label>
-                    Aura {index + 1} · raggio caselle
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={aura.radiusCells}
-                      onChange={(event) => {
-                        const radiusCells = Number(event.target.value) || 0;
-                        setAuras((current) => current.map((item) =>
-                          item.id === aura.id ? { ...item, radiusCells } : item
-                        ));
-                      }}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="aura-settings__icon aura-settings__icon--color"
-                    onClick={() => setOpenAuraColorId((current) => current === aura.id ? null : aura.id)}
-                    aria-label={`Modifica colore aura ${index + 1}`}
-                    title="Colore aura"
-                    aria-expanded={openAuraColorId === aura.id}
-                  >
-                    <span className="aura-settings__color-swatch" style={{ backgroundColor: aura.color }} />
-                  </button>
-                  <button
-                    type="button"
-                    className={`aura-settings__icon${aura.isVisible ? ' aura-settings__icon--active' : ''}`}
-                    onClick={() => setAuras((current) => current.map((item) =>
-                      item.id === aura.id ? { ...item, isVisible: !item.isVisible } : item
-                    ))}
-                    aria-label={aura.isVisible ? `Nascondi aura ${index + 1}` : `Mostra aura ${index + 1} a tutti`}
-                    title={aura.isVisible ? 'Visibile a tutti' : 'Nascosta'}
-                    aria-pressed={aura.isVisible}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z" />
-                      <circle cx="12" cy="12" r="3" />
-                      {!aura.isVisible ? <path d="m4 4 16 16" /> : null}
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    className="aura-settings__icon aura-settings__icon--delete"
-                    onClick={() => {
-                      setAuras((current) => current.filter((item) => item.id !== aura.id));
-                      setOpenAuraColorId((current) => current === aura.id ? null : current);
-                    }}
-                    aria-label={`Elimina aura ${index + 1}`}
-                    title="Elimina aura"
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />
-                    </svg>
-                  </button>
-                  {openAuraColorId === aura.id ? (
-                    <div className="aura-settings__palette" role="group" aria-label={`Colore aura ${index + 1}`}>
-                      {TOKEN_COLOR_PALETTE.map((paletteColor) => (
-                        <button
-                          key={paletteColor}
-                          type="button"
-                          className={`color-picker__option ${aura.color === paletteColor ? 'color-picker__option--active' : ''}`}
-                          style={{ backgroundColor: paletteColor }}
-                          onClick={() => {
-                            setAuras((current) => current.map((item) =>
-                              item.id === aura.id ? { ...item, color: paletteColor } : item
-                            ));
-                            setOpenAuraColorId(null);
-                          }}
-                          aria-label={`Seleziona colore ${paletteColor} per aura ${index + 1}`}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-            <p className="form-hint">L'aura resta centrata sul token mentre viene mosso.</p>
-          </fieldset>
         ) : null}
 
         {(token.type === 'player' && token.isFamiliar !== true && token.ownerUserId) ? (

@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   assertValidCharacterSheetData,
   createAttack,
+  createAura,
   createEquipmentItem,
   createFeature,
   createInitialCharacterSheetData,
@@ -14,6 +15,7 @@ import {
   validateCharacterSheetData,
   validatePatchOperation,
 } from '../server/character-sheet-schema.mjs';
+import { AURA_COLORS } from '../shared/token-auras.mjs';
 
 test('initial document covers all tabs and is valid', () => {
   const data = createInitialCharacterSheetData({ displayName: 'Ilthar' });
@@ -205,4 +207,60 @@ test("una scheda precedente resta su Normale anche se il roster dichiara il vant
   assert.equal(normalizeCharacterSheetData(chosen, ragnarProfile).character.initiativeRollMode, 'advantage');
   const invalid = { ...legacy, character: { ...legacy.character, initiativeRollMode: 'nope' } };
   assert.equal(normalizeCharacterSheetData(invalid).character.initiativeRollMode, 'normal');
+});
+
+// Task 1.2: collezione `auras`.
+
+test('a sheet saved before auras loads with an empty aura list', () => {
+  const legacy = createInitialCharacterSheetData({ displayName: 'Ilthar' });
+  delete legacy.character.auras;
+  const normalized = normalizeCharacterSheetData(legacy);
+  assert.deepEqual(normalized.character.auras, []);
+  assert.deepEqual(validateCharacterSheetData(normalized), []);
+});
+
+test('a valid aura row is accepted', () => {
+  const data = createInitialCharacterSheetData();
+  data.character.auras.push(createAura({ id: 'aura_0001', name: 'Aura di protezione', effect: 'Riduce i danni', radiusCells: '3', color: AURA_COLORS[1], active: true }));
+  assert.deepEqual(validateCharacterSheetData(data), []);
+});
+
+test('an aura color outside the palette is rejected without applying the patch', () => {
+  const data = createInitialCharacterSheetData();
+  data.character.auras.push(createAura({ id: 'aura_0001', color: '#000000' }));
+  assert.match(validateCharacterSheetData(data).join(' '), /color non e valido/);
+  assert.match(validatePatchOperation({ op: 'set', path: 'character.auras.aura_0001.color', value: '#000000' }), /non valido/);
+});
+
+test('an aura radius of 0 or 25 is rejected without applying the patch', () => {
+  for (const radius of ['0', '25']) {
+    const data = createInitialCharacterSheetData();
+    data.character.auras.push(createAura({ id: 'aura_0001', radiusCells: radius }));
+    assert.match(validateCharacterSheetData(data).join(' '), /raggio dell'aura deve essere tra/);
+    assert.match(validatePatchOperation({ op: 'set', path: 'character.auras.aura_0001.radiusCells', value: radius }), /raggio dell'aura deve essere tra/);
+  }
+});
+
+test('a 61-character aura name is rejected without applying the patch', () => {
+  const longName = 'a'.repeat(61);
+  const data = createInitialCharacterSheetData();
+  data.character.auras.push(createAura({ id: 'aura_0001', name: longName }));
+  assert.match(validateCharacterSheetData(data).join(' '), /nome dell'aura supera/);
+  assert.match(validatePatchOperation({ op: 'set', path: 'character.auras.aura_0001.name', value: longName }), /nome dell'aura supera/);
+});
+
+test('a 501-character aura effect is rejected without applying the patch', () => {
+  const longEffect = 'a'.repeat(501);
+  const data = createInitialCharacterSheetData();
+  data.character.auras.push(createAura({ id: 'aura_0001', effect: longEffect }));
+  assert.match(validateCharacterSheetData(data).join(' '), /effetto dell'aura supera/);
+  assert.match(validatePatchOperation({ op: 'set', path: 'character.auras.aura_0001.effect', value: longEffect }), /effetto dell'aura supera/);
+});
+
+test('an eleventh aura row is rejected without applying the patch', () => {
+  const data = createInitialCharacterSheetData();
+  for (let index = 0; index < 11; index += 1) {
+    data.character.auras.push(createAura({ id: `aura_${String(index).padStart(4, '0')}` }));
+  }
+  assert.match(validateCharacterSheetData(data).join(' '), /non può avere più di 10 righe/);
 });

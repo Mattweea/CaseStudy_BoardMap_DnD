@@ -225,7 +225,13 @@ export class CharacterSheetService {
     };
     const initiativePaths = new Set(['character.abilities.dexterity.score', 'character.initiativeMiscBonus']);
     let recalculateInitiative = false;
+    // Una scrittura (set/add/remove) su `character.auras` non ha un campo diretto da proiettare:
+    // il token la ricalcola dalla scheda alla prossima normalizzazione (design, decisione 3).
+    let auraCollectionChanged = false;
     operations.forEach((operation) => {
+      if (operation.path === 'character.auras' || operation.path.startsWith('character.auras.')) {
+        auraCollectionChanged = true;
+      }
       if (operation.op !== 'set') return;
       if (initiativePaths.has(operation.path)) { recalculateInitiative = true; return; }
       if (!mapping[operation.path]) return;
@@ -239,7 +245,7 @@ export class CharacterSheetService {
       });
       if (initiativeModifier !== null) updates.initiativeModifier = initiativeModifier;
     }
-    if (Object.keys(updates).length) this.projectToken(ownerUserId, updates);
+    if (auraCollectionChanged || Object.keys(updates).length) this.projectToken(ownerUserId, updates);
   }
 
   #scheduleFlush(state, delay = this.debounceMs) {

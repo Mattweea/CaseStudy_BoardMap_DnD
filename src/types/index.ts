@@ -106,11 +106,16 @@ export interface TokenMovementBudget {
   diagonalParity: DiagonalParity;
 }
 
+// Proiettata dalla scheda (P0.8d): mai la descrizione, che resta privata. Il campo `auras` del
+// token è di sola lettura per ogni client, ricalcolato dal server a ogni normalizzazione (vedi
+// shared/token-auras.mjs, projectSheetAuras).
 export interface TokenAura {
   id: string;
+  name: string;
+  effect: string;
   radiusCells: number;
-  isVisible: boolean;
   color: string;
+  active: boolean;
 }
 
 export interface UnitToken {

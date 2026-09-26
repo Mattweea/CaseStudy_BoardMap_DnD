@@ -25,6 +25,8 @@ Every new shared field requires coordinated defaults and validation on both side
 
 A token's `conditions` and `exhaustionLevel` are normalized by `shared/token-conditions.mjs`'s `normalizeConditionsForType`, called identically from both normalizers: the array is filtered against the catalog for that token's own type (creature, vehicle, or the empty catalog for an object), deduplicated, and `exhaustionLevel` is clamped to 0-6 (forced to 0 outside a creature). This runs on every commit path, including a master full-state replacement, so an out-of-catalog or retired identifier (`dead`, `conditioned`, `inspired` predate this capability) never survives a commit or a snapshot load.
 
+The server derives `token.auras` from the linked character sheet on every normalization, including full-state commits, owned-token updates, undo, login, and session resume. It ignores all incoming aura values, including the retired single-aura and `{ radiusCells, isVisible, color }` shapes. The client accepts only the projected shape and does not reconstruct legacy values. The sheet's private description never enters shared state. Per-user sanitization removes the auras with an owner token hidden from that recipient; presence notices derive only from the sanitized snapshot.
+
 `movementAxisUsageByTokenId` (the pre-P0.7 per-axis movement counter) is removed from the shape. Normalization converts it into `movementUsedByTokenId` with the old rule — `max(horizontal, vertical)` — only for a token that does not already have a `movementUsedByTokenId` entry, then discards it; this is a one-time, conservative compatibility conversion and must not otherwise be referenced. `diagonalParityByTokenId` and `diagonalRule`/`measurementUnit` default to `{}`, `'standard'`, and `{ label: 'm', cellsValue: 1.5 }` respectively when absent from an older snapshot.
 
 Session mode and initiative (P0.8a) follow invariants enforced by both normalizers:
@@ -98,6 +100,7 @@ SQLite is a separate persistence boundary:
 - Combat endpoints: entering/leaving combat, starting round one, the master's turn advance, and the `playersCanEndTurn` setting use master snapshot undo. Initiative rolls (single or roll-all) are intentionally non-undoable, since undoing would also remove the log entry; the master corrects with edit or removal. An adventurer's end of turn has no inverse; the master can move the turn back.
 - A condition-change inverse action (`token-conditions`) carries only what that operation changed — the conditions it added, the conditions it removed, and, only when the operation set the exhaustion level, that level's previous value — so undoing removes what was added if still present, restores what was removed if still absent, and never touches a condition or exhaustion level changed by someone else in the meantime. The master's condition changes use snapshot undo like any other master mutation.
 - A stand-up inverse action (`stand-up`) carries the `chargedCells` that operation charged; undoing re-adds `prone` and subtracts that charge back out of the token's movement used for the round (never a plain reset to a remembered absolute value, since another movement may have happened since).
+- Aura switches patch the character sheet and are intentionally non-undoable in either role; a second switch corrects one without rolling back sheet history.
 
 ## Verification
 

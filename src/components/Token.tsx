@@ -54,8 +54,8 @@ export function Token({
   } as CSSProperties;
 
   // Il click destro apre il menu radiale delle condizioni quando è permesso e nessuna
-  // pianificazione/righello/sagoma è in corso; durante un'interazione resta un waypoint, già
-  // aggiunto dal gestore del pointerdown prima che il contextmenu nativo arrivi qui (P0.8c).
+  // pianificazione/righello/sagoma è in corso; durante una pianificazione il pointerdown destro
+  // la annulla e il contextmenu dello stesso gesto viene bloccato dalla shell (P0.8c).
   const handleContextMenu = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();

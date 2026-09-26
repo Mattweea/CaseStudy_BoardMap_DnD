@@ -35,13 +35,13 @@ function clearValues(value: unknown, path: string, operations: CharacterSheetPat
 
 export function buildClearOperations(data: CharacterSheetData): CharacterSheetPatchOperation[] {
   const operations: CharacterSheetPatchOperation[] = [];
-  const { attacks, equipment, tools, languages, features, resources, ...character } = data.character;
+  const { attacks, equipment, tools, languages, features, auras, resources, ...character } = data.character;
 
   clearValues(character, 'character', operations);
   clearValues(data.story, 'story', operations);
   clearValues({ ...data.spells, levels: undefined }, 'spells', operations);
 
-  for (const [collection, rows] of Object.entries({ attacks, equipment, tools, languages, features })) {
+  for (const [collection, rows] of Object.entries({ attacks, equipment, tools, languages, features, auras })) {
     rows.forEach((row) => operations.push({ op: 'remove', path: `character.${collection}.${row.id}` }));
   }
   resources.forEach((section, index) => {

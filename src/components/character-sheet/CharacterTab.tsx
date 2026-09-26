@@ -1,9 +1,10 @@
 import { useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import type {
-  AbilityKey, CharacterSheetAttack, CharacterSheetData, CharacterSheetEquipmentItem, CharacterSheetFeature,
+  AbilityKey, CharacterSheetAttack, CharacterSheetAura, CharacterSheetData, CharacterSheetEquipmentItem, CharacterSheetFeature,
   CharacterSheetLanguage, CharacterSheetPatchOperation, CharacterSheetResourceSection, CharacterSheetRow, CharacterSheetTool, CoinKey, SkillKey,
 } from '../../types/character-sheet';
-import type { DiceRollLog, DiceRollSourceRequest, InitiativeRollMode, SessionMode } from '../../types';
+import type { DiceRollLog, DiceRollSourceRequest, InitiativeRollMode, MeasurementUnit, SessionMode } from '../../types';
+import { AURA_LIMITS } from '../../../shared/token-auras.mjs';
 import {
   abilityModifier, computeAttackBonus, computeDamageModifier, computeInitiative, computePassivePerception,
   computeSavingThrowValue, computeSkillValue, computeToolBonus, formatSigned, proficiencyBonusForLevel, SKILL_ABILITY,
@@ -12,8 +13,8 @@ import {
   ComputedWithMiscBonus, CompetenceRow, FramedCheckbox, FramedValue, GearButton, LockToggle, PipCounter, ReadOnlyStat,
   RemoveRowButton, RowActions, SAVING_THROW_STATES, SKILL_STATES, SheetField, SheetPanel, SheetSelect,
 } from './SheetPrimitives';
-import { AttackEditor, ToolEditor } from './RowEditor';
-import { createAttack as createAttackDraft, createTool as createToolDraft } from './rowDefaults';
+import { AttackEditor, AuraEditor, ToolEditor } from './RowEditor';
+import { createAttack as createAttackDraft, createAura as createAuraDraft, createTool as createToolDraft } from './rowDefaults';
 import { GearIcon, LockIcon } from '../UiIcons';
 
 const abilities: Array<[AbilityKey, string, string]> = [
@@ -116,16 +117,17 @@ function buildRowDiffOps<T extends { id: string }>(collection: string, before: T
   return ops;
 }
 
-export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisibility = 'public', sessionMode }: {
+export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisibility = 'public', sessionMode, measurementUnit }: {
   data: CharacterSheetData; patch: (operation: CharacterSheetPatchOperation) => void;
   sheetId?: string; onRoll?: (request: DiceRollSourceRequest) => void; diceLogs?: DiceRollLog[];
-  rollVisibility?: 'public' | 'secret'; sessionMode?: SessionMode;
+  rollVisibility?: 'public' | 'secret'; sessionMode?: SessionMode; measurementUnit: MeasurementUnit;
 }) {
   const isInitiativeRollDisabled = sessionMode === 'exploration';
   const initiativeRollMode = data.character.initiativeRollMode ?? 'normal';
   const [featureFilter, setFeatureFilter] = useState('');
   const [editingAttackId, setEditingAttackId] = useState<string | 'new' | null>(null);
   const [editingToolId, setEditingToolId] = useState<string | 'new' | null>(null);
+  const [editingAuraId, setEditingAuraId] = useState<string | 'new' | null>(null);
   const set = (path: string) => (value: string | boolean) => patch({ op: 'set', path, value });
   const remove = (path: string) => () => patch({ op: 'remove', path });
   const add = (collection: string, value: CharacterSheetRow) => () => patch({ op: 'add', path: `character.${collection}`, value });
@@ -142,6 +144,7 @@ export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisib
 
   const editingAttack = editingAttackId === 'new' ? createAttackDraft() : editingAttackId ? data.character.attacks.find((row) => row.id === editingAttackId) ?? null : null;
   const editingTool = editingToolId === 'new' ? createToolDraft() : editingToolId ? data.character.tools.find((row) => row.id === editingToolId) ?? null : null;
+  const editingAura = editingAuraId === 'new' ? createAuraDraft() : editingAuraId ? data.character.auras.find((row) => row.id === editingAuraId) ?? null : null;
 
   const confirmAttack = (updated: CharacterSheetAttack) => {
     if (editingAttackId === 'new') add('attacks', updated)();
@@ -152,6 +155,11 @@ export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisib
     if (editingToolId === 'new') add('tools', updated)();
     else if (editingTool) buildRowDiffOps('tools', editingTool, updated).forEach(patch);
     setEditingToolId(null);
+  };
+  const confirmAura = (updated: CharacterSheetAura) => {
+    if (editingAuraId === 'new') add('auras', updated)();
+    else if (editingAura) buildRowDiffOps('auras', editingAura, updated).forEach(patch);
+    setEditingAuraId(null);
   };
 
   // Interazione di tiro (P0.5 Fase B): delegata sull'intera scheda invece di un gestore per
@@ -355,6 +363,16 @@ export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisib
           {featureFilter && !visibleFeatures.length ? <p className="feature-empty">Nessun privilegio corrisponde al filtro.</p> : null}
           <RowActions onAdd={add('features', { id: crypto.randomUUID(), name: '', source: 'class', description: '' })} label="Aggiungi privilegio" />
         </SheetPanel>
+        <SheetPanel title="Aure" className="repeatable-panel aura-panel">
+          {data.character.auras.map((aura) => <div className="sheet-aura-row" key={aura.id}>
+            <span className="sheet-aura-row__swatch" style={{ backgroundColor: aura.color }} aria-hidden="true" />
+            <span className="sheet-aura-row__name">{aura.name || 'Aura'}</span>
+            <span className="sheet-aura-row__radius">{Number(aura.radiusCells) * measurementUnit.cellsValue} {measurementUnit.label}</span>
+            <label className="sheet-aura-row__toggle"><input type="checkbox" checked={aura.active} onChange={(event) => set(`character.auras.${aura.id}.active`)(event.target.checked)} aria-label={`Attiva ${aura.name || 'Aura'}`} /></label>
+            <GearButton label={`Modifica ${aura.name || 'Aura'}`} onClick={() => setEditingAuraId(aura.id)} />
+          </div>)}
+          {data.character.auras.length < AURA_LIMITS.maxAuras ? <RowActions onAdd={() => setEditingAuraId('new')} label="Aggiungi aura" /> : <p className="sheet-aura-limit">Limite di {AURA_LIMITS.maxAuras} aure raggiunto.</p>}
+        </SheetPanel>
       </div>
     </div>
 
@@ -365,6 +383,10 @@ export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisib
     {editingTool ? <ToolEditor
       initial={editingTool} onConfirm={confirmTool} onCancel={() => setEditingToolId(null)}
       onRemove={editingToolId !== 'new' ? () => { remove(`character.tools.${editingTool.id}`)(); setEditingToolId(null); } : undefined}
+    /> : null}
+    {editingAura ? <AuraEditor
+      initial={editingAura} measurementUnit={measurementUnit} onConfirm={confirmAura} onCancel={() => setEditingAuraId(null)}
+      onRemove={editingAuraId !== 'new' ? () => { remove(`character.auras.${editingAura.id}`)(); setEditingAuraId(null); } : undefined}
     /> : null}
   </div>;
 }

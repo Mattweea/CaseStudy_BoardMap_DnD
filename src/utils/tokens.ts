@@ -4,6 +4,7 @@ import type {
   GridPosition,
   InitiativeMode,
   TokenAffiliation,
+  TokenAura,
   TokenCondition,
   TokenType,
   UnitToken,
@@ -14,6 +15,29 @@ import {
   VEHICLE_CONDITIONS as SHARED_VEHICLE_CONDITIONS,
   conditionCatalogFor,
 } from '../../shared/token-conditions.mjs';
+
+// Valida la nuova forma dell'aura proiettata dal server e scarta ogni voce che non la rispetta,
+// senza ricostruirla: una voce nel vecchio formato ({ radiusCells, isVisible, color }, priva di
+// `name`/`effect`/`active`) è scartata per costruzione (P0.8d, design, decisione 3 e 10).
+export function normalizeTokenAuras(rawAuras: unknown): TokenAura[] {
+  if (!Array.isArray(rawAuras)) return [];
+  return rawAuras.flatMap((aura): TokenAura[] => {
+    if (
+      !aura ||
+      typeof aura !== 'object' ||
+      typeof (aura as Partial<TokenAura>).id !== 'string' ||
+      typeof (aura as Partial<TokenAura>).name !== 'string' ||
+      typeof (aura as Partial<TokenAura>).effect !== 'string' ||
+      typeof (aura as Partial<TokenAura>).radiusCells !== 'number' ||
+      typeof (aura as Partial<TokenAura>).color !== 'string' ||
+      typeof (aura as Partial<TokenAura>).active !== 'boolean'
+    ) {
+      return [];
+    }
+    const { id, name, effect, radiusCells, color, active } = aura as TokenAura;
+    return [{ id, name, effect, radiusCells, color, active }];
+  });
+}
 
 export const DEFAULT_TOKEN_COLORS: Record<Exclude<TokenType, 'vehicle'>, string> = {
   player: '#4a6fd4',

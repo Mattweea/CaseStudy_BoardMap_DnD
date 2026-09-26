@@ -26,6 +26,7 @@ export interface CharacterSheetEquipmentItem { id: string; quantity: SheetText; 
 export interface CharacterSheetTool { id: string; name: SheetText; proficiency: ProficiencyLevel; ability: AbilityOrNone; bonus: SheetText }
 export interface CharacterSheetLanguage { id: string; name: SheetText }
 export interface CharacterSheetFeature { id: string; name: SheetText; source: FeatureSource; description: SheetText }
+export interface CharacterSheetAura { id: string; name: SheetText; description: SheetText; effect: SheetText; radiusCells: SheetText; color: string; active: boolean }
 export interface CharacterSheetResourceBlock { name: SheetText; total: SheetText; current: SheetText }
 export interface CharacterSheetResourceSection { id: string; classResource: CharacterSheetResourceBlock; otherResource: CharacterSheetResourceBlock }
 export interface CharacterSheetSpell { id: string; name: SheetText; status: SpellStatus; notes: SheetText }
@@ -37,6 +38,7 @@ export type CharacterSheetRow =
   | CharacterSheetTool
   | CharacterSheetLanguage
   | CharacterSheetFeature
+  | CharacterSheetAura
   | CharacterSheetResourceSection
   | CharacterSheetSpell;
 
@@ -58,6 +60,7 @@ export interface CharacterSheetData {
     tools: CharacterSheetTool[];
     languages: CharacterSheetLanguage[];
     features: CharacterSheetFeature[];
+    auras: CharacterSheetAura[];
     resources: CharacterSheetResourceSection[];
     currency: Record<CoinKey, SheetText>;
     sectionLocks: { attacks: boolean; tools: boolean };
@@ -72,7 +75,7 @@ export interface CharacterSheetData {
   };
 }
 
-export type CharacterCollectionKey = 'attacks' | 'equipment' | 'tools' | 'languages' | 'features' | 'resources';
+export type CharacterCollectionKey = 'attacks' | 'equipment' | 'tools' | 'languages' | 'features' | 'auras' | 'resources';
 
 export type CharacterSheetPatchOperation =
   | { op: 'set'; path: string; value: string | boolean }

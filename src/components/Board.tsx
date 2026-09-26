@@ -32,6 +32,7 @@ import {
 import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
 import { cellsToUnit, pathCost } from '../../shared/grid-movement';
 import { effectiveSpeed } from '../../shared/token-conditions.mjs';
+import { auraRect } from '../../shared/token-auras.mjs';
 import { conditionLabel } from '../utils/tokens';
 import { Token } from './Token';
 import { TokenRadialMenu } from './TokenRadialMenu';
@@ -97,10 +98,13 @@ interface BoardProps {
       | { type: 'set-exhaustion'; level: number },
   ) => void;
   onStandUpToken?: (tokenId: string) => void;
+  // Aure (P0.8d): interruttore dal pannello «Aure» del menu radiale.
+  onSetTokenAuraActive?: (tokenId: string, auraId: string, active: boolean) => void;
   // Scatto (P0.8c): il pulsante in barra laterale seguiva solo il personaggio principale
   // dell'Adventurer; il menu radiale lo espone anche sul famiglio quando è il suo turno.
   dashUsedByTokenId?: Record<string, boolean>;
   canDashTokenIds?: ReadonlySet<string>;
+  dashUnavailableReason?: string;
   onDashToken?: (tokenId: string) => void;
   onToggleFullscreen: () => void;
   onMoveTokens: (moves: Array<{ tokenId: string; x: number; y: number }>, anchorWaypoints?: GridPosition[]) => void;
@@ -481,8 +485,10 @@ export function Board({
   onOpenEditTokenModal,
   onApplyTokenCondition,
   onStandUpToken,
+  onSetTokenAuraActive,
   dashUsedByTokenId,
   canDashTokenIds,
+  dashUnavailableReason,
   onDashToken,
   onToggleFullscreen,
   onMoveTokens,
@@ -509,8 +515,8 @@ export function Board({
   // pianificazione, un righello o una sagoma prendono la tastiera/il pointer della mappa.
   const [radialMenuTokenId, setRadialMenuTokenId] = useState<string | null>(null);
   // Vero tra il pointerdown destro che annulla una pianificazione e il suo `contextmenu`: quel
-  // `contextmenu` arriva quando l'interazione è già chiusa e non deve aprire il menu radiale. Si
-  // azzera al pointerdown successivo (in cattura, prima di qualunque gestore), così un secondo
+  // `contextmenu` arriva quando l'interazione è già chiusa e non deve aprire né il menu radiale
+  // né quello del browser. Si azzera al pointerdown successivo (in cattura), così un secondo
   // click destro voluto apre il menu normalmente.
   const suppressNextTokenMenuRef = useRef(false);
   useEffect(() => {
@@ -779,26 +785,33 @@ export function Board({
       ]),
     );
   }, [planInteraction, planEndCell]);
-  const auraCircles = useMemo(
+  // Rettangoli secondo la griglia del PHB (design, decisione 6): l'ingombro del token allargato
+  // del raggio su ogni lato, sempre, anche con la variante 5-10-5 per il movimento.
+  const auraRects = useMemo(
     () =>
       tokens.flatMap((token) => {
         if (
           (token.type !== 'player' && token.type !== 'enemy') ||
           token.containedInVehicleId ||
-          !token.auras?.some((aura) => aura.isVisible)
+          !token.auras?.some((aura) => aura.active)
         ) {
           return [];
         }
 
-        const position = token.position;
-        const footprint = getTokenFootprint(token);
-        return token.auras.flatMap((aura) => aura.isVisible ? [{
-          id: `${token.id}-${aura.id}`,
-          color: aura.color,
-          cx: (position.x + footprint.width / 2 - camera.x) * BOARD_CONFIG.cellSize * zoom,
-          cy: (position.y + footprint.height / 2 - camera.y) * BOARD_CONFIG.cellSize * zoom,
-          r: Math.max(0, Math.floor(aura.radiusCells)) * BOARD_CONFIG.cellSize * zoom,
-        }] : []);
+        return token.auras.flatMap((aura) => {
+          if (!aura.active) {
+            return [];
+          }
+          const rect = auraRect(token, aura.radiusCells);
+          return [{
+            id: `${token.id}-${aura.id}`,
+            color: aura.color,
+            x: (rect.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+            y: (rect.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+            width: rect.width * BOARD_CONFIG.cellSize * zoom,
+            height: rect.height * BOARD_CONFIG.cellSize * zoom,
+          }];
+        });
       }),
     [camera.x, camera.y, tokens, zoom],
   );
@@ -1151,19 +1164,9 @@ export function Board({
       }
     };
 
-    // Il click destro aggiunge un waypoint, quindi il menu contestuale nativo va soppresso — ma
-    // solo sulla mappa: fuori di essa resta quello del browser.
-    const board = shellRef.current;
-    const blockContextMenu = (event: MouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-    };
-
     window.addEventListener('keydown', handleKeyDown);
-    board?.addEventListener('contextmenu', blockContextMenu);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      board?.removeEventListener('contextmenu', blockContextMenu);
     };
   }, [planInteraction]);
 
@@ -1968,7 +1971,19 @@ export function Board({
         </div>
       </div>
 
-      <div ref={shellRef} className={`board-shell ${isBackgroundHidden ? 'board-shell--hidden-map' : ''}`}>
+      <div
+        ref={shellRef}
+        className={`board-shell ${isBackgroundHidden ? 'board-shell--hidden-map' : ''}`}
+        onContextMenuCapture={(event) => {
+          // Il pointerdown ha già chiuso il piano quando arriva `contextmenu`; il ref conserva
+          // l'origine del gesto fino al pointerdown seguente. La cattura precede anche i menu
+          // contestuali di token e ostacoli.
+          if (planInteraction || suppressNextTokenMenuRef.current) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
+      >
         <div className="board-zoom-controls">
           <button
             type="button"
@@ -2238,7 +2253,7 @@ export function Board({
               </svg>
             ) : null}
 
-            {auraCircles.length > 0 ? (
+            {auraRects.length > 0 ? (
               <svg
                 className="board-aura-layer"
                 width={width}
@@ -2246,13 +2261,27 @@ export function Board({
                 viewBox={`0 0 ${width} ${height}`}
                 aria-hidden="true"
               >
-                {auraCircles.map((aura) => (
-                  <circle
-                    key={`aura-${aura.id}`}
-                    className="board-aura-layer__circle"
-                    cx={aura.cx}
-                    cy={aura.cy}
-                    r={aura.r}
+                <g className="board-aura-layer__fills">
+                  {auraRects.map((aura) => (
+                    <rect
+                      key={`aura-fill-${aura.id}`}
+                      className="board-aura-layer__fill"
+                      x={aura.x}
+                      y={aura.y}
+                      width={aura.width}
+                      height={aura.height}
+                      style={{ '--aura-color': aura.color } as CSSProperties}
+                    />
+                  ))}
+                </g>
+                {auraRects.map((aura) => (
+                  <rect
+                    key={`aura-border-${aura.id}`}
+                    className="board-aura-layer__border"
+                    x={aura.x}
+                    y={aura.y}
+                    width={aura.width}
+                    height={aura.height}
                     style={{ '--aura-color': aura.color } as CSSProperties}
                   />
                 ))}
@@ -2345,9 +2374,12 @@ export function Board({
                         onApplyTokenCondition?.(menuToken.id, { type: 'set-exhaustion', level });
                       }}
                       onStandUp={() => onStandUpToken?.(menuToken.id)}
+                      showDash={!canManageTokens && editableTokenIdSet.has(menuToken.id) && menuToken.type === 'player' && Boolean(onDashToken)}
                       canDash={canDashTokenIds?.has(menuToken.id) ?? false}
                       dashUsed={dashUsedByTokenId?.[menuToken.id] === true}
+                      dashUnavailableReason={dashUnavailableReason}
                       onDash={() => onDashToken?.(menuToken.id)}
+                      onToggleAura={(auraId, active) => onSetTokenAuraActive?.(menuToken.id, auraId, active)}
                     />
                   );
                 })()

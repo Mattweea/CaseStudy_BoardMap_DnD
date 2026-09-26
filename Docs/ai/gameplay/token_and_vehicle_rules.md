@@ -48,7 +48,7 @@ Do not update only one side of an occupant relationship.
 
 ## Auras and HP
 
-HP and max HP are nullable numeric gameplay fields. Auras belong to player or enemy tokens, have stable IDs, non-negative cell radii, explicit visibility, and a color fallback to the token color. Snapshot normalization retains the supported legacy single-aura shape only as a compatibility migration.
+HP and max HP are nullable numeric gameplay fields. Auras are defined in a character sheet and projected only onto its canonical player token as `{ id, name, effect, radiusCells, color, active }`; descriptions stay private in the sheet. Familiars, enemies, objects, and vehicles have no projected auras. Auras cannot be authored through a token update. Each active aura covers the owner's footprint expanded by its radius on every side, with each diagonal costing one cell regardless of the movement rule; a target is inside when any part of its footprint intersects that rectangle. A token inside a vehicle does not project an area. An aura follows its owner's token visibility and remains active until explicitly switched off.
 
 ## Verification
 

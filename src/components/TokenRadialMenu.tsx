@@ -21,11 +21,14 @@ export interface TokenRadialMenuProps {
   onToggleCondition: (condition: TokenCondition) => void;
   onSetExhaustion: (level: number) => void;
   onStandUp: () => void;
-  // Scatto (P0.8c): disponibile solo sul proprio token nel proprio turno, a round avviato, non
-  // ancora usato in questo round; vedi `canDashTokenIds` in Board.tsx.
+  // Scatto resta visibile sul proprio token; si attiva solo nel proprio turno a round avviato.
+  showDash?: boolean;
   canDash?: boolean;
   dashUsed?: boolean;
+  dashUnavailableReason?: string;
   onDash?: () => void;
+  // Aure (P0.8d): accensione/spegnimento delle aure del personaggio, proprietario o Master.
+  onToggleAura?: (auraId: string, active: boolean) => void;
 }
 
 type MenuEntry =
@@ -33,34 +36,38 @@ type MenuEntry =
   | { kind: 'stand-up' }
   | { kind: 'more' }
   | { kind: 'dash' }
+  | { kind: 'auras' }
   | { kind: 'back' }
   | { kind: 'exhaustion-down' }
-  | { kind: 'exhaustion-up' };
+  | { kind: 'exhaustion-up' }
+  | { kind: 'aura-toggle'; auraId: string };
 
 const MIN_EXHAUSTION = 0;
 const MAX_EXHAUSTION = 6;
 // Tasto d'accesso di «Alzati»: la L di «aLzati», libera tra le lettere delle condizioni.
 const STAND_UP_ACCESS_KEY = 'L';
+// Tasto d'accesso di «Aure»: la U di aUre, libera tra le lettere delle condizioni e di «Alzati».
+const AURAS_ACCESS_KEY = 'U';
 
 // Raggio minimo della corona (px a schermo) e distanza minima tra il bordo del token e il centro
 // delle voci: sui token grandi o con lo zoom alto la corona si allarga invece di coprire il token.
-// Sotto la corona stanno l'etichetta e poi la riga di «+»/«Scatto», così l'etichetta non copre il
-// token al centro.
-const MIN_RING_RADIUS = 72;
-const RING_CLEARANCE = 30;
+// Due archi attorno al token: stati a destra, azioni a sinistra. Il raggio lascia spazio anche
+// alle pillole delle azioni senza coprire il token quando questo viene ingrandito.
+const MIN_RING_RADIUS = 92;
+const RING_CLEARANCE = 52;
 const RING_ITEM_SIZE = 44;
 const LABEL_GAP = 38;
-const EXTRA_ROW_GAP = 60;
 // Distanza minima dal bordo dell'area visibile e dal token per corona e pannello.
 const EDGE_MARGIN = 8;
 const PANEL_GAP = 12;
 
-// Punto su un cerchio di raggio `radius` centrato sul token, in senso orario. Con quattro voci si
-// parte dall'alto; con due (veicolo) da sinistra, così le voci stanno ai lati e non sopra e sotto
-// il token.
-function ringOffset(index: number, count: number, radius: number): { x: number; y: number } {
-  const start = count === 2 ? Math.PI : -Math.PI / 2;
-  const angle = start + (index / count) * Math.PI * 2;
+// Le condizioni occupano l'arco destro, dall'alto al basso. Il comando «Altre» prosegue lo stesso
+// arco; le azioni occupano quello sinistro, con una spaziatura che dipende dal loro numero.
+function ringOffset(index: number, count: number, radius: number, side: 'status' | 'action'): { x: number; y: number } {
+  const spread = side === 'status' ? Math.PI * (count >= 5 ? 0.88 : 0.72) : Math.PI * 0.42;
+  const angle = side === 'status'
+    ? -spread / 2 + (count === 1 ? 0.5 : index / (count - 1)) * spread
+    : Math.PI + spread / 2 - (count === 1 ? 0.5 : index / (count - 1)) * spread;
   return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
 }
 
@@ -108,11 +115,15 @@ export function TokenRadialMenu({
   onToggleCondition,
   onSetExhaustion,
   onStandUp,
+  showDash = false,
   canDash = false,
   dashUsed = false,
+  dashUnavailableReason = 'disponibile nel tuo turno',
   onDash,
+  onToggleAura,
 }: TokenRadialMenuProps) {
-  const [showMore, setShowMore] = useState(false);
+  // `null` = corona, `'more'` = pannello delle altre condizioni, `'auras'` = pannello delle aure.
+  const [openPanel, setOpenPanel] = useState<'more' | 'auras' | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -133,37 +144,50 @@ export function TokenRadialMenu({
   const isProne = !isVehicle && token.conditions.includes('prone');
   const exhaustionLevel = token.exhaustionLevel ?? 0;
   const ringRadius = Math.max(MIN_RING_RADIUS, Math.round(tokenRadius + RING_CLEARANCE));
+  // «Aure» compare solo sul token canonico di un personaggio (non un famiglio) con almeno un'aura
+  // nella scheda; chi arriva qui può già aprire il menu, quindi è proprietario o Master (design,
+  // decisione 8).
+  const tokenAuras = token.auras ?? [];
+  const canShowAuras = token.type === 'player' && token.isFamiliar !== true && Boolean(token.ownerUserId) && tokenAuras.length > 0;
 
   // Prono resta un interruttore anche sul token prono: toglierlo senza costo serve quando un'altra
   // creatura aiuta a rialzarsi o per decisione del Master. «Alzati» è l'azione con il costo di
-  // movimento, nella riga delle azioni accanto a «Scatto» (design, decisione 6).
+  // movimento, nell'arco sinistro accanto a «Scatto» e «Aure».
   const ringEntries: MenuEntry[] = frequent.map((condition) => ({ kind: 'condition', condition }));
   const extraEntries: MenuEntry[] = [
     ...(!isVehicle && rest.length > 0 ? [{ kind: 'more' } as MenuEntry] : []),
     ...(isProne ? [{ kind: 'stand-up' } as MenuEntry] : []),
-    ...(canDash ? [{ kind: 'dash' } as MenuEntry] : []),
+    ...(showDash ? [{ kind: 'dash' } as MenuEntry] : []),
+    ...(canShowAuras ? [{ kind: 'auras' } as MenuEntry] : []),
   ];
+  const statusCount = ringEntries.length + (extraEntries.some((entry) => entry.kind === 'more') ? 1 : 0);
+  const actionCount = extraEntries.filter((entry) => entry.kind !== 'more').length;
   const mainEntries = [...ringEntries, ...extraEntries];
+  const dashStatus = dashUsed ? 'già usato' : canDash ? null : dashUnavailableReason;
   const panelEntries: MenuEntry[] = [
     { kind: 'back' },
     ...rest.map((condition) => ({ kind: 'condition', condition }) as MenuEntry),
     { kind: 'exhaustion-down' },
     { kind: 'exhaustion-up' },
   ];
-  const activeEntries = showMore ? panelEntries : mainEntries;
-  // Nel pannello il fuoco parte dalla prima condizione, non da «Indietro».
-  const initialFocusIndex = showMore ? 1 : 0;
+  const auraPanelEntries: MenuEntry[] = [
+    { kind: 'back' },
+    ...tokenAuras.map((aura) => ({ kind: 'aura-toggle', auraId: aura.id }) as MenuEntry),
+  ];
+  const activeEntries = openPanel === 'more' ? panelEntries : openPanel === 'auras' ? auraPanelEntries : mainEntries;
+  // Nel pannello il fuoco parte dalla prima voce, non da «Indietro».
+  const initialFocusIndex = openPanel ? 1 : 0;
 
   // I ref delle voci si aggiornano da soli (callback con `null` allo smontaggio): svuotarli qui,
   // dopo il commit, cancellerebbe quelli appena agganciati e il fuoco resterebbe sul token.
   useEffect(() => {
     setFocusIndex(initialFocusIndex);
     setHoverIndex(null);
-    // Il fuoco alla prima voce quando il menu (o il pannello «+») si apre, come richiede la
+    // Il fuoco alla prima voce quando il menu (o un pannello) si apre, come richiede la
     // navigazione da tastiera della spec.
     const raf = requestAnimationFrame(() => itemRefs.current[initialFocusIndex]?.focus());
     return () => cancelAnimationFrame(raf);
-  }, [showMore]);
+  }, [openPanel]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -175,7 +199,7 @@ export function TokenRadialMenu({
     return () => document.removeEventListener('pointerdown', handlePointerDown, true);
   }, [onClose]);
 
-  // Tiene corona, etichetta, riga degli extra e pannello dentro l'area visibile della mappa: lo
+  // Tiene i due archi, l'etichetta e il pannello dentro l'area visibile della mappa: lo
   // stage può essere più grande della finestra, quindi l'area è l'intersezione dei rettangoli degli
   // antenati che ritagliano il contenuto e della finestra. Misura l'ingombro reale senza lo
   // spostamento corrente e applica il minimo spostamento necessario; il pannello sceglie prima il
@@ -198,7 +222,7 @@ export function TokenRadialMenu({
       clip.bottom = Math.min(clip.bottom, rect.bottom);
     }
 
-    if (showMore && panelRef.current) {
+    if (openPanel && panelRef.current) {
       const anchorX = container.getBoundingClientRect().left - shift.x;
       const panelWidth = panelRef.current.getBoundingClientRect().width;
       const spaceRight = clip.right - EDGE_MARGIN - (anchorX + tokenRadius + PANEL_GAP);
@@ -259,6 +283,12 @@ export function TokenRadialMenu({
     onToggleCondition(condition);
   };
 
+  const toggleAura = (auraId: string, active: boolean) => {
+    const aura = tokenAuras.find((item) => item.id === auraId);
+    setAnnouncement(`${aura?.name || 'Aura'} ${active ? 'accesa' : 'spenta'}`);
+    onToggleAura?.(auraId, active);
+  };
+
   const standUp = () => {
     setAnnouncement('Alzati');
     onStandUp();
@@ -307,8 +337,8 @@ export function TokenRadialMenu({
 
     if (event.key === 'Escape') {
       event.preventDefault();
-      if (showMore) {
-        setShowMore(false);
+      if (openPanel) {
+        setOpenPanel(null);
         return;
       }
       onClose();
@@ -341,6 +371,11 @@ export function TokenRadialMenu({
         standUp();
         return;
       }
+      if (key === AURAS_ACCESS_KEY && canShowAuras) {
+        event.preventDefault();
+        setOpenPanel('auras');
+        return;
+      }
       const condition = catalog.find((candidate) => CONDITION_ACCESS_KEYS[candidate] === key);
       if (condition) {
         event.preventDefault();
@@ -360,7 +395,7 @@ export function TokenRadialMenu({
   });
 
   const renderRingEntry = (entry: MenuEntry, index: number) => {
-    const offset = ringOffset(index, ringEntries.length, ringRadius);
+    const offset = ringOffset(index, statusCount, ringRadius, 'status');
     const style = { transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))` };
     if (entry.kind !== 'condition') {
       return null;
@@ -387,6 +422,10 @@ export function TokenRadialMenu({
   };
 
   const renderExtraEntry = (entry: MenuEntry, index: number) => {
+    const isStatus = entry.kind === 'more';
+    const actionIndex = extraEntries.slice(0, index - ringEntries.length).filter((item) => item.kind !== 'more').length;
+    const offset = ringOffset(isStatus ? ringEntries.length : actionIndex, isStatus ? statusCount : actionCount, ringRadius, isStatus ? 'status' : 'action');
+    const style = { transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))` };
     if (entry.kind === 'more') {
       return (
         <button
@@ -396,12 +435,14 @@ export function TokenRadialMenu({
           role="menuitem"
           aria-haspopup="menu"
           className="token-radial-menu__item token-radial-menu__item--more"
-          onClick={() => setShowMore(true)}
+          style={style}
+          aria-label="Altre condizioni"
+          onClick={() => setOpenPanel('more')}
         >
           <StrokeIcon>
             <path d="M8 3v10M3 8h10" />
           </StrokeIcon>
-          Altre
+          <span className="visually-hidden">Altre condizioni</span>
         </button>
       );
     }
@@ -416,39 +457,59 @@ export function TokenRadialMenu({
           aria-label="Alzati, costa metà del movimento"
           aria-keyshortcuts={STAND_UP_ACCESS_KEY}
           className="token-radial-menu__item token-radial-menu__item--action"
+          style={style}
           onClick={standUp}
         >
           <StrokeIcon>
             <path d="M8 13V3.5M4 7l4-4 4 4" />
           </StrokeIcon>
-          <span aria-hidden="true">
-            <AccessKeyLabel label="Alzati" accessKey={STAND_UP_ACCESS_KEY} />
-          </span>
         </button>
       );
     }
 
-    if (entry.kind !== 'dash') {
+    if (entry.kind === 'dash') {
+      return (
+        <button
+          key="dash"
+          {...itemProps(index)}
+          type="button"
+          role="menuitem"
+          aria-disabled={dashStatus !== null}
+          aria-label={dashStatus ? `Scatto, ${dashStatus}` : 'Scatto'}
+          className="token-radial-menu__item token-radial-menu__item--action"
+          style={style}
+          onClick={() => {
+            if (canDash && !dashUsed) {
+              onDash?.();
+            }
+          }}
+        >
+          <StrokeIcon>
+            <path d="M3 4l4 4-4 4M8.5 4l4 4-4 4" />
+          </StrokeIcon>
+        </button>
+      );
+    }
+
+    if (entry.kind !== 'auras') {
       return null;
     }
     return (
       <button
-        key="dash"
+        key="auras"
         {...itemProps(index)}
         type="button"
         role="menuitem"
-        aria-disabled={dashUsed}
+        aria-haspopup="menu"
+        aria-keyshortcuts={AURAS_ACCESS_KEY}
+        aria-label="Aure"
         className="token-radial-menu__item token-radial-menu__item--action"
-        onClick={() => {
-          if (!dashUsed) {
-            onDash?.();
-          }
-        }}
+        style={style}
+        onClick={() => setOpenPanel('auras')}
       >
         <StrokeIcon>
-          <path d="M3 4l4 4-4 4M8.5 4l4 4-4 4" />
+          <circle cx="8" cy="8" r="4.5" />
         </StrokeIcon>
-        Scatto
       </button>
     );
   };
@@ -473,7 +534,9 @@ export function TokenRadialMenu({
       case 'more':
         return { label: 'Altre condizioni', accessKey: null, detail: null };
       case 'dash':
-        return { label: 'Scatto', accessKey: null, detail: dashUsed ? 'già usato' : 'azione' };
+        return { label: 'Scatto', accessKey: null, detail: dashStatus ?? 'azione' };
+      case 'auras':
+        return { label: 'Aure', accessKey: AURAS_ACCESS_KEY, detail: null };
       default:
         return null;
     }
@@ -509,6 +572,34 @@ export function TokenRadialMenu({
     );
   };
 
+  const renderAuraPanelEntry = (entry: MenuEntry, index: number) => {
+    if (entry.kind !== 'aura-toggle') {
+      return null;
+    }
+    const aura = tokenAuras.find((item) => item.id === entry.auraId);
+    if (!aura) {
+      return null;
+    }
+    const checked = aura.active;
+    const label = aura.name || 'Aura';
+    return (
+      <button
+        key={entry.auraId}
+        {...itemProps(index)}
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={checked}
+        aria-label={label}
+        className={`token-radial-menu__item ${checked ? 'token-radial-menu__item--active' : ''}`}
+        onClick={() => toggleAura(aura.id, !checked)}
+      >
+        <span className="token-radial-menu__aura-swatch" style={{ backgroundColor: aura.color }} aria-hidden="true" />
+        <span className="token-radial-menu__item-label" aria-hidden="true">{label}</span>
+        {checked ? <CheckPip /> : null}
+      </button>
+    );
+  };
+
   const exhaustionDownIndex = panelEntries.findIndex((entry) => entry.kind === 'exhaustion-down');
   const exhaustionUpIndex = panelEntries.findIndex((entry) => entry.kind === 'exhaustion-up');
   const exhaustionLabelId = `token-radial-menu-exhaustion-label-${token.id}`;
@@ -528,7 +619,7 @@ export function TokenRadialMenu({
         style={{ left: screenPosition.x + shift.x, top: screenPosition.y + shift.y }}
         onKeyDown={handleKeyDown}
       >
-        {showMore ? (
+        {openPanel === 'auras' ? (
           <div
             ref={panelRef}
             className={`token-radial-menu__panel token-radial-menu__panel--${panelSide}`}
@@ -539,7 +630,28 @@ export function TokenRadialMenu({
               type="button"
               role="menuitem"
               className="token-radial-menu__back"
-              onClick={() => setShowMore(false)}
+              onClick={() => setOpenPanel(null)}
+              aria-label="Torna al menu principale"
+            >
+              <StrokeIcon>
+                <path d="M10 3 5 8l5 5" />
+              </StrokeIcon>
+              Aure
+            </button>
+            <div className="token-radial-menu__items">{auraPanelEntries.map(renderAuraPanelEntry)}</div>
+          </div>
+        ) : openPanel === 'more' ? (
+          <div
+            ref={panelRef}
+            className={`token-radial-menu__panel token-radial-menu__panel--${panelSide}`}
+            style={{ left: panelSide === 'right' ? tokenRadius + PANEL_GAP : -(tokenRadius + PANEL_GAP) }}
+          >
+            <button
+              {...itemProps(0)}
+              type="button"
+              role="menuitem"
+              className="token-radial-menu__back"
+              onClick={() => setOpenPanel(null)}
               aria-label="Torna alle condizioni frequenti"
             >
               <StrokeIcon>
@@ -624,10 +736,7 @@ export function TokenRadialMenu({
               )}
             </div>
             {extraEntries.length > 0 ? (
-              <div
-                className="token-radial-menu__extras"
-                style={{ transform: `translate(-50%, ${ringRadius + EXTRA_ROW_GAP}px)` }}
-              >
+              <div className="token-radial-menu__extras">
                 {extraEntries.map((entry, extraIndex) => renderExtraEntry(entry, ringEntries.length + extraIndex))}
               </div>
             ) : null}

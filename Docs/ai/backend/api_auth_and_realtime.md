@@ -23,6 +23,7 @@ Define the Fastify server boundary, authorization model, HTTP contracts, and SSE
 - Session discovery: `GET /api/auth/session`, plus login/logout.
 - Authenticated state: state read, session status, authoritative dice rolls, notes, movement, owned token changes, extra movement, undo, authorized character-sheet routes, portrait delivery, and SSE.
 - Owner-scoped with role rules: `POST /api/battle-map/initiative/roll` (an adventurer only for their own character without an entry; the master for any creature) and `POST /api/battle-map/turn/advance` (the master in both directions; an adventurer only `next`, only with `playersCanEndTurn`, only on their own active token).
+- Owner-scoped with role rules: `POST /api/battle-map/token-auras` accepts `{ tokenId, auraId, active }` for the canonical player token, from its owner or the master. It patches the linked sheet, rejects a missing token/sheet/aura or non-boolean state, returns the caller's sanitized snapshot, and does not bump the shared version for an unchanged state.
 - Master-only: full state replacement, combat start/end (`/combat/start`, `/combat/end`), round start (`/combat/round/start`), initiative roll-all (`/initiative/roll-all`), the `playersCanEndTurn` setting (`/settings/players-can-end-turn`), snapshot suspend, and snapshot resume.
 
 Ownership-aware endpoints must validate the current server token and user. New mutations must be assigned deliberately to public, authenticated, owner-scoped, or master-only access.

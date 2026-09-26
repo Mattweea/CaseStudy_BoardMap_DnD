@@ -3,6 +3,7 @@ import {
   ABILITY_KEYS, SKILL_KEYS, SKILL_ABILITY, isIntegerText,
   computeSavingThrowValue, computeSkillValue, computeInitiative, computeSpellSaveDc, computeSpellAttackBonus,
 } from '../shared/dnd-rules.mjs';
+import { AURA_COLORS, AURA_LIMITS } from '../shared/token-auras.mjs';
 
 export { ABILITY_KEYS, SKILL_KEYS };
 export const SPELL_LEVELS = Array.from({ length: 10 }, (_, index) => String(index));
@@ -57,12 +58,19 @@ export const CHARACTER_COLLECTIONS = {
   tools: { name: 'text', proficiency: PROFICIENCY_LEVELS, ability: ABILITY_OR_NONE, bonus: 'text' },
   languages: { name: 'text' },
   features: { name: 'text', source: FEATURE_SOURCES, description: 'text' },
+  // Limiti aggiuntivi di lunghezza, raggio e numero di righe in validateAuraRow/validateCollection
+  // e in validatePatchOperation (design, decisione 1): niente preset, il documento completo
+  // rifiuta una patch che li viola, senza applicarne parte.
+  auras: { name: 'text', description: 'text', effect: 'text', radiusCells: 'integer', color: AURA_COLORS, active: 'boolean' },
   resources: null,
 };
 export const CHARACTER_COLLECTION_KEYS = Object.keys(CHARACTER_COLLECTIONS);
 
 // Scostamenti dal predefinito generico del dominio: la soglia di critico parte da 20, non da 0.
-const COLLECTION_FIELD_DEFAULTS = { attacks: { critRange: '20', damageEnabled: true } };
+const COLLECTION_FIELD_DEFAULTS = {
+  attacks: { critRange: '20', damageEnabled: true },
+  auras: { radiusCells: '2' },
+};
 
 const defaultForRule = (rule) => {
   if (rule === 'text') return '';
@@ -90,6 +98,7 @@ export function createEquipmentItem(overrides = {}) { return createRow('equipmen
 export function createTool(overrides = {}) { return createRow('tools', overrides); }
 export function createLanguage(overrides = {}) { return createRow('languages', overrides); }
 export function createFeature(overrides = {}) { return createRow('features', overrides); }
+export function createAura(overrides = {}) { return createRow('auras', overrides); }
 
 export function createResourceSection(overrides = {}) {
   return {
@@ -126,6 +135,7 @@ export function createInitialCharacterSheetData(profile = {}) {
       tools: [],
       languages: [],
       features: [],
+      auras: [],
       resources: [createResourceSection()],
       currency: valueMap(COIN_KEYS),
       sectionLocks: { attacks: false, tools: false },
@@ -209,6 +219,25 @@ function validateRepeatable(rows, keys, path, errors, validateRow) {
   });
 }
 
+// Limiti dell'aura al di là del tipo generico del campo (design, decisione 1): lunghezza di nome
+// ed effetto, intervallo del raggio. Il colore fuori palette è già rifiutato da validateField
+// perché AURA_COLORS è un dominio chiuso come DAMAGE_TYPES.
+function auraFieldExtraError(field, value) {
+  if (field === 'name' && typeof value === 'string' && value.length > AURA_LIMITS.maxNameLength) {
+    return `Il nome dell'aura supera ${AURA_LIMITS.maxNameLength} caratteri.`;
+  }
+  if (field === 'effect' && typeof value === 'string' && value.length > AURA_LIMITS.maxEffectLength) {
+    return `L'effetto dell'aura supera ${AURA_LIMITS.maxEffectLength} caratteri.`;
+  }
+  if (field === 'radiusCells') {
+    const radius = isIntegerText(value) ? Number.parseInt(value, 10) : null;
+    if (radius === null || radius < AURA_LIMITS.minRadiusCells || radius > AURA_LIMITS.maxRadiusCells) {
+      return `Il raggio dell'aura deve essere tra ${AURA_LIMITS.minRadiusCells} e ${AURA_LIMITS.maxRadiusCells} caselle.`;
+    }
+  }
+  return null;
+}
+
 function validateCollection(rows, collection, path, errors) {
   if (collection === 'resources') {
     validateRepeatable(rows, ['id', ...RESOURCE_BLOCKS], path, errors, (row, rowPath) => {
@@ -219,7 +248,16 @@ function validateCollection(rows, collection, path, errors) {
   const fields = CHARACTER_COLLECTIONS[collection];
   validateRepeatable(rows, ['id', ...Object.keys(fields)], path, errors, (row, rowPath) => {
     Object.entries(fields).forEach(([field, rule]) => validateField(rule, row[field], `${rowPath}.${field}`, errors));
+    if (collection === 'auras') {
+      ['name', 'effect', 'radiusCells'].forEach((field) => {
+        const error = auraFieldExtraError(field, row[field]);
+        if (error) errors.push(`${rowPath}.${field}: ${error}`);
+      });
+    }
   });
+  if (collection === 'auras' && Array.isArray(rows) && rows.length > AURA_LIMITS.maxAuras) {
+    errors.push(`${path} non può avere più di ${AURA_LIMITS.maxAuras} righe.`);
+  }
 }
 
 export function validateCharacterSheetData(data) {
@@ -576,7 +614,10 @@ export function validatePatchOperation(operation) {
     }
     if (isCharacterCollection && parts.length === 4) {
       const rule = CHARACTER_COLLECTIONS[second][parts[3]];
-      return rule ? setValueError(rule, operation.value) : 'Percorso patch non ammesso.';
+      if (!rule) return 'Percorso patch non ammesso.';
+      const genericError = setValueError(rule, operation.value);
+      if (genericError) return genericError;
+      return second === 'auras' ? auraFieldExtraError(parts[3], operation.value) : null;
     }
     if (isSpellCollection && parts.length === 6) {
       const field = parts[5];

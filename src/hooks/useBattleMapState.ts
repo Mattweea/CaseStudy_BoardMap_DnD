@@ -32,6 +32,7 @@ import {
   VEHICLE_PRESETS,
   defaultVehicleColor,
   isCreature,
+  normalizeTokenAuras,
 } from '../utils/tokens';
 import { API_BASE_URL, EVENTS_URL } from '../utils/api';
 const ZOOM_STORAGE_KEY = 'dnd-battle-map-zoom';
@@ -212,8 +213,11 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
             ? defaultVehicleColor(affiliation === 'enemy' ? 'enemy' : 'player')
             : DEFAULT_TOKEN_COLORS[type];
         const initiativeMode = token.initiativeMode === 'advantage' ? 'advantage' : 'normal';
-        const { aura: legacyAura, ...tokenWithoutLegacyAura } = token as UnitToken & {
-          aura?: { enabled?: boolean; radiusCells?: number } | null;
+        // `aura`/`auras` in ingresso sono comunque ignorati più sotto: il client li scarta e li
+        // ricalcola dalla scheda solo lato server, ma qui non deve nemmeno farli filtrare dallo
+        // spread (P0.8d).
+        const { aura: _legacyAura, auras: _incomingAuras, ...tokenWithoutLegacyAura } = token as UnitToken & {
+          aura?: unknown;
         };
 
         return {
@@ -255,25 +259,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           isFamiliar: token.isFamiliar === true,
           blocksMovement: token.blocksMovement === true,
           excludeFromInitiative: token.excludeFromInitiative === true,
-          auras: Array.isArray(token.auras)
-            ? token.auras.flatMap((aura, index) =>
-                aura && typeof aura.radiusCells === 'number'
-                  ? [{
-                      id: typeof aura.id === 'string' ? aura.id : `${token.id}-aura-${index}`,
-                      radiusCells: Math.max(0, Math.floor(aura.radiusCells)),
-                      isVisible: aura.isVisible !== false,
-                      color: typeof aura.color === 'string' ? aura.color : token.color,
-                    }]
-                  : [],
-              )
-            : legacyAura?.enabled === true && typeof legacyAura.radiusCells === 'number'
-              ? [{
-                  id: `${token.id}-aura-legacy`,
-                  radiusCells: Math.max(0, Math.floor(legacyAura.radiusCells)),
-                  isVisible: true,
-                  color: token.color,
-                }]
-              : [],
+          auras: normalizeTokenAuras(token.auras),
           ...(normalizeConditionsForType(type, token.conditions, token.exhaustionLevel) as {
             conditions: UnitToken['conditions'];
             exhaustionLevel: number;
@@ -1266,7 +1252,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
 
   const updateOwnedToken = async (
     tokenId: string,
-    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative' | 'auras'>>,
+    updates: Partial<Pick<UnitToken, 'hitPoints' | 'maxHitPoints' | 'conditions' | 'isInvisible' | 'excludeFromInitiative'>>,
   ) => {
     return enqueueMutation(async () => {
       const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
@@ -1393,6 +1379,57 @@ export function useBattleMapState(isAuthenticated: boolean) {
         setMovementNotice({
           id: crypto.randomUUID(),
           message: error instanceof Error ? error.message : 'Alzati rifiutato dal server.',
+        });
+      }
+    });
+  };
+
+  // Interruttore delle aure dal menu radiale o dalla scheda (P0.8d): stesso schema
+  // ottimistico/riallineamento delle condizioni e di «Alzati». La mutazione vera passa dalla
+  // scheda; l'aggiornamento qui è solo una previsione locale, sovrascritta dal prossimo snapshot.
+  const setTokenAuraActive = async (tokenId: string, auraId: string, active: boolean) => {
+    return enqueueMutation(async () => {
+      const previousState = sharedStateRef.current;
+      const previousVersion = versionRef.current;
+      const optimisticState = normalizeSharedState({
+        ...previousState,
+        tokens: previousState.tokens.map((token) =>
+          token.id === tokenId
+            ? {
+                ...token,
+                auras: token.auras?.map((aura) => (aura.id === auraId ? { ...aura, active } : aura)),
+              }
+            : token,
+        ),
+      });
+      setOptimisticState(optimisticState);
+
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/token-auras',
+          {
+            method: 'POST',
+            body: JSON.stringify({ tokenId, auraId, active }),
+          },
+        );
+        applySnapshot(payload.state, payload.version);
+        setMovementNotice(null);
+      } catch (error) {
+        console.error(error);
+        const payload =
+          error instanceof Error && 'payload' in error
+            ? (error.payload as { state?: BattleMapSharedState; version?: number } | undefined)
+            : undefined;
+
+        if (payload?.state && typeof payload.version === 'number') {
+          applySnapshot(payload.state, payload.version);
+        } else {
+          applySnapshot(previousState, previousVersion);
+        }
+
+        setMovementNotice({
+          id: crypto.randomUUID(),
+          message: error instanceof Error ? error.message : 'Aura rifiutata dal server.',
         });
       }
     });
@@ -1614,6 +1651,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     updateOwnedToken,
     applyTokenCondition,
     standUpToken,
+    setTokenAuraActive,
     addOwnedExtraMovement,
     addTokens,
     updateToken,

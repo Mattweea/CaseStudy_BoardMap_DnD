@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CharacterSheetPolicy } from '../server/character-sheet-policy.mjs';
 import { CharacterSheetService } from '../server/character-sheet-service.mjs';
-import { createEquipmentItem, createFeature, createInitialCharacterSheetData, createAttack } from '../server/character-sheet-schema.mjs';
+import { createEquipmentItem, createFeature, createInitialCharacterSheetData, createAttack, createAura } from '../server/character-sheet-schema.mjs';
 
 function harness(overrides = {}) {
   const initial = {
@@ -152,6 +152,38 @@ test('initiative is recalculated and projected from a dexterity score or misc bo
   ] });
   assert.equal(projections.length, 2);
   assert.equal(unrelated.data.character.armorClass, '18');
+});
+
+// Task 1.3: aggiungere, modificare e rimuovere un'aura chiedono la proiezione del token; un
+// campo non proiettato non lo fa (design, decisione 3).
+
+test('adding an aura projects the token', () => {
+  const { service, projections } = harness();
+  const aura = createAura({ id: 'aura_0001', name: 'Aura di protezione' });
+  service.applyPatch(owner, 'sheet-1', { baseVersion: 1, operations: [{ op: 'add', path: 'character.auras', value: aura }] });
+  assert.deepEqual(projections.at(-1), { ownerUserId: 'player-1', updates: {} });
+});
+
+test('editing an aura field projects the token', () => {
+  const { service, projections } = harness();
+  const aura = createAura({ id: 'aura_0001', name: 'Aura di protezione' });
+  const added = service.applyPatch(owner, 'sheet-1', { baseVersion: 1, operations: [{ op: 'add', path: 'character.auras', value: aura }] });
+  service.applyPatch(owner, 'sheet-1', { baseVersion: added.version, operations: [{ op: 'set', path: 'character.auras.aura_0001.active', value: true }] });
+  assert.deepEqual(projections.at(-1), { ownerUserId: 'player-1', updates: {} });
+});
+
+test('removing an aura projects the token', () => {
+  const { service, projections } = harness();
+  const aura = createAura({ id: 'aura_0001', name: 'Aura di protezione' });
+  const added = service.applyPatch(owner, 'sheet-1', { baseVersion: 1, operations: [{ op: 'add', path: 'character.auras', value: aura }] });
+  service.applyPatch(owner, 'sheet-1', { baseVersion: added.version, operations: [{ op: 'remove', path: 'character.auras.aura_0001' }] });
+  assert.deepEqual(projections.at(-1), { ownerUserId: 'player-1', updates: {} });
+});
+
+test('a patch on a field outside the aura collection does not project the token', () => {
+  const { service, projections } = harness();
+  service.applyPatch(owner, 'sheet-1', { baseVersion: 1, operations: [{ op: 'set', path: 'character.armorClass', value: '18' }] });
+  assert.equal(projections.length, 0);
 });
 
 test('owner or master can replace a portrait without projecting it to the token', async () => {

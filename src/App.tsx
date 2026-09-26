@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AuraPresenceBanner } from './components/AuraPresenceBanner';
 import { AuthScreen } from './components/AuthScreen';
 import { Board } from './components/Board';
 import { Dice3DOverlay } from './components/Dice3DOverlay';
@@ -213,6 +214,7 @@ function App() {
     updateOwnedToken,
     applyTokenCondition,
     standUpToken,
+    setTokenAuraActive,
     setZoom,
     sessionStatus,
     suspendSession,
@@ -1585,7 +1587,7 @@ function App() {
                 <p><strong className="command-legend__icon" aria-label="Manuale"><BookIcon /></strong>: manuale.</p>
                 <p><strong>Tasto destro / S / Shift+F10</strong> su un token che puoi modificare: menu delle condizioni (nessuna interazione di mappa in corso).</p>
                 <p>
-                  <strong>Nel menu delle condizioni</strong>: la lettera sottolineata attiva la condizione (P Prono, A Afferrato, T Trattenuto, V Avvelenato, C Accecato, F Affascinato, D Assordato, S Spaventato, I Incapacitato, B Invisibile, R Paralizzato, E Pietrificato, O Stordito, N Privo di sensi; veicoli: R Rotto, B Ribaltato). P toglie Prono senza costo (per esempio quando un alleato aiuta a rialzarsi); <strong>L</strong>: Alzati, che costa metà del movimento. <strong>0–6</strong>: livello di Indebolimento.
+                  <strong>Nel menu delle condizioni</strong>: la lettera sottolineata attiva la condizione (P Prono, A Afferrato, T Trattenuto, V Avvelenato, C Accecato, F Affascinato, D Assordato, S Spaventato, I Incapacitato, B Invisibile, R Paralizzato, E Pietrificato, O Stordito, N Privo di sensi; veicoli: R Rotto, B Ribaltato). P toglie Prono senza costo (per esempio quando un alleato aiuta a rialzarsi); <strong>L</strong>: Alzati, che costa metà del movimento; <strong>U</strong>: Aure, apre il pannello delle aure del personaggio. <strong>0–6</strong>: livello di Indebolimento.
                 </p>
               </div>
 
@@ -1745,8 +1747,10 @@ function App() {
           onOpenEditTokenModal={openEditTokenModal}
           onApplyTokenCondition={applyTokenCondition}
           onStandUpToken={standUpToken}
+          onSetTokenAuraActive={setTokenAuraActive}
           dashUsedByTokenId={state.dashUsedByTokenId}
           canDashTokenIds={canDashTokenIds}
+          dashUnavailableReason={budgetApplies ? 'disponibile nel tuo turno' : 'disponibile a round avviato'}
           onDashToken={(tokenId) => void useDashAction(tokenId)}
           onMoveTokens={handleBoardMoveTokens}
           onSelectionChange={setSelectedTokenIds}
@@ -1823,8 +1827,10 @@ function App() {
             onOpenEditTokenModal={openEditTokenModal}
             onApplyTokenCondition={applyTokenCondition}
             onStandUpToken={standUpToken}
+            onSetTokenAuraActive={setTokenAuraActive}
             dashUsedByTokenId={state.dashUsedByTokenId}
             canDashTokenIds={canDashTokenIds}
+            dashUnavailableReason={budgetApplies ? 'disponibile nel tuo turno' : 'disponibile a round avviato'}
             onDashToken={(tokenId) => void useDashAction(tokenId)}
             onMoveTokens={handleBoardMoveTokens}
             onSelectionChange={setSelectedTokenIds}
@@ -1953,6 +1959,7 @@ function App() {
         onRoll={(request) => void rollAndReport(request)}
         diceLogs={state.diceLogs}
         sessionMode={state.sessionMode}
+        measurementUnit={state.measurementUnit}
       />
 
       <div className="combat-announcement-overlay" data-state={isCombatAnnouncementOpen ? 'open' : 'closed'}>
@@ -2041,6 +2048,14 @@ function App() {
         soundEnabled={dicePresentationPreferences.soundEnabled}
         hasUserActivated={hasUserActivated}
       />
+
+      {!canManageBattleMap && user ? (
+        <AuraPresenceBanner
+          host={isBoardFullscreenVisible ? fullscreenBoardHost : standardBoardHost}
+          state={state}
+          userId={user.id}
+        />
+      ) : null}
 
       <InitiativeRollModal
         isOpen={isInitiativeModalOpen}

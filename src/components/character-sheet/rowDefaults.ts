@@ -1,4 +1,5 @@
-import type { CharacterSheetAttack, CharacterSheetTool } from '../../types/character-sheet';
+import type { CharacterSheetAttack, CharacterSheetAura, CharacterSheetTool } from '../../types/character-sheet';
+import { AURA_COLORS } from '../../../shared/token-auras.mjs';
 
 // Valori predefiniti di una nuova riga aperta nell'editor: stessi predefiniti dichiarati in
 // server/character-sheet-schema.mjs, riscritti qui perché il client non importa moduli server.
@@ -17,4 +18,8 @@ export function createAttack(overrides: Partial<CharacterSheetAttack> = {}): Cha
 
 export function createTool(overrides: Partial<CharacterSheetTool> = {}): CharacterSheetTool {
   return { id: crypto.randomUUID(), name: '', proficiency: 'none', ability: '', bonus: '', ...overrides };
+}
+
+export function createAura(overrides: Partial<CharacterSheetAura> = {}): CharacterSheetAura {
+  return { id: crypto.randomUUID(), name: '', description: '', effect: '', radiusCells: '2', color: AURA_COLORS[0], active: false, ...overrides };
 }

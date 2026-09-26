@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { AbilityKey, CharacterSheetAttack, CharacterSheetTool, DamageType } from '../../types/character-sheet';
+import type { AbilityKey, CharacterSheetAttack, CharacterSheetAura, CharacterSheetTool, DamageType } from '../../types/character-sheet';
+import type { MeasurementUnit } from '../../types';
+import { AURA_COLORS, AURA_LIMITS, radiusCellsFromUnit } from '../../../shared/token-auras.mjs';
 
 const abilityOptions = [
   ['', '—'], ['strength', 'Forza'], ['dexterity', 'Destrezza'], ['constitution', 'Costituzione'],
@@ -12,6 +14,53 @@ const damageTypeOptions = [
   ['force', 'Forza'], ['lightning', 'Fulmine'], ['necrotic', 'Necrotico'], ['piercing', 'Perforante'],
   ['poison', 'Veleno'], ['psychic', 'Psichico'], ['radiant', 'Radiante'], ['slashing', 'Tagliente'], ['thunder', 'Tuono'],
 ] as const;
+
+const auraColorNames = ['Azzurro', 'Verde smeraldo', 'Oro', 'Arancione', 'Rosa', 'Viola', 'Turchese', 'Rosso'] as const;
+
+function AuraColorPicker({ value, onChange }: { value: string; onChange: (color: string) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectedIndex = Math.max(0, AURA_COLORS.indexOf(value));
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const frame = requestAnimationFrame(() => optionRefs.current[selectedIndex]?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [isOpen, selectedIndex]);
+
+  return <div className="row-editor__field aura-color-picker" onBlur={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setIsOpen(false);
+  }} onKeyDown={(event) => {
+    if (!isOpen) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const currentIndex = optionRefs.current.findIndex((option) => option === document.activeElement);
+    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? AURA_COLORS.length - 1
+      : (currentIndex + (event.key === 'ArrowDown' ? 1 : AURA_COLORS.length - 1)) % AURA_COLORS.length;
+    optionRefs.current[nextIndex]?.focus();
+  }}>
+    <span id="aura-color-label">Colore</span>
+    <button ref={triggerRef} type="button" className="aura-color-picker__trigger" aria-labelledby="aura-color-label aura-color-selected" aria-haspopup="menu" aria-expanded={isOpen} onClick={() => setIsOpen((current) => !current)}>
+      <span className="aura-color-swatch" style={{ backgroundColor: value }} aria-hidden="true" />
+      <span id="aura-color-selected">{auraColorNames[selectedIndex]}</span>
+      <span className="aura-color-picker__chevron" aria-hidden="true">▾</span>
+    </button>
+    {isOpen ? <div className="aura-color-picker__menu" role="menu" aria-label="Colori dell'aura">
+      {AURA_COLORS.map((color, index) => <button key={color} ref={(node) => { optionRefs.current[index] = node; }} type="button" role="menuitemradio" aria-checked={value === color} className="aura-color-picker__option" onClick={() => { onChange(color); setIsOpen(false); triggerRef.current?.focus(); }}>
+        <span className="aura-color-swatch" style={{ backgroundColor: color }} aria-hidden="true" />
+        <span>{auraColorNames[index]}</span>
+      </button>)}
+    </div> : null}
+  </div>;
+}
 
 function focusablesOf(container: HTMLElement) {
   return Array.from(container.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])'))
@@ -68,8 +117,8 @@ function EditorShell({ title, onConfirm, onCancel, onRemove, children }: {
   </div>;
 }
 
-function Field({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
-  return <label className="row-editor__field"><span>{label}</span><input type={type} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+function Field({ label, value, onChange, type = 'text', maxLength }: { label: string; value: string; onChange: (value: string) => void; type?: string; maxLength?: number }) {
+  return <label className="row-editor__field"><span>{label}</span><input type={type} value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} /></label>;
 }
 
 function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: ReadonlyArray<readonly [string, string]> }) {
@@ -153,6 +202,37 @@ export function ToolEditor({ initial, onConfirm, onCancel, onRemove }: {
       <Select label="Competenza" value={draft.proficiency} onChange={(value) => set('proficiency')(value as CharacterSheetTool['proficiency'])} options={proficiencyOptions} />
       <Select label="Caratteristica" value={draft.ability} onChange={(value) => set('ability')(value as AbilityKey | '')} options={abilityOptions} />
       <Field label="Bonus aggiuntivo" value={draft.bonus} onChange={set('bonus')} />
+    </div>
+  </EditorShell>;
+}
+
+export function AuraEditor({ initial, measurementUnit, onConfirm, onCancel, onRemove }: {
+  initial: CharacterSheetAura;
+  measurementUnit: MeasurementUnit;
+  onConfirm: (aura: CharacterSheetAura) => void;
+  onCancel: () => void;
+  onRemove?: () => void;
+}) {
+  const [draft, setDraft] = useState<CharacterSheetAura>(initial);
+  const [radiusUnit, setRadiusUnit] = useState(() => String(Number(initial.radiusCells) * measurementUnit.cellsValue));
+  const [radiusError, setRadiusError] = useState('');
+  const set = <K extends keyof CharacterSheetAura>(key: K) => (value: CharacterSheetAura[K]) => setDraft((current) => ({ ...current, [key]: value }));
+  const confirm = () => {
+    const value = Number(radiusUnit);
+    if (!radiusUnit.trim() || !Number.isFinite(value) || value <= 0) {
+      setRadiusError('Inserisci un raggio maggiore di zero.');
+      return;
+    }
+    onConfirm({ ...draft, radiusCells: String(radiusCellsFromUnit(value, measurementUnit.cellsValue)) });
+  };
+
+  return <EditorShell title={initial.name ? `Modifica ${initial.name}` : 'Nuova aura'} onConfirm={confirm} onCancel={onCancel} onRemove={onRemove}>
+    <Field label="Nome" value={draft.name} maxLength={AURA_LIMITS.maxNameLength} onChange={set('name')} />
+    <label className="row-editor__field row-editor__field--wide"><span>Descrizione (privata nella scheda)</span><textarea value={draft.description} onChange={(event) => set('description')(event.target.value)} /></label>
+    <label className="row-editor__field row-editor__field--wide"><span>Effetto visibile sull'avviso</span><textarea value={draft.effect} maxLength={AURA_LIMITS.maxEffectLength} onChange={(event) => set('effect')(event.target.value)} /></label>
+    <div className="row-editor__grid">
+      <label className="row-editor__field"><span>Raggio ({measurementUnit.label})</span><input type="number" min="0.01" step="any" value={radiusUnit} aria-invalid={Boolean(radiusError)} onChange={(event) => { setRadiusUnit(event.target.value); setRadiusError(''); }} />{radiusError ? <small role="alert">{radiusError}</small> : null}<small>Da 1 a {AURA_LIMITS.maxRadiusCells} caselle; arrotondato alla casella più vicina.</small></label>
+      <AuraColorPicker value={draft.color} onChange={set('color')} />
     </div>
   </EditorShell>;
 }
