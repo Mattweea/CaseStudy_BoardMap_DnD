@@ -1695,6 +1695,7 @@ function App() {
           editableTokenIds={editableTokenIds}
           focusRequest={focusRequest}
           isBackgroundHidden={state.isBoardBackgroundHidden}
+          background={state.activeSceneBackground}
           vision={playerVision}
           lightSources={state.lightSources}
           visionBlockers={visionBlockers}
@@ -1768,6 +1769,7 @@ function App() {
             focusRequest={focusRequest}
             isFullscreen
             isBackgroundHidden={state.isBoardBackgroundHidden}
+            background={state.activeSceneBackground}
             vision={playerVision}
             lightSources={state.lightSources}
             visionBlockers={visionBlockers}

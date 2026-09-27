@@ -19,6 +19,7 @@ import type {
   LightSource,
   MeasurementUnit,
   SceneSummary,
+  SceneBackground,
   TemplateShape,
   TokenWalkEvent,
   MovementNotice,
@@ -134,6 +135,7 @@ const initialSharedState: BattleMapSharedState = {
   activeSceneId: null,
   activeSceneVersion: null,
   activeSceneSummary: null,
+  activeSceneBackground: { kind: 'blank' },
   tokens: [],
   diceLogs: [],
   latestDicePreview: null,
@@ -219,6 +221,33 @@ function normalizeSceneSummary(value: unknown): SceneSummary | null {
     version: summary.version!,
     isActive: summary.isActive === true,
   };
+}
+
+function normalizeSceneBackground(value: unknown, sceneId: string | null): SceneBackground {
+  if (!value || typeof value !== 'object' || !('kind' in value) || value.kind !== 'image') {
+    return { kind: 'blank' };
+  }
+  const candidate = value as Partial<Extract<SceneBackground, { kind: 'image' }>>;
+  if (
+    typeof candidate.assetId !== 'string'
+    || (candidate.mediaType !== 'image/jpeg' && candidate.mediaType !== 'image/png' && candidate.mediaType !== 'image/webp')
+    || !Number.isSafeInteger(candidate.byteLength)
+    || (candidate.byteLength ?? 0) < 1
+    || typeof candidate.etag !== 'string'
+    || !/^[a-f0-9]{64}$/.test(candidate.etag)
+    || typeof candidate.updatedAt !== 'string'
+    || Number.isNaN(Date.parse(candidate.updatedAt))
+    || !sceneId
+  ) return { kind: 'blank' };
+  return {
+    kind: 'image',
+    assetId: candidate.assetId,
+    mediaType: candidate.mediaType,
+    byteLength: candidate.byteLength,
+    etag: candidate.etag,
+    updatedAt: candidate.updatedAt,
+    url: `${API_BASE_URL}/scenes/${encodeURIComponent(sceneId)}/background?v=${candidate.etag}`,
+  } as Extract<SceneBackground, { kind: 'image' }>;
 }
 
 function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): BattleMapSharedState {
@@ -342,6 +371,10 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
         ? parsed!.activeSceneVersion!
         : null,
     activeSceneSummary: normalizeSceneSummary(parsed?.activeSceneSummary),
+    activeSceneBackground: normalizeSceneBackground(
+      parsed?.activeSceneBackground,
+      typeof parsed?.activeSceneId === 'string' ? parsed.activeSceneId : null,
+    ),
     ...(Array.isArray(parsed?.sceneCatalog)
       ? { sceneCatalog: parsed.sceneCatalog.flatMap((scene) => {
           const summary = normalizeSceneSummary(scene);

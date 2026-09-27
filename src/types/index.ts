@@ -166,11 +166,24 @@ export interface CombatAnnouncement {
   message: string;
 }
 
+export type SceneBackground =
+  | { kind: 'blank' }
+  | {
+      kind: 'image';
+      assetId: string;
+      mediaType: 'image/jpeg' | 'image/png' | 'image/webp';
+      byteLength: number;
+      etag: string;
+      updatedAt: string;
+      url?: string;
+    };
+
 export interface BattleMapState {
   activeSceneId: string | null;
   activeSceneVersion: number | null;
   activeSceneSummary: SceneSummary | null;
   sceneCatalog?: SceneSummary[];
+  activeSceneBackground: SceneBackground;
   tokens: UnitToken[];
   zoom: number;
   diceLogs: DiceRollLog[];
@@ -202,6 +215,7 @@ export interface BattleMapSharedState {
   activeSceneSummary: SceneSummary | null;
   // Present only in the Master view. Player HTTP/SSE snapshots never carry inactive summaries.
   sceneCatalog?: SceneSummary[];
+  activeSceneBackground: SceneBackground;
   tokens: UnitToken[];
   diceLogs: DiceRollLog[];
   latestDicePreview: DicePreviewState | null;

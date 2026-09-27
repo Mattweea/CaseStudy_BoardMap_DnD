@@ -88,12 +88,20 @@ export function useSceneCatalog(enabled: boolean) {
     }
   };
 
-  const updateScene = async (name: string) => {
+  const updateScene = async (name: string, backgroundDraft: File | 'blank' | null = null) => {
     if (!selectedScene) return false;
     setIsMutating(true);
     setError(null);
     try {
-      const updated = await sceneApi.update(selectedScene.id, selectedScene.version, name);
+      let updated = selectedScene;
+      if (name.trim() !== selectedScene.name) {
+        updated = await sceneApi.update(selectedScene.id, updated.version, name);
+      }
+      if (backgroundDraft instanceof File) {
+        updated = await sceneApi.uploadBackground(selectedScene.id, updated.version, backgroundDraft);
+      } else if (backgroundDraft === 'blank' && updated.document.background.kind !== 'blank') {
+        updated = await sceneApi.clearBackground(selectedScene.id, updated.version);
+      }
       setCatalog((current) => replaceEntry(current, updated));
       setSelectedScene(updated);
       return true;

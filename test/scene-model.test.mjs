@@ -77,6 +77,21 @@ test('default scene contains independent, versioned, separated sections', () => 
   assert.equal(second.board.measurementUnit.label, 'm');
 });
 
+test('scene document accepts only normalized managed image metadata for backgrounds', () => {
+  const document = createDefaultSceneDocument();
+  document.background = {
+    kind: 'image',
+    assetId: '8f819a71-72fe-41ec-a9f2-88f2fe006947',
+    mediaType: 'image/png',
+    byteLength: 12,
+    etag: 'a'.repeat(64),
+    updatedAt: '2026-09-28T10:00:00.000Z',
+  };
+  assert.deepEqual(normalizeSceneDocument(document).background, document.background);
+  document.background.mediaType = 'text/html';
+  assert.throws(() => normalizeSceneDocument(document), /mediaType/);
+});
+
 test('scene metadata supplies a stable identity and positive concurrency version', () => {
   assert.deepEqual(
     normalizeSceneMetadata({ id: ' scene-1 ', name: ' Sala del trono ', version: 3 }),

@@ -77,6 +77,42 @@ export class SceneService {
     return clone(persisted);
   }
 
+  async replaceBackground({ id, expectedVersion, buffer, mediaType, storage }) {
+    const current = this.getScene(id);
+    if (!current) throw new SceneNotFoundError(id);
+    const staged = await storage.stage(buffer, mediaType);
+    const previous = current.document.background;
+    try {
+      const updated = this.updateScene({
+        id,
+        expectedVersion,
+        name: current.name,
+        document: { ...current.document, background: staged },
+        sortOrder: current.sortOrder,
+      });
+      if (previous.kind === 'image') await storage.remove(previous).catch(() => {});
+      return updated;
+    } catch (error) {
+      await storage.remove(staged);
+      throw error;
+    }
+  }
+
+  async clearBackground({ id, expectedVersion, storage }) {
+    const current = this.getScene(id);
+    if (!current) throw new SceneNotFoundError(id);
+    const previous = current.document.background;
+    const updated = this.updateScene({
+      id,
+      expectedVersion,
+      name: current.name,
+      document: { ...current.document, background: { kind: 'blank' } },
+      sortOrder: current.sortOrder,
+    });
+    if (previous.kind === 'image') await storage.remove(previous).catch(() => {});
+    return updated;
+  }
+
   setActiveScene(sceneId) {
     if (!this.scenes.has(sceneId)) throw new SceneNotFoundError(sceneId);
     const persisted = this.repository.setActiveScene(this.campaignId, sceneId);

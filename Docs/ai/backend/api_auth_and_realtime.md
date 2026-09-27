@@ -25,6 +25,7 @@ Define the Fastify server boundary, authorization model, HTTP contracts, and SSE
 - Owner-scoped with role rules: `POST /api/battle-map/initiative/roll` (an adventurer only for their own character without an entry; the master for any creature) and `POST /api/battle-map/turn/advance` (the master in both directions; an adventurer only `next`, only with `playersCanEndTurn`, only on their own active token).
 - Master-only: full state replacement, combat start/end (`/combat/start`, `/combat/end`), round start (`/combat/round/start`), initiative roll-all (`/initiative/roll-all`), the `playersCanEndTurn` setting (`/settings/players-can-end-turn`), snapshot suspend, and snapshot resume.
 - Master-only scene catalog: list, create, read and versioned update under `/api/scenes`. Reading one scene is a management selection only; it never activates or broadcasts that scene. No delete or archive route exists until lifecycle semantics are approved.
+- Scene background delivery is authenticated. A Master may read any managed scene asset; an Adventurer may read only the active scene asset. Upload and reset-to-blank are Master-only, versioned scene mutations under `/api/scenes/:id/background`.
 
 Ownership-aware endpoints must validate the current server token and user. New mutations must be assigned deliberately to public, authenticated, owner-scoped, or master-only access.
 
@@ -36,6 +37,7 @@ Ownership-aware endpoints must validate the current server token and user. New m
 - Rejected state mutations should return the current sanitized snapshot when the client can use it to reconcile.
 - Full state replacement accepts `baseVersion` and rejects stale commits.
 - Scene updates accept `baseVersion`; a stale update returns `409` with `currentScene` so the Master client can replace its obsolete draft base. Scene names are labels rather than identities, so duplicate names remain valid and stable scene IDs disambiguate them.
+- Scene background upload accepts only raw JPEG, PNG, or WebP bodies whose declared media type matches their signature. `X-Scene-Base-Version` supplies the optimistic base; the response is the updated scene. Asset responses use an ETag and `Cache-Control: private`, and never expose a runtime filesystem path.
 
 ## Realtime
 
@@ -47,6 +49,7 @@ Ownership-aware endpoints must validate the current server token and user. New m
   Player view omits the catalog and every inactive document or asset. Updating the active scene
   refreshes and broadcasts that projection once, while managing an inactive scene does not
   broadcast its preparation data.
+- The active projection carries `activeSceneBackground`: blank, or verified metadata plus the authenticated asset URL. Inactive background metadata and URLs remain outside Player snapshots.
 - Disconnect cleanup must remove the client and its keepalive timer.
 - Never broadcast raw master state to all clients.
 - Per-die roll detail is part of its parent log rather than a separate event. The existing per-recipient snapshot sanitization therefore delivers the complete detail wherever that log is visible and delivers none of it where a secret log is hidden.

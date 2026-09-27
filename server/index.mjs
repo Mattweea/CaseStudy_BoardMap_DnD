@@ -31,6 +31,7 @@ import { rollCharacterSheetTarget } from './character-sheet-roll-resolver.mjs';
 import { createAuthoritativeRoll } from './authoritative-roll.mjs';
 import { canUserSeeDiceLog, visibleDiceLogsForUser } from './dice-log-visibility.mjs';
 import { PortraitStorage } from './portrait-storage.mjs';
+import { SceneBackgroundStorage } from './scene-background-storage.mjs';
 import { findCharacterTokenForOwner, rollInitiative } from './initiative-roll.mjs';
 import { insertInitiativeEntry } from '../shared/initiative-order.mjs';
 import { isValidCellsValue, pathCost } from '../shared/grid-movement.mjs';
@@ -48,6 +49,7 @@ const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_DATA_DIR = path.join(SERVER_DIR, 'data');
 const SESSION_SNAPSHOT_PATH = path.join(SESSION_DATA_DIR, 'last-session.json');
 const PORTRAIT_STORAGE_PATH = path.join(SESSION_DATA_DIR, 'portraits');
+const SCENE_BACKGROUND_STORAGE_PATH = path.join(SESSION_DATA_DIR, 'scene-backgrounds');
 
 const DEFAULT_TOKEN_COLORS = {
   player: '#2f9e44',
@@ -66,6 +68,7 @@ const initialSharedState = {
   activeSceneId: null,
   activeSceneVersion: null,
   activeSceneSummary: null,
+  activeSceneBackground: { kind: 'blank' },
   tokens: [],
   diceLogs: [],
   latestDicePreview: null,
@@ -387,6 +390,25 @@ function normalizeSharedState(parsed) {
             isActive: parsed.activeSceneSummary.isActive === true,
           }
         : null,
+    activeSceneBackground:
+      parsed?.activeSceneBackground?.kind === 'image'
+      && typeof parsed.activeSceneBackground.assetId === 'string'
+      && ['image/jpeg', 'image/png', 'image/webp'].includes(parsed.activeSceneBackground.mediaType)
+      && typeof parsed.activeSceneBackground.etag === 'string'
+      && /^[a-f0-9]{64}$/.test(parsed.activeSceneBackground.etag)
+      && typeof parsed.activeSceneBackground.updatedAt === 'string'
+      && !Number.isNaN(Date.parse(parsed.activeSceneBackground.updatedAt))
+      && Number.isSafeInteger(parsed.activeSceneBackground.byteLength)
+      && parsed.activeSceneBackground.byteLength > 0
+        ? {
+            kind: 'image',
+            assetId: parsed.activeSceneBackground.assetId,
+            mediaType: parsed.activeSceneBackground.mediaType,
+            byteLength: parsed.activeSceneBackground.byteLength,
+            etag: parsed.activeSceneBackground.etag,
+            updatedAt: parsed.activeSceneBackground.updatedAt,
+          }
+        : { kind: 'blank' },
     tokens: applyVehicleAwareUpdates(tokens),
     diceLogs: Array.isArray(parsed?.diceLogs)
       ? parsed.diceLogs.flatMap((log) => (log && typeof log === 'object' && typeof log.authorUserId === 'string' &&
@@ -1701,6 +1723,7 @@ let userRepository;
 let authService;
 const characterSheetPolicy = new CharacterSheetPolicy();
 const portraitStorage = new PortraitStorage(PORTRAIT_STORAGE_PATH);
+const sceneBackgroundStorage = new SceneBackgroundStorage(SCENE_BACKGROUND_STORAGE_PATH);
 
 function parseCookies(headerValue) {
   if (!headerValue) {
@@ -2509,10 +2532,12 @@ async function start() {
     throw new Error(`Persistenza scene non pronta: ${error.message} Esegui npm run db:migrate.`);
   }
   await portraitStorage.initialize();
+  await sceneBackgroundStorage.initialize();
   await registerCharacterSheetRoutes(app, { service: characterSheetService, portraitStorage, getUser: getSessionUser });
   registerSceneRoutes(app, {
     service: sceneService,
     getUser: getSessionUser,
+    backgroundStorage: sceneBackgroundStorage,
     onActiveSceneUpdated: refreshActiveSceneProjection,
   });
   app.addHook('onClose', async () => {

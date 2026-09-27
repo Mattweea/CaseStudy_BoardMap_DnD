@@ -27,6 +27,17 @@ export interface BlankSceneBackground {
   kind: 'blank';
 }
 
+export interface ImageSceneBackground {
+  kind: 'image';
+  assetId: string;
+  mediaType: 'image/jpeg' | 'image/png' | 'image/webp';
+  byteLength: number;
+  etag: string;
+  updatedAt: string;
+}
+
+export type SceneBackground = BlankSceneBackground | ImageSceneBackground;
+
 export interface SceneBoardConfig {
   diagonalRule: DiagonalRule;
   measurementUnit: MeasurementUnit;
@@ -72,7 +83,7 @@ export interface SceneRuntime {
 
 export interface SceneConfigurationDocument {
   schemaVersion: typeof SCENE_DOCUMENT_VERSION;
-  background: BlankSceneBackground;
+  background: SceneBackground;
   board: SceneBoardConfig;
   drawings: SceneDrawing[];
   elements: SceneElement[];

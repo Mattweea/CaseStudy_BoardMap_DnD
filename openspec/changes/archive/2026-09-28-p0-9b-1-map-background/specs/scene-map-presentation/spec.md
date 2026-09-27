@@ -1,3 +1,7 @@
+## Purpose
+
+Definire come ogni scena presenta una board neutra o un'immagine caricata dal Master, mantenendo accesso, compatibilità e sostituzione sicuri.
+
 ## ADDED Requirements
 
 ### Requirement: P0.9b.1 Background bianco o immagine del Master
@@ -18,3 +22,11 @@ Il sistema SHALL consentire al Master di configurare ogni scena con una board bi
 #### Scenario: Nessuna sorgente esterna
 - **WHEN** il Master configura il background
 - **THEN** P0.9b.1 non accetta URL remote né integra mappe ufficiali o cataloghi esterni
+
+#### Scenario: Conflitto di versione
+- **WHEN** un upload o un reset usa una versione base della scena ormai superata
+- **THEN** il server rifiuta la mutazione senza sostituire il background corrente
+
+#### Scenario: Compatibilità con scene esistenti
+- **WHEN** viene caricata una scena legacy senza configurazione background
+- **THEN** il sistema la normalizza come board bianca senza richiedere migrazioni manuali

@@ -23,6 +23,12 @@ export function attachActiveSceneMetadata(state, activeScene) {
     activeSceneId: summary?.id ?? null,
     activeSceneVersion: summary?.version ?? null,
     activeSceneSummary: summary,
+    activeSceneBackground: activeScene?.document.background.kind === 'image'
+      ? {
+          ...clone(activeScene.document.background),
+          url: `/api/scenes/${encodeURIComponent(activeScene.id)}/background?v=${activeScene.document.background.etag}`,
+        }
+      : { kind: 'blank' },
   };
 }
 

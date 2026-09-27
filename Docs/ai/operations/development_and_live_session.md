@@ -31,7 +31,7 @@ The frontend and backend are separate processes. The default backend listens on 
 | `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` | Vite/script | Comma-separated additional dev/preview hosts |
 | `FRONTEND_PORT`, `NGROK_API_URL` | live script | Local frontend port and ngrok inspector endpoint |
 
-Do not commit real credentials, database files, portraits, session snapshots, or secrets. When `VTT_DB_PATH` points inside the repository, add that exact runtime location to the ignore rules.
+Do not commit real credentials, database files, portraits, scene background uploads, session snapshots, or secrets. Portraits and scene backgrounds are runtime files below ignored `server/data/`; when `VTT_DB_PATH` points elsewhere inside the repository, add that exact runtime location to the ignore rules.
 
 ## API URL behavior
 
@@ -49,6 +49,7 @@ Share the frontend HTTPS URL, not the backend port. The default allowed-host lis
 - Saved game state is written only when the master suspends the session.
 - The saved file lives under ignored `server/data/`.
 - Users, roles, campaigns, and character sheets are SQLite-backed; character-sheet writes are debounced and flushed on controlled lifecycle boundaries.
+- Scene configuration and background metadata are SQLite-backed; uploaded background binaries are runtime files under `server/data/scene-backgrounds/` and are served only by authenticated API routes.
 - Starting the backend loads only saved-session metadata; the master resumes the snapshot explicitly.
 
 ## Verification and troubleshooting

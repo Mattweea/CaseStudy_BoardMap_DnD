@@ -50,6 +50,18 @@ test('legacy state without activeSceneId receives the persisted active identity 
   assert.deepEqual(projected.lightSources, []);
 });
 
+test('active image background exposes only its authenticated scene URL', () => {
+  const active = scene('scene-image', 'Con sfondo', 2);
+  active.document.background = {
+    kind: 'image', assetId: 'asset-1', mediaType: 'image/png', byteLength: 12,
+    etag: 'b'.repeat(64), updatedAt: '2026-09-28T10:00:00.000Z',
+  };
+  const projected = installActiveSceneProjection({ tokens: [] }, active);
+  assert.equal(projected.activeSceneBackground.kind, 'image');
+  assert.equal(projected.activeSceneBackground.url, `/api/scenes/${active.id}/background?v=${'b'.repeat(64)}`);
+  assert.equal('fileName' in projected.activeSceneBackground, false);
+});
+
 test('role views expose only summaries to the Master and only active identity to a Player', () => {
   const active = scene('scene-a', 'Sala A', 2, {}, 'active-asset');
   const inactive = scene('scene-b', 'Sala B', 7, {}, 'INACTIVE-ASSET-MARKER');

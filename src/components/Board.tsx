@@ -15,6 +15,7 @@ import type {
   LightSource,
   MeasurementUnit,
   MovementNotice,
+  SceneBackground,
   TemplateShape,
   TokenMovementBudget,
   TokenWalkEvent,
@@ -62,6 +63,7 @@ interface BoardProps {
   focusRequest: { tokenId: string; nonce: number } | null;
   isFullscreen?: boolean;
   isBackgroundHidden?: boolean;
+  background?: SceneBackground;
   vision?: {
     enabled: boolean;
     radiusCells: number;
@@ -446,6 +448,7 @@ export function Board({
   focusRequest,
   isFullscreen = false,
   isBackgroundHidden = false,
+  background = { kind: 'blank' },
   vision = null,
   lightSources = [],
   visionBlockers = [],
@@ -1864,7 +1867,13 @@ export function Board({
         </div>
       </div>
 
-      <div ref={shellRef} className={`board-shell ${isBackgroundHidden ? 'board-shell--hidden-map' : ''}`}>
+      <div
+        ref={shellRef}
+        className={`board-shell ${isBackgroundHidden ? 'board-shell--hidden-map' : background.kind === 'image' ? 'board-shell--image-map' : 'board-shell--blank-map'}`}
+        style={!isBackgroundHidden && background.kind === 'image' && background.url
+          ? { '--scene-background-url': `url("${background.url}")` } as CSSProperties
+          : undefined}
+      >
         <div className="board-zoom-controls">
           <button
             type="button"

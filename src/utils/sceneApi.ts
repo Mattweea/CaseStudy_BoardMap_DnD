@@ -32,10 +32,14 @@ export class SceneApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (init?.body !== undefined && !(init.body instanceof Blob) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     credentials: 'include',
     ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    headers,
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new SceneApiError(response.status, payload);
@@ -53,4 +57,20 @@ export const sceneApi = {
     method: 'PATCH',
     body: JSON.stringify({ baseVersion, name }),
   }),
+  uploadBackground: (id: string, baseVersion: number, file: File) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/background`, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type, 'X-Scene-Base-Version': String(baseVersion) },
+    body: file,
+  }),
+  clearBackground: (id: string, baseVersion: number) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/background`, {
+    method: 'DELETE',
+    headers: { 'X-Scene-Base-Version': String(baseVersion) },
+  }),
 };
+
+export function sceneBackgroundUrl(scene: PersistedScene): string | null {
+  const background = scene.document.background;
+  return background.kind === 'image'
+    ? `${API_BASE_URL}/scenes/${encodeURIComponent(scene.id)}/background?v=${background.etag}`
+    : null;
+}

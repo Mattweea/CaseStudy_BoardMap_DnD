@@ -189,10 +189,30 @@ function normalizeBoardConfig(value, path) {
 
 function normalizeBackground(value, path) {
   const background = value === undefined ? { kind: 'blank' } : cloneJsonObject(value, path);
-  if (background.kind !== 'blank') {
-    fail(path + '.kind', 'must be "blank" until a background asset capability is applied');
+  if (background.kind === 'blank') return { kind: 'blank' };
+  if (background.kind !== 'image') fail(path + '.kind', 'must be "blank" or "image"');
+
+  const mediaType = background.mediaType;
+  if (mediaType !== 'image/jpeg' && mediaType !== 'image/png' && mediaType !== 'image/webp') {
+    fail(path + '.mediaType', 'must be image/jpeg, image/png or image/webp');
   }
-  return { kind: 'blank' };
+  if (!Number.isSafeInteger(background.byteLength) || background.byteLength < 1) {
+    fail(path + '.byteLength', 'must be a positive safe integer');
+  }
+  if (typeof background.etag !== 'string' || !/^[a-f0-9]{64}$/.test(background.etag)) {
+    fail(path + '.etag', 'must be a SHA-256 digest');
+  }
+  if (typeof background.updatedAt !== 'string' || Number.isNaN(Date.parse(background.updatedAt))) {
+    fail(path + '.updatedAt', 'must be an ISO date');
+  }
+  return {
+    kind: 'image',
+    assetId: normalizeId(background.assetId, path + '.assetId'),
+    mediaType,
+    byteLength: background.byteLength,
+    etag: background.etag,
+    updatedAt: background.updatedAt,
+  };
 }
 
 function normalizeDrawings(value, path) {
