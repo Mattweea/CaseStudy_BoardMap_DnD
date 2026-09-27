@@ -120,20 +120,20 @@ test('a full-state master commit with a fake aura on an enemy and a fake aura on
   assert.deepEqual(hero.auras, [{ id: 'aura_0001', name: 'Aura di protezione', effect: 'Riduce i danni', radiusCells: 2, color: AURA_COLORS[1], active: true }]);
 });
 
-test('token-update from an adventurer ignores an auras field while still applying an allowed field', async () => {
+test('token-update ignores an auras field while still applying an allowed field', async () => {
   __testing.setCharacterSheetService(sheetService([{ id: 'sheet-hero', ownerUserId: PLAYER.id, data: sheetDataWithAura('Ilthar') }]));
   __testing.setBattleMapState({ tokens: [heroToken()] });
 
   const response = await __testing.app.inject({
     method: 'POST',
     url: '/api/battle-map/token-update',
-    headers: sessionHeaders(PLAYER),
-    payload: { tokenId: 'hero', updates: { hitPoints: 5, auras: [FAKE_CLIENT_AURA] } },
+    headers: sessionHeaders(MASTER),
+    payload: { tokenId: 'hero', updates: { excludeFromInitiative: true, auras: [FAKE_CLIENT_AURA] } },
   });
   assert.equal(response.statusCode, 200);
 
   const hero = __testing.getBattleMapState().tokens.find((token) => token.id === 'hero');
-  assert.equal(hero.hitPoints, 5);
+  assert.equal(hero.excludeFromInitiative, true);
   assert.deepEqual(hero.auras, [{ id: 'aura_0001', name: 'Aura di protezione', effect: 'Riduce i danni', radiusCells: 2, color: AURA_COLORS[1], active: true }]);
 });
 

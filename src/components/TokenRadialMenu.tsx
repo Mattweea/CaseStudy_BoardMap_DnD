@@ -8,9 +8,11 @@ import {
   tokenConditionOptions,
 } from '../utils/tokens';
 import { ConditionBadge, ExhaustionIcon } from './ConditionBadge';
+import { parseHitPointInput } from '../../shared/hit-points.mjs';
 
 export interface TokenRadialMenuProps {
   token: UnitToken;
+  isCanonicalCharacterToken: boolean;
   // Centro del token in pixel schermo (già scalato per lo zoom e traslato per la camera): il menu
   // si ancora lì, come richiede la capability (design, decisione 6).
   screenPosition: { x: number; y: number };
@@ -29,6 +31,7 @@ export interface TokenRadialMenuProps {
   onDash?: () => void;
   // Aure (P0.8d): accensione/spegnimento delle aure del personaggio, proprietario o Master.
   onToggleAura?: (auraId: string, active: boolean) => void;
+  onSetHitPoints: (input: string) => Promise<{ ok: boolean; message?: string }>;
 }
 
 type MenuEntry =
@@ -37,6 +40,7 @@ type MenuEntry =
   | { kind: 'more' }
   | { kind: 'dash' }
   | { kind: 'auras' }
+  | { kind: 'hit-points' }
   | { kind: 'back' }
   | { kind: 'exhaustion-down' }
   | { kind: 'exhaustion-up' }
@@ -64,7 +68,7 @@ const PANEL_GAP = 12;
 // Le condizioni occupano l'arco destro, dall'alto al basso. Il comando «Altre» prosegue lo stesso
 // arco; le azioni occupano quello sinistro, con una spaziatura che dipende dal loro numero.
 function ringOffset(index: number, count: number, radius: number, side: 'status' | 'action'): { x: number; y: number } {
-  const spread = side === 'status' ? Math.PI * (count >= 5 ? 0.88 : 0.72) : Math.PI * 0.42;
+  const spread = side === 'status' ? Math.PI * (count >= 5 ? 0.88 : 0.72) : Math.PI * (count >= 4 ? 0.55 : 0.42);
   const angle = side === 'status'
     ? -spread / 2 + (count === 1 ? 0.5 : index / (count - 1)) * spread
     : Math.PI + spread / 2 - (count === 1 ? 0.5 : index / (count - 1)) * spread;
@@ -109,6 +113,7 @@ function StrokeIcon({ children }: { children: ReactNode }) {
 
 export function TokenRadialMenu({
   token,
+  isCanonicalCharacterToken,
   screenPosition,
   tokenRadius = 0,
   onClose,
@@ -121,6 +126,7 @@ export function TokenRadialMenu({
   dashUnavailableReason = 'disponibile nel tuo turno',
   onDash,
   onToggleAura,
+  onSetHitPoints,
 }: TokenRadialMenuProps) {
   // `null` = corona, `'more'` = pannello delle altre condizioni, `'auras'` = pannello delle aure.
   const [openPanel, setOpenPanel] = useState<'more' | 'auras' | null>(null);
@@ -133,6 +139,11 @@ export function TokenRadialMenu({
   // l'etichetta segue il fuoco solo dopo una navigazione da tastiera, altrimenti solo il puntatore.
   const [keyboardNavigated, setKeyboardNavigated] = useState(false);
   const [announcement, setAnnouncement] = useState('');
+  const [hpEditing, setHpEditing] = useState(false);
+  const [hpInput, setHpInput] = useState('');
+  const [hpError, setHpError] = useState('');
+  const [hpBusy, setHpBusy] = useState(false);
+  const hpInputRef = useRef<HTMLInputElement | null>(null);
   // Spostamento minimo che tiene corona e pannello dentro lo stage, e lato del pannello «+».
   const [shift, setShift] = useState({ x: 0, y: 0 });
   const [panelSide, setPanelSide] = useState<'right' | 'left'>('right');
@@ -149,6 +160,11 @@ export function TokenRadialMenu({
   // decisione 8).
   const tokenAuras = token.auras ?? [];
   const canShowAuras = token.type === 'player' && token.isFamiliar !== true && Boolean(token.ownerUserId) && tokenAuras.length > 0;
+  const canShowHitPoints = isCanonicalCharacterToken && token.type === 'player' && token.isFamiliar !== true && Boolean(token.ownerUserId) && typeof token.maxHitPoints === 'number' && token.maxHitPoints > 0;
+  const currentHp = token.hitPoints ?? 0;
+  const temporaryHp = token.temporaryHitPoints ?? 0;
+  const hpName = `Punti ferita ${currentHp} su ${token.maxHitPoints}${temporaryHp > 0 ? `, ${temporaryHp} temporanei` : ''}`;
+  const hpCaption = `Punti ferita ${currentHp}${temporaryHp > 0 ? ` (+${temporaryHp})` : ''} / ${token.maxHitPoints}`;
 
   // Prono resta un interruttore anche sul token prono: toglierlo senza costo serve quando un'altra
   // creatura aiuta a rialzarsi o per decisione del Master. «Alzati» è l'azione con il costo di
@@ -156,13 +172,16 @@ export function TokenRadialMenu({
   const ringEntries: MenuEntry[] = frequent.map((condition) => ({ kind: 'condition', condition }));
   const extraEntries: MenuEntry[] = [
     ...(!isVehicle && rest.length > 0 ? [{ kind: 'more' } as MenuEntry] : []),
+    ...(canShowHitPoints ? [{ kind: 'hit-points' } as MenuEntry] : []),
     ...(isProne ? [{ kind: 'stand-up' } as MenuEntry] : []),
     ...(showDash ? [{ kind: 'dash' } as MenuEntry] : []),
     ...(canShowAuras ? [{ kind: 'auras' } as MenuEntry] : []),
   ];
   const statusCount = ringEntries.length + (extraEntries.some((entry) => entry.kind === 'more') ? 1 : 0);
   const actionCount = extraEntries.filter((entry) => entry.kind !== 'more').length;
+  const hpActionOffset = canShowHitPoints ? ringOffset(0, actionCount, ringRadius, 'action') : null;
   const mainEntries = [...ringEntries, ...extraEntries];
+  const hpActionIndex = mainEntries.findIndex((entry) => entry.kind === 'hit-points');
   const dashStatus = dashUsed ? 'già usato' : canDash ? null : dashUnavailableReason;
   const panelEntries: MenuEntry[] = [
     { kind: 'back' },
@@ -188,6 +207,41 @@ export function TokenRadialMenu({
     const raf = requestAnimationFrame(() => itemRefs.current[initialFocusIndex]?.focus());
     return () => cancelAnimationFrame(raf);
   }, [openPanel]);
+
+  useEffect(() => {
+    if (hpEditing) hpInputRef.current?.focus();
+  }, [hpEditing]);
+
+  const openHitPoints = (prefix = '') => {
+    if (!canShowHitPoints) return;
+    setHpInput(prefix);
+    setHpError('');
+    setHpEditing(true);
+  };
+
+  const closeHitPoints = () => {
+    setHpEditing(false);
+    setHpError('');
+    requestAnimationFrame(() => itemRefs.current[hpActionIndex]?.focus());
+  };
+
+  const submitHitPoints = async () => {
+    if (hpBusy) return;
+    if (parseHitPointInput(hpInput).kind === 'invalid') {
+      setHpError('Inserisci un valore non negativo oppure +N o -N da 1 a 999.');
+      return;
+    }
+    setHpBusy(true);
+    try {
+      const result = await onSetHitPoints(hpInput);
+      if (result.ok) closeHitPoints();
+      else setHpError(result.message ?? 'Punti ferita rifiutati dal server.');
+    } catch (error) {
+      setHpError(error instanceof Error ? error.message : 'Punti ferita rifiutati dal server.');
+    } finally {
+      setHpBusy(false);
+    }
+  };
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -314,6 +368,12 @@ export function TokenRadialMenu({
   };
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (hpEditing) {
+      event.stopPropagation();
+      if (event.key === 'Escape') { event.preventDefault(); closeHitPoints(); }
+      else if (event.key === 'Enter') { event.preventDefault(); void submitHitPoints(); }
+      return;
+    }
     // `Ctrl+Z` e le altre combinazioni restano ai gestori globali; `Tab` segue il browser.
     if (event.key === 'Tab') {
       setKeyboardNavigated(true);
@@ -342,6 +402,11 @@ export function TokenRadialMenu({
         return;
       }
       onClose();
+      return;
+    }
+    if (!openPanel && canShowHitPoints && (event.key === '-' || event.key === '+')) {
+      event.preventDefault();
+      openHitPoints(event.key);
       return;
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
@@ -426,6 +491,16 @@ export function TokenRadialMenu({
     const actionIndex = extraEntries.slice(0, index - ringEntries.length).filter((item) => item.kind !== 'more').length;
     const offset = ringOffset(isStatus ? ringEntries.length : actionIndex, isStatus ? statusCount : actionCount, ringRadius, isStatus ? 'status' : 'action');
     const style = { transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))` };
+    if (entry.kind === 'hit-points') {
+      return <button key="hit-points" {...itemProps(index)} type="button" role="menuitem"
+        aria-label={hpName} aria-keyshortcuts="- +" className="token-radial-menu__item token-radial-menu__item--action"
+        style={style}
+        onClick={() => openHitPoints()}>
+        <StrokeIcon>
+          <path d="M8 13.2 2.8 8.4a3.1 3.1 0 0 1 4.4-4.4L8 4.8l.8-.8a3.1 3.1 0 0 1 4.4 4.4Z" />
+        </StrokeIcon>
+      </button>;
+    }
     if (entry.kind === 'more') {
       return (
         <button
@@ -537,12 +612,14 @@ export function TokenRadialMenu({
         return { label: 'Scatto', accessKey: null, detail: dashStatus ?? 'azione' };
       case 'auras':
         return { label: 'Aure', accessKey: AURAS_ACCESS_KEY, detail: null };
+      case 'hit-points':
+        return { label: hpCaption, accessKey: null, detail: null };
       default:
         return null;
     }
   };
   const highlightedIndex = hoverIndex ?? (keyboardNavigated ? focusIndex : null);
-  const highlighted = highlightedIndex === null ? null : describeEntry(mainEntries[highlightedIndex]);
+  const highlighted = hpEditing || highlightedIndex === null ? null : describeEntry(mainEntries[highlightedIndex]);
 
   const renderPanelEntry = (entry: MenuEntry, index: number) => {
     if (entry.kind !== 'condition') {
@@ -603,6 +680,7 @@ export function TokenRadialMenu({
   const exhaustionDownIndex = panelEntries.findIndex((entry) => entry.kind === 'exhaustion-down');
   const exhaustionUpIndex = panelEntries.findIndex((entry) => entry.kind === 'exhaustion-up');
   const exhaustionLabelId = `token-radial-menu-exhaustion-label-${token.id}`;
+  const hpHelpId = `token-radial-menu-hp-help-${token.id}`;
 
   return (
     <>
@@ -738,6 +816,20 @@ export function TokenRadialMenu({
             {extraEntries.length > 0 ? (
               <div className="token-radial-menu__extras">
                 {extraEntries.map((entry, extraIndex) => renderExtraEntry(entry, ringEntries.length + extraIndex))}
+              </div>
+            ) : null}
+            {hpEditing && hpActionOffset ? (
+              <div className="token-radial-menu__hp-editor" style={{ left: hpActionOffset.x, top: hpActionOffset.y - RING_ITEM_SIZE / 2 - 8 }}>
+                <input ref={hpInputRef} value={hpInput} disabled={hpBusy} aria-label="Modifica punti ferita"
+                  aria-describedby={`${hpHelpId}${hpError ? ` hp-error-${token.id}` : ''}`}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setHpInput((current) => (current === '-' || current === '+') && nextValue && !/^[+-]/.test(nextValue)
+                      ? `${current}${nextValue}` : nextValue);
+                    setHpError('');
+                  }} />
+                <span id={hpHelpId}>Invio applica · Esc annulla</span>
+                {hpError ? <span id={`hp-error-${token.id}`} role="alert">{hpError}</span> : null}
               </div>
             ) : null}
           </>

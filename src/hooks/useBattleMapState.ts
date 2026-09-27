@@ -255,6 +255,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           groupId: typeof token.groupId === 'string' ? token.groupId : null,
           hitPoints: typeof token.hitPoints === 'number' ? token.hitPoints : null,
           maxHitPoints: typeof token.maxHitPoints === 'number' ? token.maxHitPoints : null,
+          temporaryHitPoints: typeof token.temporaryHitPoints === 'number' ? token.temporaryHitPoints : null,
           isInvisible: token.isInvisible === true,
           isFamiliar: token.isFamiliar === true,
           blocksMovement: token.blocksMovement === true,
@@ -1435,6 +1436,28 @@ export function useBattleMapState(isAuthenticated: boolean) {
     });
   };
 
+  const setTokenHitPoints = async (tokenId: string, input: string): Promise<{ ok: boolean; message?: string }> => {
+    return enqueueMutation(async () => {
+      const previousState = sharedStateRef.current;
+      const previousVersion = versionRef.current;
+      try {
+        const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+          '/battle-map/token-hit-points',
+          { method: 'POST', body: JSON.stringify({ tokenId, input }) },
+        );
+        applySnapshot(payload.state, payload.version);
+        return { ok: true };
+      } catch (error) {
+        const payload = error instanceof Error && 'payload' in error
+          ? error.payload as { state?: BattleMapSharedState; version?: number } | undefined
+          : undefined;
+        if (payload?.state && typeof payload.version === 'number') applySnapshot(payload.state, payload.version);
+        else applySnapshot(previousState, previousVersion);
+        return { ok: false, message: error instanceof Error ? error.message : 'Punti ferita rifiutati dal server.' };
+      }
+    });
+  };
+
   const addOwnedExtraMovement = async (tokenId: string, amount = 1) => {
     return enqueueMutation(async () => {
       const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
@@ -1652,6 +1675,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     applyTokenCondition,
     standUpToken,
     setTokenAuraActive,
+    setTokenHitPoints,
     addOwnedExtraMovement,
     addTokens,
     updateToken,

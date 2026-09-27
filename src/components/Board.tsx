@@ -62,6 +62,7 @@ function formatRulerMeasurement(cells: number, unit: MeasurementUnit): string {
 
 interface BoardProps {
   tokens: UnitToken[];
+  portraitUrlsByOwnerId?: Record<string, string>;
   zoom: number;
   selectedTokenIds: string[];
   editableTokenIds?: string[];
@@ -100,6 +101,7 @@ interface BoardProps {
   onStandUpToken?: (tokenId: string) => void;
   // Aure (P0.8d): interruttore dal pannello «Aure» del menu radiale.
   onSetTokenAuraActive?: (tokenId: string, auraId: string, active: boolean) => void;
+  onSetTokenHitPoints?: (tokenId: string, input: string) => Promise<{ ok: boolean; message?: string }>;
   // Scatto (P0.8c): il pulsante in barra laterale seguiva solo il personaggio principale
   // dell'Adventurer; il menu radiale lo espone anche sul famiglio quando è il suo turno.
   dashUsedByTokenId?: Record<string, boolean>;
@@ -466,6 +468,7 @@ function isPathBlocked(
 
 export function Board({
   tokens,
+  portraitUrlsByOwnerId = {},
   zoom,
   selectedTokenIds,
   editableTokenIds = [],
@@ -486,6 +489,7 @@ export function Board({
   onApplyTokenCondition,
   onStandUpToken,
   onSetTokenAuraActive,
+  onSetTokenHitPoints,
   dashUsedByTokenId,
   canDashTokenIds,
   dashUnavailableReason,
@@ -2294,11 +2298,16 @@ export function Board({
               const worldPosition = isWalking ? walkingPosition : token.position;
               const footprint = getTokenFootprint(token);
               const isSelected = selectedTokenIds.includes(token.id);
+              const isCanonicalPlayerToken = token.type === 'player'
+                && token.isFamiliar !== true
+                && Boolean(token.ownerUserId)
+                && tokens.find((entry) => entry.type === 'player' && entry.isFamiliar !== true && entry.ownerUserId === token.ownerUserId)?.id === token.id;
 
               return (
                 <Token
                   key={token.id}
                   token={token}
+                  portraitUrl={isCanonicalPlayerToken && token.ownerUserId ? portraitUrlsByOwnerId[token.ownerUserId] : null}
                   tokens={tokens}
                   isSelected={isSelected}
                   isDragging={isWalking}
@@ -2352,6 +2361,7 @@ export function Board({
                     <TokenRadialMenu
                       key={menuToken.id}
                       token={menuToken}
+                      isCanonicalCharacterToken={tokens.find((token) => token.type === 'player' && token.isFamiliar !== true && token.ownerUserId === menuToken.ownerUserId)?.id === menuToken.id}
                       screenPosition={screenPosition}
                       tokenRadius={
                         (Math.max(menuFootprint.width, menuFootprint.height) * BOARD_CONFIG.cellSize * zoom) / 2
@@ -2380,6 +2390,7 @@ export function Board({
                       dashUnavailableReason={dashUnavailableReason}
                       onDash={() => onDashToken?.(menuToken.id)}
                       onToggleAura={(auraId, active) => onSetTokenAuraActive?.(menuToken.id, auraId, active)}
+                      onSetHitPoints={(input) => onSetTokenHitPoints?.(menuToken.id, input) ?? Promise.resolve({ ok: false, message: 'Punti ferita non disponibili.' })}
                     />
                   );
                 })()

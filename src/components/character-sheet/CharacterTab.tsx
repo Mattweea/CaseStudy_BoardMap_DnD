@@ -1,10 +1,11 @@
-import { useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import type {
   AbilityKey, CharacterSheetAttack, CharacterSheetAura, CharacterSheetData, CharacterSheetEquipmentItem, CharacterSheetFeature,
   CharacterSheetLanguage, CharacterSheetPatchOperation, CharacterSheetResourceSection, CharacterSheetRow, CharacterSheetTool, CoinKey, SkillKey,
 } from '../../types/character-sheet';
 import type { DiceRollLog, DiceRollSourceRequest, InitiativeRollMode, MeasurementUnit, SessionMode } from '../../types';
 import { AURA_LIMITS } from '../../../shared/token-auras.mjs';
+import { hitPointTone, parseHitPointInput, readHitPointNumber } from '../../../shared/hit-points.mjs';
 import {
   abilityModifier, computeAttackBonus, computeDamageModifier, computeInitiative, computePassivePerception,
   computeSavingThrowValue, computeSkillValue, computeToolBonus, formatSigned, proficiencyBonusForLevel, SKILL_ABILITY,
@@ -41,16 +42,67 @@ function clampCount(value: string) {
 
 // Purely visual: derived from the typed values, never written back to the sheet.
 function HitPointMeter({ maximum, current, temporary }: { maximum: string; current: string; temporary: string }) {
-  const max = readWholeNumber(maximum);
-  const now = readWholeNumber(current);
+  const max = readHitPointNumber(maximum);
+  const now = readHitPointNumber(current);
   if (max === null || now === null || max <= 0) return null;
   const currentRatio = Math.min(1, Math.max(0, now / max));
-  const tempRatio = Math.min(1 - currentRatio, Math.max(0, (readWholeNumber(temporary) ?? 0) / max));
-  const tone = currentRatio > .5 ? '' : currentRatio > .25 ? 'hp-meter--warn' : 'hp-meter--danger';
+  const tempRatio = Math.min(1, Math.max(0, (readHitPointNumber(temporary) ?? 0) / max));
+  const tone = hitPointTone(now, max) === 'ok' ? '' : `hp-meter--${hitPointTone(now, max)}`;
   const style = { '--hp-current': currentRatio, '--hp-temp': tempRatio } as CSSProperties;
-  return <div className={`hp-meter ${tone}`} style={style} aria-hidden="true">
+  return <div className={`hp-meter ${tone} ${tempRatio > 0 ? 'hp-meter--with-temp' : ''}`} style={style} aria-hidden="true">
     <span className="hp-meter__current" />
     <span className="hp-meter__temp" />
+  </div>;
+}
+
+function CurrentHitPointField({ value, onAbsolute, onDelta }: {
+  value: string;
+  onAbsolute: (value: string) => void;
+  onDelta: (delta: number) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const committedRef = useRef<string | null>(null);
+  const errorId = useId();
+  useEffect(() => { setDraft(value); }, [value]);
+
+  const commit = async () => {
+    if (busyRef.current || draft === value || draft === committedRef.current) return;
+    const parsed = parseHitPointInput(draft);
+    if (parsed.kind === 'invalid') {
+      setDraft(value);
+      setError('Inserisci un valore non negativo oppure +N o -N da 1 a 999.');
+      return;
+    }
+    setError('');
+    if (parsed.kind === 'delta') {
+      busyRef.current = true;
+      setBusy(true);
+      try { await onDelta(parsed.value); }
+      catch (reason) { setError((reason as Error).message); }
+      finally { busyRef.current = false; setBusy(false); }
+    } else {
+      const absolute = parsed.kind === 'empty' ? '' : String(parsed.value);
+      committedRef.current = draft;
+      setDraft(absolute);
+      onAbsolute(absolute);
+    }
+  };
+
+  return <div>
+    <label className="sheet-field">
+      <input id={errorId} value={draft} disabled={busy} aria-describedby={error ? `${errorId}-error` : undefined}
+      onChange={(event) => { committedRef.current = null; setDraft(event.target.value); setError(''); }}
+      onBlur={() => { void commit(); }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') { event.preventDefault(); void commit(); }
+        if (event.key === 'Escape') { event.preventDefault(); setDraft(value); setError(''); }
+      }} />
+      <span>Attuali</span>
+    </label>
+    {error ? <span id={`${errorId}-error`} role="alert">{error}</span> : null}
   </div>;
 }
 
@@ -117,8 +169,9 @@ function buildRowDiffOps<T extends { id: string }>(collection: string, before: T
   return ops;
 }
 
-export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisibility = 'public', sessionMode, measurementUnit }: {
+export function CharacterTab({ data, patch, onAdjustHitPoints, sheetId, onRoll, diceLogs, rollVisibility = 'public', sessionMode, measurementUnit }: {
   data: CharacterSheetData; patch: (operation: CharacterSheetPatchOperation) => void;
+  onAdjustHitPoints: (delta: number) => Promise<void>;
   sheetId?: string; onRoll?: (request: DiceRollSourceRequest) => void; diceLogs?: DiceRollLog[];
   rollVisibility?: 'public' | 'secret'; sessionMode?: SessionMode; measurementUnit: MeasurementUnit;
 }) {
@@ -280,13 +333,12 @@ export function CharacterTab({ data, patch, sheetId, onRoll, diceLogs, rollVisib
               >{initiativeRollMode === 'advantage' ? 'V' : 'S'}</abbr>}
             />
             <InitiativeModePicker mode={initiativeRollMode} onChange={(mode) => set('character.initiativeRollMode')(mode)} />
-            {isInitiativeRollDisabled ? <p className="initiative-control__hint">{INITIATIVE_DISABLED_REASON}</p> : null}
           </div>
           <FramedValue label="Velocità" value={data.character.speed} onChange={set('character.speed')} />
         </div>
         <SheetPanel title="Punti ferita"><HitPointMeter {...data.character.hitPoints} /><div className="hp-grid">
           <SheetField label="Massimi" value={data.character.hitPoints.maximum} onChange={set('character.hitPoints.maximum')} />
-          <SheetField label="Attuali" value={data.character.hitPoints.current} onChange={set('character.hitPoints.current')} />
+          <CurrentHitPointField value={data.character.hitPoints.current} onAbsolute={set('character.hitPoints.current')} onDelta={onAdjustHitPoints} />
           <SheetField label="Temporanei" value={data.character.hitPoints.temporary} onChange={set('character.hitPoints.temporary')} />
         </div></SheetPanel>
         <div className="combat-secondary">

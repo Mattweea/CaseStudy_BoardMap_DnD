@@ -215,6 +215,7 @@ function App() {
     applyTokenCondition,
     standUpToken,
     setTokenAuraActive,
+    setTokenHitPoints,
     setZoom,
     sessionStatus,
     suspendSession,
@@ -306,6 +307,9 @@ function App() {
   const hasUnsavedNotes = draftNotes !== state.sharedNotes;
   const sessionCharacter = findCharacterProfileByKey(user?.characterKey);
   const sessionSheet = characterSheets.find((sheet) => sheet.ownerUserId === user?.id) ?? null;
+  const portraitUrlsByOwnerId = Object.fromEntries(
+    characterSheets.filter((sheet) => sheet.portraitUrl).map((sheet) => [sheet.ownerUserId, sheet.portraitUrl as string]),
+  );
   const ownedTokens = state.tokens.filter((token) => token.ownerUserId === user?.id);
   const sessionToken =
     ownedTokens.find((token) => token.type === 'player' && token.isFamiliar !== true) ??
@@ -1587,7 +1591,7 @@ function App() {
                 <p><strong className="command-legend__icon" aria-label="Manuale"><BookIcon /></strong>: manuale.</p>
                 <p><strong>Tasto destro / S / Shift+F10</strong> su un token che puoi modificare: menu delle condizioni (nessuna interazione di mappa in corso).</p>
                 <p>
-                  <strong>Nel menu delle condizioni</strong>: la lettera sottolineata attiva la condizione (P Prono, A Afferrato, T Trattenuto, V Avvelenato, C Accecato, F Affascinato, D Assordato, S Spaventato, I Incapacitato, B Invisibile, R Paralizzato, E Pietrificato, O Stordito, N Privo di sensi; veicoli: R Rotto, B Ribaltato). P toglie Prono senza costo (per esempio quando un alleato aiuta a rialzarsi); <strong>L</strong>: Alzati, che costa metà del movimento; <strong>U</strong>: Aure, apre il pannello delle aure del personaggio. <strong>0–6</strong>: livello di Indebolimento.
+                  <strong>Nel menu delle condizioni</strong>: la lettera sottolineata attiva la condizione (P Prono, A Afferrato, T Trattenuto, V Avvelenato, C Accecato, F Affascinato, D Assordato, S Spaventato, I Incapacitato, B Invisibile, R Paralizzato, E Pietrificato, O Stordito, N Privo di sensi; veicoli: R Rotto, B Ribaltato). P toglie Prono senza costo (per esempio quando un alleato aiuta a rialzarsi); <strong>L</strong>: Alzati, che costa metà del movimento; <strong>U</strong>: Aure, apre il pannello delle aure del personaggio. <strong>− / +</strong>: modifica i punti ferita del personaggio. <strong>0–6</strong>: livello di Indebolimento.
                 </p>
               </div>
 
@@ -1721,6 +1725,7 @@ function App() {
           onPresentationHostChange={setStandardBoardHost}
           onMapInteractionChange={handleStandardBoardInteraction}
           tokens={visibleBoardTokens}
+          portraitUrlsByOwnerId={portraitUrlsByOwnerId}
           zoom={state.zoom}
           selectedTokenIds={selectedTokenIds}
           editableTokenIds={editableTokenIds}
@@ -1748,6 +1753,7 @@ function App() {
           onApplyTokenCondition={applyTokenCondition}
           onStandUpToken={standUpToken}
           onSetTokenAuraActive={setTokenAuraActive}
+          onSetTokenHitPoints={setTokenHitPoints}
           dashUsedByTokenId={state.dashUsedByTokenId}
           canDashTokenIds={canDashTokenIds}
           dashUnavailableReason={budgetApplies ? 'disponibile nel tuo turno' : 'disponibile a round avviato'}
@@ -1800,6 +1806,7 @@ function App() {
             onPresentationHostChange={setFullscreenBoardHost}
             onMapInteractionChange={handleFullscreenBoardInteraction}
             tokens={visibleBoardTokens}
+            portraitUrlsByOwnerId={portraitUrlsByOwnerId}
             zoom={state.zoom}
             selectedTokenIds={selectedTokenIds}
             editableTokenIds={editableTokenIds}
@@ -1828,6 +1835,7 @@ function App() {
             onApplyTokenCondition={applyTokenCondition}
             onStandUpToken={standUpToken}
             onSetTokenAuraActive={setTokenAuraActive}
+            onSetTokenHitPoints={setTokenHitPoints}
             dashUsedByTokenId={state.dashUsedByTokenId}
             canDashTokenIds={canDashTokenIds}
             dashUnavailableReason={budgetApplies ? 'disponibile nel tuo turno' : 'disponibile a round avviato'}

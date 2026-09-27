@@ -4,9 +4,9 @@ Gestire gli HP di un personaggio durante la partita come in Roll20: chi gioca sc
 
 ## ADDED Requirements
 
-### Requirement: Danno e cura con ±N dalla scheda
+### Requirement: Danno e cura con ±N
 
-Il campo degli HP attuali della scheda SHALL accettare, oltre a un valore assoluto, un danno `-N` o una cura `+N`, con N intero da 1 a 999 e spazi ammessi fra segno e numero. Il valore SHALL essere inviato solo alla conferma esplicita del campo (`Invio` o uscita dal campo), mai durante la digitazione. Il campo SHALL accettare anche un valore vuoto o un intero assoluto non negativo, applicati come valore scritto a mano. Un input diverso da questi e da un `±N` valido, per esempio `2d6`, `-0` o `-1000`, SHALL essere rifiutato con un messaggio vicino al campo, senza modificare la scheda. Solo il proprietario della scheda e il Master SHALL poter applicare `±N`; ogni altro utente SHALL ricevere un rifiuto di autorizzazione. Il token SHALL NOT offrire un modo di inserire danni o cure.
+Il campo degli HP attuali della scheda e il campo dei punti ferita del menu radiale del token SHALL accettare, oltre a un valore assoluto, un danno `-N` o una cura `+N`, con N intero da 1 a 999 e spazi ammessi fra segno e numero. Il valore SHALL essere inviato solo alla conferma esplicita del campo (`Invio`, o l'uscita dal campo nella scheda), mai durante la digitazione. Il campo SHALL accettare anche un valore vuoto o un intero assoluto non negativo, applicati come valore scritto a mano. Un input diverso da questi e da un `±N` valido, per esempio `2d6`, `-0` o `-1000`, SHALL essere rifiutato con un messaggio vicino al campo, senza modificare la scheda. Solo il proprietario della scheda e il Master SHALL poter applicare `±N`; ogni altro utente SHALL ricevere un rifiuto di autorizzazione. Dal menu radiale il campo SHALL essere disponibile tramite un comando con icona solo sul token canonico di un personaggio con una scheda collegata; un famiglio, un nemico, un oggetto o un veicolo SHALL NOT offrirlo, e una richiesta per uno di questi token SHALL essere rifiutata. Il menu SHALL NOT duplicare la barra proporzionale degli HP attorno alla corona. Le due superfici SHALL applicare le stesse regole e mostrare lo stesso risultato: una modifica fatta da una SHALL comparire nell'altra senza ricaricare la pagina. Gli HP temporanei e massimi SHALL restare modificabili solo nella scheda.
 
 #### Scenario: Danno scritto nel campo
 
@@ -22,6 +22,16 @@ Il campo degli HP attuali della scheda SHALL accettare, oltre a un valore assolu
 
 - **WHEN** il proprietario conferma `2d6` nel campo degli HP attuali
 - **THEN** la scheda non cambia, il campo torna al valore precedente e compare un messaggio che indica la sintassi ammessa
+
+#### Scenario: Danno dal menu del token
+
+- **WHEN** il Master apre il menu radiale del token di un PG con 12 HP attuali e 5 temporanei, scrive `-8` nel campo dei punti ferita e preme `Invio`
+- **THEN** il PG ha 9 HP attuali e 0 temporanei, e la scheda aperta dal proprietario mostra gli stessi valori senza ricaricare
+
+#### Scenario: Token senza scheda
+
+- **WHEN** un client chiede di applicare `-3` al famiglio di un Adventurer o a un nemico
+- **THEN** la richiesta viene rifiutata e gli HP del token non cambiano
 
 #### Scenario: Altro Player
 
@@ -126,24 +136,34 @@ Per il token canonico di un PG, gli HP SHALL essere sempre quelli della scheda: 
 
 ### Requirement: Barra della vita sul token
 
-Un token con HP massimi numerici maggiori di 0 SHALL mostrare sotto di sé una barra non interattiva con gli HP attuali in proporzione al massimo, con un tono che cambia per fasce, e gli HP temporanei come segmento distinto. A 0 HP la barra SHALL essere vuota e riconoscibile anche senza il colore. Il numero esatto, attuali, temporanei e massimi, SHALL comparire al passaggio del mouse o quando il token ha il fuoco, e SHALL essere sempre presente nel nome accessibile del token. Un token senza HP massimi SHALL NOT mostrare la barra.
+Un token con HP massimi numerici maggiori di 0 SHALL mostrare sotto di sé una barra non interattiva, distaccata di alcuni pixel dal bordo, con gli HP attuali in proporzione al massimo e gli HP temporanei su una riga distinta, anch'essa proporzionata al massimo. Sia nella scheda sia sul token, la riga degli attuali SHALL essere rossa sotto il 20% del massimo, gialla dal 20% al 50% incluso e verde sopra il 50%. La riga temporanea SHALL restare visibile anche quando gli HP attuali occupano tutta la larghezza della barra. A 0 HP il riempimento della riga degli attuali SHALL essere vuoto e riconoscibile anche senza il colore. Il numero esatto `attuali/massimi` SHALL restare visibile dentro la riga degli attuali; i temporanei positivi SHALL mostrare `+N temp` dentro la loro riga. Il numero esatto SHALL essere sempre presente anche nel nome accessibile del token. Un token senza HP massimi SHALL NOT mostrare la barra.
 
-Poiché gli HP arrivano solo al Master e al proprietario, il Master SHALL vedere la barra su ogni token che ha HP e un Adventurer solo sui propri token. Il testo `attuali/massimi` sempre visibile sul token SHALL essere sostituito dalla barra.
+Poiché gli HP arrivano solo al Master e al proprietario, il Master SHALL vedere la barra su ogni token che ha HP e un Adventurer solo sui propri token. Il testo `attuali/massimi` SHALL stare dentro la barra, senza un'etichetta separata sul token.
 
 #### Scenario: Barra del Master
 
 - **WHEN** il Master guarda la mappa con un PG a 9 HP su 20 e un nemico a 3 HP su 10
-- **THEN** vede una barra sotto entrambi i token, e portando il puntatore su un token ne legge il numero esatto
+- **THEN** vede una barra sotto entrambi i token e legge sempre il numero esatto al suo interno
 
 #### Scenario: Barra del Player
 
 - **WHEN** un Adventurer guarda la mappa
 - **THEN** vede la barra sotto il proprio token e non sotto quelli degli altri personaggi o dei nemici
 
+#### Scenario: HP temporanei con attuali pieni
+
+- **WHEN** un PG ha 40 HP massimi, 40 attuali e 6 temporanei
+- **THEN** l'indicatore della scheda e la barra sotto il token mostrano gli attuali pieni e una riga distinta per i 6 temporanei; il token mostra `40/40` e `+6 temp`
+
+#### Scenario: Soglie dei colori
+
+- **WHEN** gli HP attuali sono 19, 20, 50 o 51 su 100 massimi
+- **THEN** la riga degli attuali è rispettivamente rossa, gialla, gialla e verde, sia nella scheda sia sul token
+
 #### Scenario: Numero da tastiera
 
 - **WHEN** un Adventurer porta il fuoco da tastiera sul proprio token
-- **THEN** il numero esatto degli HP compare accanto alla barra e il nome accessibile del token li elenca
+- **THEN** il numero esatto degli HP è già dentro la barra e il nome accessibile del token li elenca
 
 #### Scenario: Token senza HP massimi
 

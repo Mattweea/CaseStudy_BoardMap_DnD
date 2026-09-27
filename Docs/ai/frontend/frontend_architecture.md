@@ -38,6 +38,7 @@ Do not add a shared game field only to React state. A shared field requires the 
 
 ## Component conventions
 
+- Editable text inputs (`text`, `search`, `email`, `password`, `tel`, `url`, including the default type) and textareas select their full contents when they receive focus. The delegated `focusin` handler is installed before React mounts, so it also covers later dialogs and panels. Disabled and read-only fields, number inputs, and non-text controls are excluded. A subsequent click within the focused field can position the caret normally. When a shortcut prepopulates a prefix, the field's change handler must preserve that prefix on the first replacement keystroke; the token HP editor uses this for `-` and `+`.
 - Keep domain calculations in focused utilities or the owning state hook rather than JSX.
 - Reuse `Modal` for modal surfaces and preserve close behavior and focus expectations.
 - Keep permission-based controls out of the DOM when the user cannot invoke them, while still enforcing permissions server-side.

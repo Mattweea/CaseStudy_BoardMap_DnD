@@ -34,6 +34,7 @@ import {
   standUpCost,
 } from '../shared/token-conditions.mjs';
 import { projectSheetAuras } from '../shared/token-auras.mjs';
+import { parseHitPointInput, readHitPointNumber } from '../shared/hit-points.mjs';
 
 const app = Fastify({
   logger: true,
@@ -220,6 +221,16 @@ function applyVehicleAwareUpdates(tokens) {
 }
 
 function normalizeSharedState(parsed) {
+  const canonicalTokenIds = new Set();
+  const seenOwners = new Set();
+  if (Array.isArray(parsed?.tokens)) {
+    for (const token of parsed.tokens) {
+      if (token?.type === 'player' && token.isFamiliar !== true && typeof token.ownerUserId === 'string' && !seenOwners.has(token.ownerUserId)) {
+        seenOwners.add(token.ownerUserId);
+        canonicalTokenIds.add(token.id);
+      }
+    }
+  }
   const tokens = Array.isArray(parsed?.tokens)
     ? parsed.tokens.map((token) => {
         // `aura` (singolare) è una forma pre-P0.8 mai più scritta; `auras` in ingresso, in ogni
@@ -269,6 +280,7 @@ function normalizeSharedState(parsed) {
           groupId: typeof token.groupId === 'string' ? token.groupId : null,
           hitPoints: typeof token.hitPoints === 'number' ? token.hitPoints : null,
           maxHitPoints: typeof token.maxHitPoints === 'number' ? token.maxHitPoints : null,
+          temporaryHitPoints: typeof token.temporaryHitPoints === 'number' ? token.temporaryHitPoints : null,
           isInvisible: token.isInvisible === true,
           isFamiliar: token.isFamiliar === true,
           blocksMovement: token.blocksMovement === true,
@@ -276,6 +288,7 @@ function normalizeSharedState(parsed) {
           // Le aure sono sempre ricalcolate dalla scheda collegata: il valore in ingresso, in
           // ogni forma (nuova o legacy), è ignorato (design, decisione 3, P0.8d).
           auras: resolveTokenAuras({ type, ownerUserId: token.ownerUserId, isFamiliar: token.isFamiliar === true }),
+          ...(canonicalTokenIds.has(token.id) ? resolveTokenHitPoints({ type, ownerUserId: token.ownerUserId, isFamiliar: token.isFamiliar === true }) : {}),
           ...normalizeConditionsForType(type, token.conditions, token.exhaustionLevel),
         };
       })
@@ -475,6 +488,21 @@ function resolveTokenAuras(token) {
     return projectSheetAuras(characterSheetService.readInternal(sheetId).character.auras);
   } catch {
     return [];
+  }
+}
+
+function resolveTokenHitPoints(token) {
+  const sheetId = findLinkedSheetId(token);
+  if (!sheetId) return {};
+  try {
+    const { current, maximum, temporary } = characterSheetService.readInternal(sheetId).character.hitPoints;
+    return {
+      hitPoints: readHitPointNumber(current),
+      maxHitPoints: readHitPointNumber(maximum),
+      temporaryHitPoints: readHitPointNumber(temporary),
+    };
+  } catch {
+    return { hitPoints: null, maxHitPoints: null, temporaryHitPoints: null };
   }
 }
 
@@ -766,6 +794,9 @@ function sanitizeStateForUser(state, user) {
   // La frazione di spareggio non raggiunge mai un Adventurer: l'ordine gli arriva già deciso.
   return {
     ...sanitized,
+    tokens: sanitized.tokens.map((token) => token.ownerUserId === user.id ? token : {
+      ...token, hitPoints: null, maxHitPoints: null, temporaryHitPoints: null,
+    }),
     initiatives: sanitized.initiatives.map(({ tiebreaker: _tiebreaker, ...entry }) => entry),
   };
 }
@@ -973,13 +1004,16 @@ function sendTemplateEvent(user, body) {
   return { status: 200 };
 }
 
-function projectCharacterSheetToToken(ownerUserId, updates) {
+function projectCharacterSheetToToken(ownerUserId, updates, { hitPointTransition = null } = {}) {
   const tokenIndex = battleMapState.tokens.findIndex(
     (token) => token.ownerUserId === ownerUserId && token.type === 'player' && token.isFamiliar !== true,
   );
   if (tokenIndex < 0) return;
   const nextTokens = [...battleMapState.tokens];
-  nextTokens[tokenIndex] = { ...nextTokens[tokenIndex], ...updates };
+  const token = { ...nextTokens[tokenIndex], ...updates };
+  if (hitPointTransition === 'down') token.conditions = applyConditionChange(token, 'add', 'unconscious').conditions;
+  if (hitPointTransition === 'up') token.conditions = applyConditionChange(token, 'remove', 'unconscious').conditions;
+  nextTokens[tokenIndex] = token;
   battleMapState = normalizeSharedState({ ...battleMapState, tokens: nextTokens });
   bumpBattleMapVersion();
   broadcastSnapshot();
@@ -1501,17 +1535,6 @@ function updateOwnedToken(user, tokenId, updates) {
   }
 
   const nextUpdates = {};
-  if (typeof updates?.hitPoints === 'number') {
-    nextUpdates.hitPoints = updates.hitPoints;
-  } else if (updates?.hitPoints === null) {
-    nextUpdates.hitPoints = null;
-  }
-
-  if (typeof updates?.maxHitPoints === 'number') {
-    nextUpdates.maxHitPoints = updates.maxHitPoints;
-  } else if (updates?.maxHitPoints === null) {
-    nextUpdates.maxHitPoints = null;
-  }
 
   // `conditions` è ignorato di proposito (design, decisione 3): resta nel payload solo per
   // compatibilità con client non aggiornati. Le condizioni cambiano solo tramite
@@ -1554,8 +1577,6 @@ function updateOwnedToken(user, tokenId, updates) {
       type: 'token-update',
       tokenId,
       previousValues: {
-        hitPoints: token.hitPoints ?? null,
-        maxHitPoints: token.maxHitPoints ?? null,
         isInvisible: token.isInvisible === true,
       },
     });
@@ -1619,6 +1640,19 @@ function addExtraMovement(user, tokenId, amount) {
 // imposta il livello di Indebolimento, applicata alle condizioni correnti del token invece di
 // sostituire l'intero elenco. Autorizzato per il Master su ogni token, e per l'Adventurer sui
 // propri token, famiglio compreso (stesso `ownerUserId` di un personaggio normale).
+function applyConditionChange(token, type, condition) {
+  const catalog = conditionCatalogFor(token.type);
+  const current = Array.isArray(token.conditions) ? token.conditions : [];
+  if (typeof condition !== 'string' || !catalog.includes(condition)) return null;
+  if (type === 'add') {
+    const added = current.includes(condition) ? [] : [condition];
+    if (added.length && condition === 'unconscious' && !current.includes('prone')) added.push('prone');
+    return { conditions: [...current, ...added], added, removed: [] };
+  }
+  const removed = current.includes(condition) ? [condition] : [];
+  return { conditions: current.filter((entry) => entry !== condition), added: [], removed };
+}
+
 function applyTokenCondition(user, tokenId, op) {
   const token = battleMapState.tokens.find((entry) => entry.id === tokenId);
   if (!token) {
@@ -1629,7 +1663,6 @@ function applyTokenCondition(user, tokenId, op) {
     return { status: 403, message: 'Puoi modificare solo le condizioni dei tuoi token.' };
   }
 
-  const catalog = conditionCatalogFor(token.type);
   const currentConditions = Array.isArray(token.conditions) ? token.conditions : [];
   let nextConditions = currentConditions;
   let nextExhaustion = token.exhaustionLevel ?? 0;
@@ -1637,29 +1670,12 @@ function applyTokenCondition(user, tokenId, op) {
   const removed = [];
   let exhaustionChanged = false;
 
-  if (op?.type === 'add') {
-    const condition = op.condition;
-    if (typeof condition !== 'string' || !catalog.includes(condition)) {
-      return { status: 400, message: 'Condizione non valida per questo tipo di token.' };
-    }
-    if (!currentConditions.includes(condition)) {
-      nextConditions = [...currentConditions, condition];
-      added.push(condition);
-      // Automatismo PHB 2014: Privo di sensi porta anche Prono, se non già presente.
-      if (condition === 'unconscious' && catalog.includes('prone') && !nextConditions.includes('prone')) {
-        nextConditions.push('prone');
-        added.push('prone');
-      }
-    }
-  } else if (op?.type === 'remove') {
-    const condition = op.condition;
-    if (typeof condition !== 'string' || !catalog.includes(condition)) {
-      return { status: 400, message: 'Condizione non valida per questo tipo di token.' };
-    }
-    if (currentConditions.includes(condition)) {
-      nextConditions = currentConditions.filter((entry) => entry !== condition);
-      removed.push(condition);
-    }
+  if (op?.type === 'add' || op?.type === 'remove') {
+    const change = applyConditionChange(token, op.type, op.condition);
+    if (!change) return { status: 400, message: 'Condizione non valida per questo tipo di token.' };
+    nextConditions = change.conditions;
+    added.push(...change.added);
+    removed.push(...change.removed);
   } else if (op?.type === 'set-exhaustion') {
     if (token.type !== 'player' && token.type !== 'enemy') {
       return { status: 400, message: "L'Indebolimento vale solo per le creature." };
@@ -2645,6 +2661,39 @@ app.post('/api/battle-map/token-update', async (request, reply) => {
   }
 
   return nextSnapshot(user);
+});
+
+app.post('/api/battle-map/token-hit-points', async (request, reply) => {
+  const user = requireUser(request, reply);
+  if (!user) return;
+  const { tokenId, input } = request.body ?? {};
+  const token = battleMapState.tokens.find((entry) => entry.id === tokenId);
+  if (!token) return reply.code(404).send({ message: 'Token non trovato.', ...nextSnapshot(user) });
+  if (token.type !== 'player' || token.isFamiliar === true ||
+      findCharacterTokenForOwner(battleMapState.tokens, token.ownerUserId)?.id !== token.id || !findLinkedSheetId(token)) {
+    return reply.code(400).send({ message: 'Il token non ha una scheda collegata.', ...nextSnapshot(user) });
+  }
+  if (user.role !== 'master' && token.ownerUserId !== user.id) {
+    return reply.code(403).send({ message: 'Puoi modificare solo gli HP del tuo personaggio.', ...nextSnapshot(user) });
+  }
+  const parsed = parseHitPointInput(input);
+  if (parsed.kind === 'invalid') {
+    return reply.code(400).send({ message: 'Inserisci un valore assoluto non negativo oppure +N o -N da 1 a 999.', ...nextSnapshot(user) });
+  }
+  try {
+    const sheetId = findLinkedSheetId(token);
+    if (parsed.kind === 'delta') characterSheetService.adjustHitPoints(user, sheetId, parsed.value);
+    else {
+      const sheet = characterSheetService.get(user, sheetId);
+      characterSheetService.applyPatch(user, sheetId, {
+        baseVersion: sheet.version,
+        operations: [{ op: 'set', path: 'character.hitPoints.current', value: parsed.kind === 'empty' ? '' : String(parsed.value) }],
+      });
+    }
+    return nextSnapshot(user);
+  } catch (error) {
+    return reply.code(Number.isInteger(error?.status) ? error.status : 500).send({ message: error.message, ...nextSnapshot(user) });
+  }
 });
 
 app.post('/api/battle-map/token-conditions', async (request, reply) => {

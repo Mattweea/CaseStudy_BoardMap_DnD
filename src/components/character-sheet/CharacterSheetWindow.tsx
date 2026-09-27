@@ -83,7 +83,7 @@ export function CharacterSheetWindow({ sheetId, isOpen, title, onClose, onRoll, 
   const positionRef = useRef<WindowPosition | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<() => Promise<void>>(async () => undefined);
-  const { sheet, draft, saveState, error, conflicts, patch, flush, uploadPortrait } = useCharacterSheet(sheetId, isOpen);
+  const { sheet, draft, saveState, error, conflicts, patch, flush, adjustHitPoints, uploadPortrait } = useCharacterSheet(sheetId, isOpen);
 
   const close = async () => { await flush(); onClose(); };
   closeRef.current = close;
@@ -235,7 +235,7 @@ export function CharacterSheetWindow({ sheetId, isOpen, title, onClose, onRoll, 
       {error ? <div className="sheet-alert" role="alert"><strong>{saveState === 'error' ? 'La pergamena non è stata salvata.' : 'Attenzione'}</strong><span>{error}</span></div> : null}
       {conflicts.length ? <div className="sheet-conflicts" role="alert"><strong>Conflitto da risolvere</strong>{conflicts.map((conflict) => <p key={conflict.path}><code>{conflict.path}</code>: il tuo valore <b>{String(conflict.localValue ?? '')}</b>, sul server <b>{String(conflict.value ?? '')}</b>.</p>)}</div> : null}
       <div className="character-sheet-window__scroll" role="tabpanel">
-        {!draft ? <div className="sheet-loading">Apro la scheda…</div> : activeTab === 'character' ? <CharacterTab data={draft} patch={patch} sheetId={sheetId ?? undefined} onRoll={onRoll} diceLogs={diceLogs} rollVisibility={rollVisibility} sessionMode={sessionMode} measurementUnit={measurementUnit} /> : activeTab === 'story' ? <StoryTab data={draft} portraitUrl={sheet?.portraitUrl ?? null} patch={patch} onPortrait={(file) => void uploadPortrait(file)} /> : <SpellsTab data={draft} patch={patch} />}
+        {!draft ? <div className="sheet-loading">Apro la scheda…</div> : activeTab === 'character' ? <CharacterTab data={draft} patch={patch} onAdjustHitPoints={adjustHitPoints} sheetId={sheetId ?? undefined} onRoll={onRoll} diceLogs={diceLogs} rollVisibility={rollVisibility} sessionMode={sessionMode} measurementUnit={measurementUnit} /> : activeTab === 'story' ? <StoryTab data={draft} portraitUrl={sheet?.portraitUrl ?? null} patch={patch} onPortrait={(file) => void uploadPortrait(file)} /> : <SpellsTab data={draft} patch={patch} />}
       </div>
     </div>
   </div>;

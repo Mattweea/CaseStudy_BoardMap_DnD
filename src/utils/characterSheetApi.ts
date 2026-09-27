@@ -37,6 +37,9 @@ export const characterSheetApi = {
   patch: (id: string, baseVersion: number, operations: CharacterSheetPatchOperation[]) => request<CharacterSheetRecord & { operations: CharacterSheetPatchOperation[] }>(`/character-sheets/${id}`, {
     method: 'PATCH', body: JSON.stringify({ baseVersion, operations }),
   }),
+  adjustHitPoints: (id: string, delta: number) => request<CharacterSheetRecord>(`/character-sheets/${id}/hit-points`, {
+    method: 'POST', body: JSON.stringify({ delta }),
+  }),
   flush: (id: string) => request<CharacterSheetRecord>(`/character-sheets/${id}/flush`, { method: 'POST', body: '{}' }),
   portrait: (id: string, file: File) => {
     const form = new FormData(); form.append('portrait', file);

@@ -66,7 +66,7 @@ export function ComputedWithMiscBonus({ label, value, miscBonus, onMiscBonus, co
     data-roll-source={rollSource} aria-disabled={rollDisabledReason ? true : undefined} title={rollDisabledReason}
   >
     {badge}
-    <output aria-label={label}>{formatSigned(value)}</output>
+    <output aria-label={rollDisabledReason ? `${label}. ${rollDisabledReason}` : label}>{formatSigned(value)}</output>
     <input className="framed-value__misc" value={miscBonus} onChange={(event) => onMiscBonus(event.target.value)} aria-label={`Bonus vari: ${label}`} placeholder="±" title="Bonus vari" />
     <span>{label}</span>
   </div>;

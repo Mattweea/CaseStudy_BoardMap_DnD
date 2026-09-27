@@ -212,17 +212,18 @@ test('un commit a stato pieno del Master con una condizione sconosciuta la scart
 
 // --- 2.2 updateOwnedToken ignora `conditions` ----------------------------------------------------
 
-test("l'invio di un elenco completo di condizioni tramite token-update viene ignorato, ma HP e gli altri campi continuano ad aggiornarsi", async () => {
+test("token-update ignora condizioni e HP inviati direttamente", async () => {
   __testing.setBattleMapState({ tokens: [heroToken({ conditions: ['prone'], hitPoints: 10, maxHitPoints: 10 })] });
 
-  const response = await tokenUpdate(PLAYER, {
+  const response = await tokenUpdate(MASTER, {
     tokenId: 'hero-1',
-    updates: { conditions: ['poisoned', 'stunned'], hitPoints: 5 },
+    updates: { conditions: ['poisoned', 'stunned'], hitPoints: 5, excludeFromInitiative: true },
   });
   assert.equal(response.statusCode, 200);
   const token = response.json().state.tokens[0];
   assert.deepEqual(token.conditions, ['prone']);
-  assert.equal(token.hitPoints, 5);
+  assert.equal(token.hitPoints, 10);
+  assert.equal(token.excludeFromInitiative, true);
 });
 
 // --- 2.3 POST /api/battle-map/stand-up -----------------------------------------------------------

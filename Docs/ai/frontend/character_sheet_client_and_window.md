@@ -11,6 +11,7 @@ Define the browser-side editing, reconciliation, window, accessibility, and pres
 - Incoming sheet patch events apply only when newer and must not overwrite a path that still has a local pending operation.
 - A `409` keeps the local value available and displays the server value, path, and version for explicit resolution. Persistence errors must remain visible and must not be presented as saved.
 - Closing the sheet invokes the explicit flush path after queued client operations have been sent.
+- The current HP field keeps a local text draft and confirms on Enter or blur; Escape restores the last sheet value. Signed `+N`/`-N` input first flushes queued sheet edits, then calls the relative HP endpoint and applies its returned sheet when the version is current. Absolute and empty input use a normal `set` patch. Invalid syntax sends no request and exposes an associated error message; server rejections appear at the same field. The meter and token bar share `hitPointTone` thresholds: red below 20%, yellow from 20% through 50%, green above 50%. Their current and temporary HP rows are each scaled against maximum HP, so temporary HP remain visible even when current HP equal the maximum.
 
 ## Window and accessibility
 
@@ -23,7 +24,7 @@ Define the browser-side editing, reconciliation, window, accessibility, and pres
 
 - Keep the Grimorio di brace visual system in `src/styles/character-sheet.css` and reuse its established field, panel, collection-row, focus, and reduced-motion conventions.
 - Preserve stable row IDs and `data-roll-source` anchors. They are wired to the roll engine (see "Roll interaction" below), not a decoration. The current anchor set (six abilities, six saving throws, eighteen skills, initiative, one per tool row, two per attack row — `attack:<id>` on the bonus and `attack-damage:<id>` on the damage — the hit dice panel, the death-saves panel) is exhaustive; passive perception and every spell-tab row are deliberately unanchored.
-- Portrait upload updates the sheet/roster reference; it must not silently replace the battle-map token image.
+- Portrait upload updates the sheet/roster reference and the canonical character token's displayed image for connected participants. The token image is a browser presentation override; the upload does not write a new image URL into battle-map shared state. Tokens without an uploaded portrait and noncanonical tokens retain their own image.
 
 ## Derived values and row editors
 

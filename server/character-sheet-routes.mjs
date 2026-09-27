@@ -51,6 +51,11 @@ export async function registerCharacterSheetRoutes(app, { service, portraitStora
     try { return service.applyPatch(user, request.params.id, request.body); } catch (error) { return sendError(reply, error); }
   });
 
+  app.post('/api/character-sheets/:id/hit-points', async (request, reply) => {
+    const user = authenticated(request, reply); if (!user) return;
+    try { return service.adjustHitPoints(user, request.params.id, request.body?.delta); } catch (error) { return sendError(reply, error); }
+  });
+
   app.post('/api/character-sheets/:id/flush', async (request, reply) => {
     const user = authenticated(request, reply); if (!user) return;
     try { return service.flush(user, request.params.id); } catch (error) { return sendError(reply, error); }

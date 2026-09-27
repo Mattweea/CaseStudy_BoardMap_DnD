@@ -9,7 +9,7 @@ import { createInitialCharacterSheetData } from '../server/character-sheet-schem
 async function createApp() {
   const record = { id: 'sheet-1', ownerUserId: 'owner', campaignId: 'campaign', version: 1, data: createInitialCharacterSheetData(), portraitFileName: null, portraitMediaType: null, portraitUpdatedAt: null };
   const repository = {
-    findById: () => structuredClone(record),
+    findById: (id) => id === record.id ? structuredClone(record) : null,
     findByCampaign: () => [structuredClone(record)],
     saveVersion: ({ expectedVersion, version, data }) => {
       if (record.version !== expectedVersion) return null;
@@ -45,4 +45,31 @@ test('character sheet HTTP authorization, validation and conflicts', async () =>
     assert.equal(conflict.statusCode, 409);
     assert.equal(conflict.json().conflicts[0].value, 'A');
   } finally { await app.close(); }
+});
+
+test('relative HP route validates role, values and composes live deltas', async () => {
+  const app = await createApp();
+  const request = (user, delta, id = 'sheet-1') => app.inject({ method: 'POST', url: `/api/character-sheets/${id}/hit-points`, headers: { 'x-test-user': user }, payload: { delta } });
+  const patch = async (operations) => app.inject({ method: 'PATCH', url: '/api/character-sheets/sheet-1', headers: { 'x-test-user': 'owner' }, payload: { baseVersion: 1, operations } });
+  try {
+    assert.equal((await request('owner', -1, 'missing')).statusCode, 404);
+    assert.equal((await request('other', -1)).statusCode, 403);
+    for (const delta of [0, 1000, 1.5]) assert.equal((await request('owner', delta)).statusCode, 400);
+    assert.match((await request('owner', -1)).json().message, /attuali/);
+    await patch([{ op: 'set', path: 'character.hitPoints.current', value: '12' }]);
+    assert.match((await request('owner', 1)).json().message, /massimi/);
+  } finally { await app.close(); }
+
+  const app2 = await createApp();
+  try {
+    const seeded = await app2.inject({ method: 'PATCH', url: '/api/character-sheets/sheet-1', headers: { 'x-test-user': 'owner' }, payload: { baseVersion: 1, operations: [
+      { op: 'set', path: 'character.hitPoints.current', value: '12' },
+      { op: 'set', path: 'character.hitPoints.maximum', value: '20' },
+      { op: 'set', path: 'character.hitPoints.temporary', value: '0' },
+    ] } });
+    assert.equal(seeded.statusCode, 200);
+    const damage = (user) => app2.inject({ method: 'POST', url: '/api/character-sheets/sheet-1/hit-points', headers: { 'x-test-user': user }, payload: { delta: -5 } });
+    assert.equal((await damage('owner')).json().data.character.hitPoints.current, '7');
+    assert.equal((await damage('master')).json().data.character.hitPoints.current, '2');
+  } finally { await app2.close(); }
 });

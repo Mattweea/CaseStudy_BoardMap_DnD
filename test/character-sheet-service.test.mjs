@@ -44,6 +44,49 @@ function harness(overrides = {}) {
 
 const owner = { id: 'player-1', role: 'adventurer' };
 
+test('HP transitions reset death saves in the same patch and projection', () => {
+  const { service, events } = harness();
+  const projections = [];
+  service.projectToken = (ownerUserId, updates, options) => projections.push({ ownerUserId, updates, options });
+  const set = (baseVersion, path, value) => service.applyPatch(owner, 'sheet-1', { baseVersion, operations: [{ op: 'set', path, value }] });
+  set(1, 'character.hitPoints.current', '3');
+  set(2, 'character.deathSaves.successes', '2');
+  set(3, 'character.deathSaves.failures', '1');
+  const down = set(4, 'character.hitPoints.current', '0');
+  assert.equal(projections.at(-1).options.hitPointTransition, 'down');
+  assert.equal(down.version, 5);
+  const stillDown = set(5, 'character.hitPoints.current', '0');
+  assert.equal(projections.at(-1).options.hitPointTransition, null);
+  assert.equal(stillDown.data.character.deathSaves.successes, '2');
+  const up = set(6, 'character.hitPoints.current', '1');
+  assert.equal(up.version, 7);
+  assert.equal(up.data.character.deathSaves.successes, '0');
+  assert.equal(up.data.character.deathSaves.failures, '0');
+  assert.equal(projections.at(-1).options.hitPointTransition, 'up');
+  assert.deepEqual(events.filter((event) => event.type === 'character-sheet-patch').at(-1).operations.map((operation) => operation.path), [
+    'character.hitPoints.current', 'character.deathSaves.successes', 'character.deathSaves.failures',
+  ]);
+  set(7, 'character.hitPoints.current', '2');
+  assert.equal(projections.at(-1).options.hitPointTransition, null);
+});
+
+test('relative HP updates read live values and preserve temporary HP rules', () => {
+  const { service } = harness();
+  service.applyPatch(owner, 'sheet-1', { baseVersion: 1, operations: [
+    { op: 'set', path: 'character.hitPoints.current', value: '12' },
+    { op: 'set', path: 'character.hitPoints.maximum', value: '20' },
+    { op: 'set', path: 'character.hitPoints.temporary', value: '5' },
+  ] });
+  const first = service.adjustHitPoints(owner, 'sheet-1', -8);
+  assert.equal(first.data.character.hitPoints.current, '9');
+  assert.equal(first.data.character.hitPoints.temporary, '0');
+  const second = service.adjustHitPoints(owner, 'sheet-1', -5);
+  assert.equal(second.data.character.hitPoints.current, '4');
+  assert.equal(service.adjustHitPoints(owner, 'sheet-1', 50).data.character.hitPoints.current, '20');
+  assert.throws(() => service.adjustHitPoints(owner, 'sheet-1', 0), (error) => error.status === 400);
+  assert.throws(() => service.adjustHitPoints(owner, 'sheet-1', 1000), (error) => error.status === 400);
+});
+
 test('valid patch changes only requested path and invalid patch is atomic', () => {
   const { service } = harness();
   const result = service.applyPatch(owner, 'sheet-1', { baseVersion: 1, operations: [{ op: 'set', path: 'character.name', value: 'Vesuth' }] });

@@ -1,5 +1,6 @@
 import { CHARACTER_COLLECTION_KEYS, validateCharacterSheetData, validatePatchOperation } from './character-sheet-schema.mjs';
 import { computeInitiative } from '../shared/dnd-rules.mjs';
+import { applyHitPointDelta, hitPointTransition, readHitPointNumber } from '../shared/hit-points.mjs';
 
 export class CharacterSheetError extends Error {
   constructor(message, status = 400, details = {}) {
@@ -190,12 +191,23 @@ export class CharacterSheetService {
 
     const nextData = structuredClone(state.data);
     operations.forEach((operation) => applyOperation(nextData, operation));
+    const transition = hitPointTransition(state.data.character.hitPoints.current, nextData.character.hitPoints.current);
+    const committedOperations = [...operations];
+    if (transition === 'up') {
+      for (const key of ['successes', 'failures']) {
+        if (nextData.character.deathSaves[key] !== '0') {
+          const reset = { op: 'set', path: `character.deathSaves.${key}`, value: '0' };
+          applyOperation(nextData, reset);
+          committedOperations.push(reset);
+        }
+      }
+    }
     const documentErrors = validateCharacterSheetData(nextData);
     if (documentErrors.length) throw new CharacterSheetError(documentErrors.join(' '), 400);
 
     state.data = nextData;
     state.version += 1;
-    operations.forEach((operation) => state.pathVersions.set(conflictPath(operation), state.version));
+    committedOperations.forEach((operation) => state.pathVersions.set(conflictPath(operation), state.version));
     state.dirty = true;
     state.persistence = { status: 'saving', version: state.version, message: null };
     this.#scheduleFlush(state);
@@ -205,16 +217,34 @@ export class CharacterSheetService {
       sheetId: id,
       ownerUserId: state.record.ownerUserId,
       version: state.version,
-      operations: structuredClone(operations),
+      operations: structuredClone(committedOperations),
     };
     this.emit(event, state.record);
-    this.#projectOperations(state.record.ownerUserId, operations, state.data);
+    this.#projectOperations(state.record.ownerUserId, committedOperations, state.data, transition);
     return { ...publicSheet(state), operations: event.operations };
+  }
+
+  adjustHitPoints(user, id, delta) {
+    const state = this.#load(id);
+    if (!this.policy.canWrite(user, state.record)) throw new CharacterSheetError('Modifica della scheda negata.', 403);
+    if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 999) {
+      throw new CharacterSheetError('La variazione degli HP deve essere un intero da 1 a 999 con segno.', 400);
+    }
+    const hitPoints = state.data.character.hitPoints;
+    const result = applyHitPointDelta(hitPoints, delta);
+    if ('error' in result) {
+      throw new CharacterSheetError(result.error === 'missing-current' ? 'Imposta prima gli HP attuali.' : 'Imposta prima gli HP massimi.', 400);
+    }
+    const operations = [{ op: 'set', path: 'character.hitPoints.current', value: String(result.current) }];
+    if (result.temporary !== hitPoints.temporary && readHitPointNumber(result.temporary) !== readHitPointNumber(hitPoints.temporary)) {
+      operations.push({ op: 'set', path: 'character.hitPoints.temporary', value: String(result.temporary) });
+    }
+    return this.applyPatch(user, id, { baseVersion: state.version, operations });
   }
 
   // L'iniziativa non è più un campo della scheda: una patch sul punteggio di Destrezza o
   // sul suo bonus vari innesca il ricalcolo dal modulo condiviso, non una mappatura diretta.
-  #projectOperations(ownerUserId, operations, data) {
+  #projectOperations(ownerUserId, operations, data, transition = null) {
     const updates = {};
     const mapping = {
       'character.name': ['name', (value) => value],
@@ -245,7 +275,7 @@ export class CharacterSheetService {
       });
       if (initiativeModifier !== null) updates.initiativeModifier = initiativeModifier;
     }
-    if (auraCollectionChanged || Object.keys(updates).length) this.projectToken(ownerUserId, updates);
+    if (auraCollectionChanged || Object.keys(updates).length) this.projectToken(ownerUserId, updates, { hitPointTransition: transition });
   }
 
   #scheduleFlush(state, delay = this.debounceMs) {

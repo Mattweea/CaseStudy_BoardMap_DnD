@@ -3,10 +3,12 @@ import type { UnitToken } from '../types';
 import { BOARD_CONFIG } from '../constants/board';
 import { gridToPixels } from '../utils/board';
 import { conditionLabel, tokenCompactLabel, tokenTypeLabel, vehicleCompactLabel } from '../utils/tokens';
+import { hitPointTone } from '../../shared/hit-points.mjs';
 import { ConditionBadge } from './ConditionBadge';
 
 interface TokenProps {
   token: UnitToken;
+  portraitUrl?: string | null;
   tokens: UnitToken[];
   isSelected: boolean;
   isDragging: boolean;
@@ -26,6 +28,7 @@ interface TokenProps {
 
 export function Token({
   token,
+  portraitUrl,
   tokens,
   isSelected,
   isDragging,
@@ -45,12 +48,13 @@ export function Token({
   const isCompact = Math.min(screenWidth, screenHeight) <= 34;
   const compactLabel =
     token.type === 'vehicle' ? vehicleCompactLabel(token, tokens) : tokenCompactLabel(token.name);
+  const imageUrl = portraitUrl ?? token.imageUrl;
   const style = {
     width: screenWidth,
     height: screenHeight,
     transform: `translate(${pixelPosition.x * zoom}px, ${pixelPosition.y * zoom}px)`,
     '--token-color': token.color,
-    '--token-image': token.imageUrl ? `url("${token.imageUrl}")` : 'none',
+    '--token-image': imageUrl ? `url("${imageUrl}")` : 'none',
   } as CSSProperties;
 
   // Il click destro apre il menu radiale delle condizioni quando è permesso e nessuna
@@ -78,6 +82,12 @@ export function Token({
     conditionNames.push(`Indebolimento ${exhaustionLevel}`);
   }
   const accessibleConditions = conditionNames.length > 0 ? `, condizioni: ${conditionNames.join(', ')}` : '';
+  const showHitPoints = typeof token.maxHitPoints === 'number' && token.maxHitPoints > 0;
+  const currentHitPoints = token.hitPoints ?? 0;
+  const temporaryHitPoints = token.temporaryHitPoints ?? 0;
+  const currentRatio = showHitPoints ? Math.min(1, Math.max(0, currentHitPoints / token.maxHitPoints!)) : 0;
+  const temporaryRatio = showHitPoints ? Math.min(1, Math.max(0, temporaryHitPoints / token.maxHitPoints!)) : 0;
+  const hitPointName = showHitPoints ? `, Punti ferita ${currentHitPoints} su ${token.maxHitPoints}${temporaryHitPoints > 0 ? `, ${temporaryHitPoints} temporanei` : ''}` : '';
 
   // Badge sul token: al massimo tre icone (condizioni più, se attivo, l'Indebolimento come una
   // voce in più), poi «+N» per le restanti; l'elenco completo resta nel nome accessibile sopra.
@@ -105,7 +115,7 @@ export function Token({
       data-token-id={token.id}
       onPointerDown={(event) => onPointerDown(event, token)}
       onContextMenu={handleContextMenu}
-      aria-label={`Elemento ${token.name}, ${tokenTypeLabel(token.type)}${accessibleConditions}`}
+      aria-label={`Elemento ${token.name}, ${tokenTypeLabel(token.type)}${accessibleConditions}${hitPointName}`}
     >
       {totalBadgeCount > 0 ? (
         <span className="token__conditions">
@@ -126,9 +136,18 @@ export function Token({
           ) : null}
         </span>
       ) : null}
-      {token.maxHitPoints !== null && token.maxHitPoints !== undefined ? (
-        <span className="token__hp" aria-label={`Punti ferita ${token.hitPoints ?? 0} su ${token.maxHitPoints}`}>
-          {`${token.hitPoints ?? 0}/${token.maxHitPoints}`}
+      {showHitPoints ? (
+        <span className={`token__hp token__hp--${hitPointTone(currentHitPoints, token.maxHitPoints!)} ${currentHitPoints === 0 ? 'token__hp--empty' : ''}`} aria-hidden="true">
+          <span className="token__hp-row">
+            <span className="token__hp-current" style={{ width: `${currentRatio * 100}%` }} />
+            <span className="token__hp-label">{currentHitPoints}/{token.maxHitPoints}</span>
+          </span>
+          {temporaryRatio > 0 ? (
+            <span className="token__hp-row token__hp-row--temporary">
+              <span className="token__hp-temporary" style={{ width: `${temporaryRatio * 100}%` }} />
+              <span className="token__hp-label">+{temporaryHitPoints} temp</span>
+            </span>
+          ) : null}
         </span>
       ) : null}
       {isCompact ? <span className="token__compact">{compactLabel}</span> : null}

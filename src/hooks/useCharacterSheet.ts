@@ -46,11 +46,12 @@ export function useCharacterSheet(sheetId: string | null, isOpen: boolean) {
   const pendingRef = useRef(new Map<string, CharacterSheetPatchOperation>());
   const timerRef = useRef<number | null>(null);
   const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingSendFailedRef = useRef(false);
 
   useEffect(() => {
     if (!sheetId || !isOpen) return;
     let active = true;
-    setSaveState('loading'); setError(null); setConflicts([]); pendingRef.current.clear();
+    setSaveState('loading'); setError(null); setConflicts([]); pendingRef.current.clear(); pendingSendFailedRef.current = false;
     void characterSheetApi.get(sheetId).then((record) => {
       if (!active) return;
       versionRef.current = record.version; setSheet(record); setDraft(record.data); setSaveState(record.persistence.status === 'error' ? 'error' : 'saved');
@@ -65,11 +66,19 @@ export function useCharacterSheet(sheetId: string | null, isOpen: boolean) {
     setSaveState('saving');
     try {
       const response = await characterSheetApi.patch(sheetId, versionRef.current, operations);
+      pendingSendFailedRef.current = false;
       if (response.version >= versionRef.current) {
         versionRef.current = response.version; setSheet(response); setConflicts([]); setError(null);
+        setDraft((current) => {
+          if (!current) return current;
+          const next = structuredClone(current);
+          response.operations.forEach((operation) => { if (!pendingRef.current.has(operationKey(operation))) applyOperation(next, operation); });
+          return next;
+        });
       }
       setSaveState(pendingRef.current.size ? 'editing' : 'saving');
     } catch (reason) {
+      pendingSendFailedRef.current = true;
       const requestError = reason as Error & { status?: number; payload?: { conflicts?: Array<{ path: string; version: number; value: unknown }> } };
       setError(requestError.message); setSaveState('error');
       if (requestError.status === 409) {
@@ -109,6 +118,32 @@ export function useCharacterSheet(sheetId: string | null, isOpen: boolean) {
     catch (reason) { setError((reason as Error).message); setSaveState('error'); }
   }, [sendPending, sheetId]);
 
+  const adjustHitPoints = useCallback(async (delta: number) => {
+    if (!sheetId) throw new Error('Scheda non disponibile.');
+    if (timerRef.current !== null) { window.clearTimeout(timerRef.current); timerRef.current = null; }
+    await queueRef.current;
+    await sendPending();
+    if (pendingSendFailedRef.current || pendingRef.current.size > 0) throw new Error('Risolvi prima le modifiche in sospeso.');
+    try {
+      const response = await characterSheetApi.adjustHitPoints(sheetId, delta);
+      if (response.version >= versionRef.current) {
+        versionRef.current = response.version;
+        setSheet(response);
+        setDraft(() => {
+          const next = structuredClone(response.data);
+          pendingRef.current.forEach((operation) => applyOperation(next, operation));
+          return next;
+        });
+        setError(null);
+        setSaveState('saving');
+      }
+    } catch (reason) {
+      setError((reason as Error).message);
+      setSaveState('error');
+      throw reason;
+    }
+  }, [sendPending, sheetId]);
+
   const uploadPortrait = useCallback(async (file: File) => {
     if (!sheetId) return;
     setSaveState('saving');
@@ -138,5 +173,5 @@ export function useCharacterSheet(sheetId: string | null, isOpen: boolean) {
   }, [sheetId]);
 
   useEffect(() => () => { if (timerRef.current !== null) window.clearTimeout(timerRef.current); }, []);
-  return { sheet, draft, saveState, error, conflicts, patch, flush, uploadPortrait };
+  return { sheet, draft, saveState, error, conflicts, patch, flush, adjustHitPoints, uploadPortrait };
 }
