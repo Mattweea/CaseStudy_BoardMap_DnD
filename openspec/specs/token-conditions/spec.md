@@ -109,9 +109,18 @@ Il menu di una creatura SHALL contenere:
 
 Lo stato attivo di ogni condizione SHALL essere riconoscibile anche senza il colore, con un segno di spunta. Il nome della voce indicata con il puntatore o raggiunta con la navigazione da tastiera SHALL comparire come testo visibile nel menu, con il suo stato e il suo tasto d'accesso, senza dipendere da un tooltip. All'apertura, prima di qualunque indicazione dell'utente, il menu SHALL NOT mostrare il nome di una voce.
 
+Sul token canonico di un personaggio con una scheda collegata e HP massimi numerici, il menu SHALL mostra un'icona dei punti ferita fra le azioni, per chi riceve gli HP di quel token, cioè il proprietario e il Master. La barra proporzionale SHALL restare soltanto sotto il token:
+
+- l'icona SHALL essere una voce del menu, raggiungibile con il puntatore e con i tasti freccia, con nome accessibile «Punti ferita» seguito da attuali, temporanei e massimi;
+- attivare l'icona SHALL aprire un campo dei punti ferita vicino al cuore, con le istruzioni `Invio` per applicare ed `Esc` per annullare; la didascalia sotto la corona SHALL restare riservata alle etichette delle voci;
+- `Invio` SHALL applicare il valore secondo la capability `hit-points`, chiudere il campo e lasciare aperto il menu, con la barra sotto il token aggiornata; un rifiuto SHALL mostrare il motivo accanto al campo e lasciarlo aperto con il valore scritto;
+- `Esc` nel campo SHALL chiudere solo il campo e riportare il fuoco all'icona.
+
+L'icona e il campo SHALL NOT comparire su un famiglio, un nemico, un oggetto o un veicolo.
+
 Il menu di un veicolo SHALL contenere Rotto e Ribaltato. Il menu SHALL NOT offrire un accesso alla modale di modifica del token. Il menu SHALL chiudersi con `Esc` o con un click fuori, e SHALL restare aperto dopo l'attivazione di una condizione, così da permetterne altre.
 
-Il menu, il pannello `+` e il pannello «Aure» SHALL restare interamente dentro l'area visibile della mappa, anche per un token vicino al bordo. I pannelli SHALL NOT coprire il token a cui si riferiscono.
+Il menu, il campo HP, il pannello `+` e il pannello «Aure» SHALL restare interamente dentro l'area visibile della mappa, anche per un token vicino al bordo. I pannelli SHALL NOT coprire il token a cui si riferiscono.
 
 #### Scenario: Apertura dal click destro
 
@@ -163,6 +172,21 @@ Il menu, il pannello `+` e il pannello «Aure» SHALL restare interamente dentro
 - **WHEN** un Adventurer apre il menu del proprio personaggio che ha un'aura nella scheda
 - **THEN** il menu mostra sia «Scatto» sia «Aure»; «Scatto» è attivabile nel proprio turno a round avviato, altrimenti resta visibile con il motivo della disabilitazione
 
+#### Scenario: Icona dei punti ferita
+
+- **WHEN** un Adventurer con 9 HP attuali, 5 temporanei e 20 massimi apre il menu del proprio token
+- **THEN** il menu mostra un'icona degli HP senza barra radiale, la barra resta sotto il token e portando il puntatore sull'icona la didascalia indica «Punti ferita 9 (+5) / 20»
+
+#### Scenario: Danno dall'icona
+
+- **WHEN** il Master fa click sull'icona degli HP del token di un PG, scrive `-8` nel campo vicino al cuore e preme `Invio`
+- **THEN** il danno viene applicato, il campo si chiude, il menu resta aperto e la barra sotto il token mostra i nuovi valori
+
+#### Scenario: Nessuna icona sul famiglio
+
+- **WHEN** un Adventurer apre il menu del proprio famiglio
+- **THEN** il menu non mostra l'icona dei punti ferita
+
 ### Requirement: Menu accessibile da tastiera
 
 Il menu radiale SHALL aprirsi anche con `S` o con `Shift+F10` sul token che ha il fuoco da tastiera, alle stesse condizioni del click destro. Le scorciatoie SHALL restare inerti mentre il fuoco è in un campo di testo e mentre un'interazione di mappa è in corso. Nel menu:
@@ -171,11 +195,12 @@ Il menu radiale SHALL aprirsi anche con `S` o con `Shift+F10` sul token che ha i
 - ogni condizione SHALL avere un tasto d'accesso di una lettera, unico nel catalogo del tipo di token e mostrato nell'etichetta, che la attiva direttamente come la sua voce, anche dalla corona quando la condizione sta nel pannello `+`; «Alzati» SHALL avere un proprio tasto d'accesso, distinto da quello di Prono; «Aure» SHALL avere un proprio tasto d'accesso, distinto da quelli delle condizioni e di «Alzati», che apre il pannello delle aure;
 - nel pannello delle aure gli interruttori SHALL essere raggiungibili con i tasti freccia, attivabili con `Invio` o `Spazio` e annunciare nome e stato, ed `Esc` SHALL riportare alla corona;
 - i tasti da `0` a `6` SHALL impostare direttamente il livello di Indebolimento di una creatura;
+- quando il menu mostra l'icona dei punti ferita, i tasti `-` e `+` SHALL aprire direttamente il campo dei punti ferita con il segno già scritto; mentre il campo ha il fuoco, i tasti digitati SHALL andare al campo e SHALL NOT attivare condizioni, azioni o livelli di Indebolimento;
 - ogni condizione SHALL annunciare il proprio nome e il proprio stato attivo o inattivo;
 - i tasti gestiti dal menu SHALL NOT raggiungere le scorciatoie della mappa: frecce, lettere, `Canc` e `Backspace` premuti nel menu SHALL NOT muovere, cancellare il token o attivare uno strumento di mappa;
 - la chiusura SHALL restituire il fuoco al token.
 
-La legenda dei comandi SHALL elencare il click destro, `S`, `Shift+F10`, i tasti d'accesso delle condizioni, di «Alzati» e di «Aure» e i tasti `0`-`6`.
+La legenda dei comandi SHALL elencare il click destro, `S`, `Shift+F10`, i tasti d'accesso delle condizioni, di «Alzati» e di «Aure», i tasti `0`-`6` e i tasti `-` e `+` per i punti ferita.
 
 #### Scenario: Menu da tastiera
 
@@ -201,6 +226,16 @@ La legenda dei comandi SHALL elencare il click destro, `S`, `Shift+F10`, i tasti
 
 - **WHEN** un Adventurer con un'aura spenta porta il fuoco sul proprio token, preme `S`, poi il tasto d'accesso di «Aure» e poi `Invio`
 - **THEN** l'aura si accende, il suo nuovo stato viene annunciato e il token non si muove
+
+#### Scenario: Danno da tastiera
+
+- **WHEN** un Adventurer porta il fuoco sul proprio token con 12 HP, preme `S`, poi `-`, `3` e `Invio`
+- **THEN** il PG ha 9 HP, il menu resta aperto e il livello di Indebolimento non cambia
+
+#### Scenario: Esc nel campo dei punti ferita
+
+- **WHEN** chi ha aperto il campo dei punti ferita con `+` preme `Esc`
+- **THEN** il campo si chiude senza applicare nulla, il fuoco torna all'icona e il menu resta aperto
 ### Requirement: Badge delle condizioni sul token
 
 Il token SHALL mostrare le condizioni attive come badge con icona, fino a tre, seguiti da un indicatore «+N» per le restanti. Indebolimento SHALL mostrare il proprio livello. Ogni badge SHALL avere un nome testuale accessibile, e l'elenco completo SHALL essere consultabile senza mouse. Le icone SHALL rispettare il requisito di attribuzione delle risorse grafiche con licenza.
