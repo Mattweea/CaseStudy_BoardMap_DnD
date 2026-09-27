@@ -578,8 +578,8 @@ Il tooltip non è una perdita: non è raggiungibile da tastiera e non è annunci
 
 **Players e Master**
 
-- [ ] Scegliere fra più effetti sonori predefiniti per gli eventi già sonorizzati (dadi e avvisi di combattimento), ascoltando un'anteprima prima della scelta. La preferenza è personale e si conserva nello stesso browser.
-- [ ] Consultare una sezione **Legenda dei comandi** aggiornata alle interazioni effettive di mappa, dadi, scheda, turni e condizioni, con differenze fra Player e Master esplicite.
+- [x] Scelti nuovi suoni per inizio combattimento e turno del giocatore.
+- [x] Consultare una sezione **Moduli** aggiornata alle interazioni effettive di mappa, dadi, scheda, turni e condizioni, con differenze fra Player e Master esplicite.
 - [ ] Raggiungere più rapidamente un punto utile della mappa, per esempio il proprio token o un token selezionato, e recuperare una visuale leggibile dopo pan e zoom prolungati. I nuovi comandi devono restare utilizzabili con il pannello aperto o chiuso e non avviare per errore spostamenti o strumenti di mappa.
 
 **Sistema**
@@ -588,7 +588,7 @@ Il tooltip non è una perdita: non è raggiungibile da tastiera e non è annunci
 - [ ] Allineare la guida in-app e `HOWITWORKS.md` ai comandi effettivamente consegnati, eliminando indicazioni superate.
 - [ ] Mantenere pan, zoom e centratura come stato della visuale del singolo client, senza modificare posizione dei token o stato condiviso della partita.
 
-**Stato attuale:** i dadi hanno un interruttore audio; gli avvisi di combattimento hanno silenziamento, volume e anteprima, ma non una scelta dell'effetto. La tab Legenda dei comandi e `HOWITWORKS.md` descrivono la navigazione esistente. Zoom, pan con `Ctrl` o tasto centrale e azione «Localizza» dalla lista personaggi sono già disponibili.
+**Stato attuale:** i dadi hanno un interruttore audio; gli avvisi di combattimento hanno silenziamento, volume e anteprima, ma non una scelta dell'effetto. La tab **Moduli** sostituisce la vecchia Legenda dei comandi con un catalogo di dieci moduli filtrati per ruolo, allineati al codice consegnato; `HOWITWORKS.md` resta non allineato e fuori dal perimetro di questa voce. Zoom, pan con `Ctrl` o tasto centrale e azione «Localizza» dalla lista personaggi sono già disponibili.
 
 **Da definire nel change:** catalogo e associazione degli effetti ai singoli eventi; comandi e gesti precisi per la navigazione migliorata, verificando che non confliggano con pianificazione del movimento, scorciatoie e strumenti della board.
 

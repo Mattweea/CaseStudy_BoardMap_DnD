@@ -200,7 +200,7 @@ Il menu radiale SHALL aprirsi anche con `S` o con `Shift+F10` sul token che ha i
 - i tasti gestiti dal menu SHALL NOT raggiungere le scorciatoie della mappa: frecce, lettere, `Canc` e `Backspace` premuti nel menu SHALL NOT muovere, cancellare il token o attivare uno strumento di mappa;
 - la chiusura SHALL restituire il fuoco al token.
 
-La legenda dei comandi SHALL elencare il click destro, `S`, `Shift+F10`, i tasti d'accesso delle condizioni, di «Alzati» e di «Aure», i tasti `0`-`6` e i tasti `-` e `+` per i punti ferita.
+La guida della tab Moduli SHALL documentare questi comandi per ogni ruolo che può usarli: il modulo «Condizioni» SHALL elencare il click destro, `S`, `Shift+F10`, i tasti d'accesso delle condizioni e di «Alzati» e i tasti `0`-`6`; il modulo «Aure» SHALL elencare il tasto d'accesso di «Aure»; il modulo «Punti ferita» SHALL elencare i tasti `-` e `+`.
 
 #### Scenario: Menu da tastiera
 
@@ -236,6 +236,12 @@ La legenda dei comandi SHALL elencare il click destro, `S`, `Shift+F10`, i tasti
 
 - **WHEN** chi ha aperto il campo dei punti ferita con `+` preme `Esc`
 - **THEN** il campo si chiude senza applicare nulla, il fuoco torna all'icona e il menu resta aperto
+
+#### Scenario: Comandi del menu nella guida
+
+- **WHEN** un Adventurer apre i moduli «Condizioni», «Aure» e «Punti ferita» nella tab Moduli
+- **THEN** trova il click destro, `S`, `Shift+F10`, ogni tasto d'accesso delle condizioni, `L` per «Alzati», `U` per «Aure», i tasti `0`-`6` e i tasti `-` e `+`
+
 ### Requirement: Badge delle condizioni sul token
 
 Il token SHALL mostrare le condizioni attive come badge con icona, fino a tre, seguiti da un indicatore «+N» per le restanti. Indebolimento SHALL mostrare il proprio livello. Ogni badge SHALL avere un nome testuale accessibile, e l'elenco completo SHALL essere consultabile senza mouse. Le icone SHALL rispettare il requisito di attribuzione delle risorse grafiche con licenza.
