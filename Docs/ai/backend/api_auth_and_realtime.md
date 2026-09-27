@@ -42,6 +42,11 @@ Ownership-aware endpoints must validate the current server token and user. New m
 - `GET /api/battle-map/stream` is an authenticated SSE connection.
 - The server sends a retry hint, an immediate user-sanitized snapshot, mutation broadcasts, and periodic keepalive comments.
 - Every accepted map-state mutation increments `battleMapVersion` and broadcasts a separately sanitized snapshot to each connected user. Character-sheet events reuse the stream but are addressed only to the owner and master according to policy.
+- HTTP and SSE battle-map snapshots carry the active scene identity, version, summary, and its
+  compatible top-level board projection. The Master view may also carry catalog summaries; a
+  Player view omits the catalog and every inactive document or asset. Updating the active scene
+  refreshes and broadcasts that projection once, while managing an inactive scene does not
+  broadcast its preparation data.
 - Disconnect cleanup must remove the client and its keepalive timer.
 - Never broadcast raw master state to all clients.
 - Per-die roll detail is part of its parent log rather than a separate event. The existing per-recipient snapshot sanitization therefore delivers the complete detail wherever that log is visible and delivers none of it where a secret log is hidden.

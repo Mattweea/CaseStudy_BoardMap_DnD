@@ -66,6 +66,13 @@ export interface LightSource {
   radiusCells: number;
 }
 
+export interface SceneSummary {
+  id: string;
+  name: string;
+  version: number;
+  isActive: boolean;
+}
+
 export type TemplateShape = 'circle' | 'cone' | 'line';
 
 export interface EphemeralPing {
@@ -160,6 +167,10 @@ export interface CombatAnnouncement {
 }
 
 export interface BattleMapState {
+  activeSceneId: string | null;
+  activeSceneVersion: number | null;
+  activeSceneSummary: SceneSummary | null;
+  sceneCatalog?: SceneSummary[];
   tokens: UnitToken[];
   zoom: number;
   diceLogs: DiceRollLog[];
@@ -186,6 +197,11 @@ export interface BattleMapState {
 }
 
 export interface BattleMapSharedState {
+  activeSceneId: string | null;
+  activeSceneVersion: number | null;
+  activeSceneSummary: SceneSummary | null;
+  // Present only in the Master view. Player HTTP/SSE snapshots never carry inactive summaries.
+  sceneCatalog?: SceneSummary[];
   tokens: UnitToken[];
   diceLogs: DiceRollLog[];
   latestDicePreview: DicePreviewState | null;

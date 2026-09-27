@@ -17,6 +17,11 @@ import { bootstrapScenes } from './scene-bootstrap.mjs';
 import { SceneRepository } from './scene-repository.mjs';
 import { registerSceneRoutes } from './scene-routes.mjs';
 import { SceneService } from './scene-service.mjs';
+import {
+  attachActiveSceneMetadata,
+  buildSceneStateView,
+  installActiveSceneProjection,
+} from './active-scene-projection.mjs';
 import { CharacterSheetPolicy } from './character-sheet-policy.mjs';
 import { broadcastCharacterSheetEvent as broadcastSheetEvent } from './character-sheet-events.mjs';
 import { CharacterSheetRepository } from './character-sheet-repository.mjs';
@@ -58,6 +63,9 @@ const VEHICLE_PRESETS = {
 };
 
 const initialSharedState = {
+  activeSceneId: null,
+  activeSceneVersion: null,
+  activeSceneSummary: null,
   tokens: [],
   diceLogs: [],
   latestDicePreview: null,
@@ -361,6 +369,24 @@ function normalizeSharedState(parsed) {
       : { label: 'm', cellsValue: 1.5 };
 
   return {
+    activeSceneId: typeof parsed?.activeSceneId === 'string' ? parsed.activeSceneId : null,
+    activeSceneVersion:
+      Number.isSafeInteger(parsed?.activeSceneVersion) && parsed.activeSceneVersion > 0
+        ? parsed.activeSceneVersion
+        : null,
+    activeSceneSummary:
+      parsed?.activeSceneSummary
+      && typeof parsed.activeSceneSummary.id === 'string'
+      && typeof parsed.activeSceneSummary.name === 'string'
+      && Number.isSafeInteger(parsed.activeSceneSummary.version)
+      && parsed.activeSceneSummary.version > 0
+        ? {
+            id: parsed.activeSceneSummary.id,
+            name: parsed.activeSceneSummary.name,
+            version: parsed.activeSceneSummary.version,
+            isActive: parsed.activeSceneSummary.isActive === true,
+          }
+        : null,
     tokens: applyVehicleAwareUpdates(tokens),
     diceLogs: Array.isArray(parsed?.diceLogs)
       ? parsed.diceLogs.flatMap((log) => (log && typeof log === 'object' && typeof log.authorUserId === 'string' &&
@@ -755,8 +781,12 @@ function getTurnNotice(user) {
 }
 
 function nextSnapshot(user = null) {
+  const sanitizedState = sanitizeStateForUser(battleMapState, user);
   return {
-    state: { ...sanitizeStateForUser(battleMapState, user), turnNotice: getTurnNotice(user) },
+    state: {
+      ...buildSceneStateView(sanitizedState, user, sceneService),
+      turnNotice: getTurnNotice(user),
+    },
     version: battleMapVersion,
   };
 }
@@ -851,6 +881,14 @@ function broadcastSnapshot() {
       streamClients.delete(client);
     }
   });
+}
+
+function refreshActiveSceneProjection() {
+  battleMapState = normalizeSharedState(
+    installActiveSceneProjection(battleMapState, sceneService?.getActiveScene?.() ?? null),
+  );
+  bumpBattleMapVersion();
+  broadcastSnapshot();
 }
 
 function broadcastCharacterSheetEvent(event, sheet) {
@@ -974,7 +1012,10 @@ function commitBattleMapState(nextState, options = {}) {
     pushMasterUndoState();
   }
 
-  const normalizedState = normalizeSharedState(nextState);
+  const normalizedState = attachActiveSceneMetadata(
+    normalizeSharedState(nextState),
+    sceneService?.getActiveScene?.() ?? null,
+  );
   const validationError = validate ? validateSharedState(normalizedState) : null;
   if (validationError) {
     if (recordMasterUndo) {
@@ -1002,11 +1043,11 @@ async function restoreLastSessionSnapshot() {
   }
 
   lastSessionSnapshot = snapshot;
-  battleMapState = normalizeSharedState({
+  battleMapState = normalizeSharedState(installActiveSceneProjection({
     ...snapshot.state,
     diceLogs: battleMapState.diceLogs,
     latestDicePreview: battleMapState.latestDicePreview,
-  });
+  }, sceneService?.getActiveScene?.() ?? null));
   battleMapVersion = snapshot.version;
   broadcastSnapshot();
   return nextSnapshot();
@@ -2460,13 +2501,20 @@ async function start() {
       campaignId: 'local-campaign',
     });
     sceneService.load();
+    battleMapState = normalizeSharedState(
+      installActiveSceneProjection(battleMapState, sceneService.getActiveScene()),
+    );
   } catch (error) {
     database.close();
     throw new Error(`Persistenza scene non pronta: ${error.message} Esegui npm run db:migrate.`);
   }
   await portraitStorage.initialize();
   await registerCharacterSheetRoutes(app, { service: characterSheetService, portraitStorage, getUser: getSessionUser });
-  registerSceneRoutes(app, { service: sceneService, getUser: getSessionUser });
+  registerSceneRoutes(app, {
+    service: sceneService,
+    getUser: getSessionUser,
+    onActiveSceneUpdated: refreshActiveSceneProjection,
+  });
   app.addHook('onClose', async () => {
     characterSheetService.flushAll();
     database.close();
@@ -2512,12 +2560,20 @@ export const __testing = {
     return sessionId;
   },
   setBattleMapState: (state) => {
-    battleMapState = normalizeSharedState(state);
+    battleMapState = normalizeSharedState(
+      installActiveSceneProjection(state, sceneService?.getActiveScene?.() ?? null),
+    );
     battleMapVersion = 1;
   },
   getBattleMapState: () => battleMapState,
   setCharacterSheetService: (service) => {
     characterSheetService = service;
+  },
+  setSceneService: (service) => {
+    sceneService = service;
+    battleMapState = normalizeSharedState(
+      installActiveSceneProjection(battleMapState, sceneService?.getActiveScene?.() ?? null),
+    );
   },
   sanitizeStateForUser,
   nextSnapshot,

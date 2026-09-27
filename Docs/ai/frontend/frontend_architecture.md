@@ -28,6 +28,14 @@ Dice animation deliveries are ephemeral client state derived inside `useBattleMa
 
 Do not add a shared game field only to React state. A shared field requires the type, client normalizer, server normalizer, snapshot, sanitization, mutation path, and SSE payload to remain compatible.
 
+The shared state identifies the persisted active scene with `activeSceneId`,
+`activeSceneVersion`, and `activeSceneSummary`. Existing board consumers continue to read tokens,
+lights, measurement settings, and board flags from their top-level fields; the server installs those
+fields from the active-scene projection. A Master snapshot may additionally contain
+`sceneCatalog`, made only of metadata summaries. An Adventurer snapshot never contains that
+catalog or an inactive scene document. The client normalizer must preserve the optional Master
+catalog without inventing one for a Player or treating catalog selection as activation.
+
 ## Server authority and optimistic updates
 
 - The server is authoritative for authentication, permissions, valid shared state, and persistence.

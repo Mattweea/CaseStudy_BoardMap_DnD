@@ -18,6 +18,7 @@ import type {
   InitiativeRollMode,
   LightSource,
   MeasurementUnit,
+  SceneSummary,
   TemplateShape,
   TokenWalkEvent,
   MovementNotice,
@@ -130,6 +131,9 @@ function applyVehicleAwareUpdates(tokens: UnitToken[]): UnitToken[] {
 }
 
 const initialSharedState: BattleMapSharedState = {
+  activeSceneId: null,
+  activeSceneVersion: null,
+  activeSceneSummary: null,
   tokens: [],
   diceLogs: [],
   latestDicePreview: null,
@@ -196,6 +200,25 @@ function normalizeInitiativeEntries(rawEntries: unknown, tokens: UnitToken[]): I
 // Il budget di movimento vale solo in Combattimento a round avviato: stesso predicato del server.
 export function isMovementBudgetActive(state: Pick<BattleMapSharedState, 'sessionMode' | 'isRoundStarted'>) {
   return state.sessionMode === 'combat' && state.isRoundStarted;
+}
+
+function normalizeSceneSummary(value: unknown): SceneSummary | null {
+  if (!value || typeof value !== 'object') return null;
+  const summary = value as Partial<SceneSummary>;
+  if (
+    typeof summary.id !== 'string'
+    || typeof summary.name !== 'string'
+    || !Number.isSafeInteger(summary.version)
+    || (summary.version ?? 0) < 1
+  ) {
+    return null;
+  }
+  return {
+    id: summary.id,
+    name: summary.name,
+    version: summary.version!,
+    isActive: summary.isActive === true,
+  };
 }
 
 function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): BattleMapSharedState {
@@ -313,6 +336,18 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
     : [];
 
   return {
+    activeSceneId: typeof parsed?.activeSceneId === 'string' ? parsed.activeSceneId : null,
+    activeSceneVersion:
+      Number.isSafeInteger(parsed?.activeSceneVersion) && (parsed?.activeSceneVersion ?? 0) > 0
+        ? parsed!.activeSceneVersion!
+        : null,
+    activeSceneSummary: normalizeSceneSummary(parsed?.activeSceneSummary),
+    ...(Array.isArray(parsed?.sceneCatalog)
+      ? { sceneCatalog: parsed.sceneCatalog.flatMap((scene) => {
+          const summary = normalizeSceneSummary(scene);
+          return summary ? [summary] : [];
+        }) }
+      : {}),
     tokens: applyVehicleAwareUpdates(tokens),
     diceLogs: Array.isArray(parsed?.diceLogs)
       ? parsed.diceLogs.map((log) => normalizeDiceLogDetail({

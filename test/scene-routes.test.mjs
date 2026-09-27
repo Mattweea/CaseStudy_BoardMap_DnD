@@ -14,7 +14,7 @@ import { SceneService } from '../server/scene-service.mjs';
 const MASTER = { id: 'master-user', role: 'master' };
 const PLAYER = { id: 'player-ilthar', role: 'adventurer' };
 
-async function createApp() {
+async function createApp({ onActiveSceneUpdated = null } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'vtt-scene-routes-'));
   const db = openDatabase({ path: join(directory, 'test.sqlite') });
   await migrate(db);
@@ -31,6 +31,7 @@ async function createApp() {
   registerSceneRoutes(app, {
     service,
     getUser: (request) => ({ master: MASTER, player: PLAYER })[request.headers['x-test-user']] ?? null,
+    onActiveSceneUpdated,
   });
   return {
     app,
@@ -110,6 +111,34 @@ test('scene catalog rejects malformed payloads and exposes no delete or archive 
     assert.equal((await app.inject({ method: 'GET', url: '/api/scenes/missing', headers })).statusCode, 404);
     assert.equal((await app.inject({ method: 'DELETE', url: '/api/scenes/scene-initial', headers })).statusCode, 404);
     assert.equal((await app.inject({ method: 'POST', url: '/api/scenes/scene-initial/archive', headers, payload: {} })).statusCode, 404);
+  } finally {
+    await close();
+  }
+});
+
+test('only an update to the active scene requests a shared projection refresh', async () => {
+  const refreshed = [];
+  const { app, close } = await createApp({ onActiveSceneUpdated: (scene) => refreshed.push(scene.id) });
+  const headers = { 'x-test-user': 'master' };
+  try {
+    const created = await app.inject({
+      method: 'POST', url: '/api/scenes', headers, payload: { name: 'Inattiva' },
+    });
+    const inactive = created.json();
+
+    const inactiveUpdate = await app.inject({
+      method: 'PATCH', url: `/api/scenes/${inactive.id}`, headers,
+      payload: { baseVersion: inactive.version, name: 'Inattiva aggiornata' },
+    });
+    assert.equal(inactiveUpdate.statusCode, 200);
+    assert.deepEqual(refreshed, []);
+
+    const activeUpdate = await app.inject({
+      method: 'PATCH', url: '/api/scenes/scene-initial', headers,
+      payload: { baseVersion: 1, name: 'Ingresso aggiornato' },
+    });
+    assert.equal(activeUpdate.statusCode, 200);
+    assert.deepEqual(refreshed, ['scene-initial']);
   } finally {
     await close();
   }

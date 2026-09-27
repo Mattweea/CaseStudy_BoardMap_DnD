@@ -53,7 +53,7 @@ function validateUpdateBody(body) {
   return { baseVersion: body.baseVersion, name: body.name };
 }
 
-export function registerSceneRoutes(app, { service, getUser }) {
+export function registerSceneRoutes(app, { service, getUser, onActiveSceneUpdated = null }) {
   function masterOnly(request, reply) {
     const user = getUser(request);
     if (!user) {
@@ -108,6 +108,9 @@ export function registerSceneRoutes(app, { service, getUser }) {
         document: current.document,
         sortOrder: current.sortOrder,
       });
+      if (scene.id === service.getActiveScene()?.id) {
+        onActiveSceneUpdated?.(scene);
+      }
       return sceneDetail(scene, service.getActiveScene()?.id ?? null);
     } catch (error) {
       return sendError(reply, error, service.getActiveScene()?.id ?? null);
