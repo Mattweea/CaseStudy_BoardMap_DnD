@@ -1,14 +1,17 @@
 import type { CombatAudioPreferences } from '../../shared/combat-audio-preferences.mjs';
+import combatStartUrl from '../assets/audio/combat-start-dd.mp3?url';
+import turnNoticeUrl from '../assets/audio/turn-notice-dd.mp3?url';
 
-// Effetti sonori del combattimento (P0.8a), asset locali CC0: corno d'inizio da OpenGameArt
-// (StumpyStrust), «Sei il prossimo!» da Kenney Interface Sounds, tamburi di «Tocca a te!»
-// sintetizzati per il progetto. Solo presentazione: nessun suono influisce sullo stato o sulla
-// comparsa degli avvisi.
+// Campioni scelti dal Master, autorizzati per la consegna ai browser dei partecipanti.
+// Solo presentazione: nessun suono influisce sullo stato o sulla comparsa degli avvisi.
 const COMBAT_SOUND_URLS = {
-  'combat-start': '/media/audio/combat-start.ogg',
-  'turn-next': '/media/audio/turn-next.ogg',
-  'turn-now': '/media/audio/turn-now.ogg',
+  'combat-start': combatStartUrl,
+  'turn-next': turnNoticeUrl,
+  'turn-now': turnNoticeUrl,
 } as const;
+
+// Il campione di turno è circa 7,6 LUFS più forte di quello d'ingresso.
+const TURN_NOTICE_GAIN = 0.42;
 
 export type CombatSound = keyof typeof COMBAT_SOUND_URLS;
 
@@ -18,7 +21,7 @@ export function playCombatSound(sound: CombatSound, preferences: CombatAudioPref
   if (!preferences.enabled || preferences.volume <= 0 || !hasUserActivated) return;
   try {
     const audio = new Audio(COMBAT_SOUND_URLS[sound]);
-    audio.volume = preferences.volume;
+    audio.volume = preferences.volume * (sound === 'combat-start' ? 1 : TURN_NOTICE_GAIN);
     const playback = audio.play();
     if (playback && typeof playback.catch === 'function') playback.catch(() => {});
   } catch {

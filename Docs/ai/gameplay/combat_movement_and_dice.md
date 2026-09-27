@@ -76,7 +76,7 @@ Master actions use full snapshot undo. Adventurer movement, dash, owned-token up
 
 ## Combat announcement, turn notices, and audio
 
-Entering combat stores a new announcement ID in shared state so every connected client displays it once, with the crossed-swords-and-shield emblem and a sound. Client-local storage may remember the last displayed ID; it is not authoritative combat state. The server computes the per-user `turnNotice` ("next"/"turn") only while the round is started, so the roll phase produces none. Combat sounds are local CC0 assets played after a trusted page interaction, governed by browser-local preferences (`shared/combat-audio-preferences.mjs`); a playback failure never hides the visual notice.
+Entering combat stores a new announcement ID in shared state so every connected client displays it once, with the crossed-swords-and-shield emblem and a sound. Client-local storage may remember the last displayed ID; it is not authoritative combat state. The server computes the per-user `turnNotice` ("next"/"turn") only while the round is started, so the roll phase produces none. Combat sounds are licensed local assets played after a trusted page interaction, governed by browser-local preferences (`shared/combat-audio-preferences.mjs`); both turn notices use one sound, and a playback failure never hides the visual notice.
 
 ## Verification
 

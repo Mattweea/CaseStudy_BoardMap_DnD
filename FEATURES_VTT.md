@@ -450,7 +450,7 @@ Il tooltip non è una perdita: non è raggiungibile da tastiera e non è annunci
 - **Dove si tira:** dalla scheda e dalla tab Turni di iniziativa. Il risultato entra nella voce del token collegato e nel log dei dadi. Il Master può tirare per un Player che non l'ha fatto; `rollForEveryone` resta solo del Master.
 - **Ordine e spareggio come in Foundry:** valore decrescente; a parità vince il modificatore di Destrezza più alto; a parità ulteriore decide una frazione casuale generata dal server al momento del tiro, mai mostrata. Variante dichiarata rispetto al PHB, che lascia gli spareggi a Master e giocatori. Lo spostamento o l'inserimento esplicito del Master prevale su ogni valore.
 - **Turni:** li avanza il Master. Un'impostazione del Master, spenta di default, permette al Player di terminare il proprio turno quando il token attivo è suo.
-- **Avvisi:** all'avvio del combattimento compare a tutti un annuncio con spade incrociate davanti a uno scudo (icone game-icons.net già in uso) e un effetto sonoro. «Sei il prossimo!» e «Tocca a te!» restano visibili solo al Player interessato e guadagnano un suono. Audio libero CC0 (pacchetto Kenney RPG Audio o equivalente); volume e silenziamento sono preferenze locali nella tab Impostazioni.
+- **Avvisi:** all'avvio del combattimento compare a tutti un annuncio con spade incrociate davanti a uno scudo (icone game-icons.net già in uso) e un effetto sonoro. «Sei il prossimo!» e «Tocca a te!» restano visibili solo al Player interessato e guadagnano un suono. Audio da 101soundboards con permesso di redistribuzione verificato («29. Gen Combat Start Advantage» per l'ingresso, «87 UI Town DungeonProgress» per i turni); volume e silenziamento sono preferenze locali nella tab Impostazioni.
 - **HP dei PG solo dalla scheda, senza automazione di attacchi e cure:** l'app non sa se un nemico ha *Scudo* o se un incantesimo cura, quindi un tiro non modifica mai gli HP da solo. Il campo degli HP attuali della scheda accetta, oltre a un valore assoluto, `-N` (danno) e `+N` (cura), con N intero da 1 a 999; il proprietario e il Master sono gli unici a poterlo fare. Lo stesso vale dal menu radiale del token canonico di un PG: un'icona compatta apre un campo vicino al cuore, oppure lo aprono i tasti `-` e `+`, con le stesse regole della scheda. HP temporanei e massimi si modificano solo nella scheda. I PNG senza scheda e il famiglio sono rinviati.
   - *Conto sul server*, sui valori correnti della scheda, così due `-N` quasi simultanei si sommano invece di sovrascriversi. Il danno scala prima gli HP temporanei e il resto gli HP attuali, fino a 0; l'eccedenza oltre 0 si ignora. La cura aggiunge fino al massimo, senza errore se lo supera, e non tocca i temporanei. Gli HP temporanei restano un valore assoluto scritto a mano: non si sommano e chi gioca sceglie quali tenere. `+N` senza HP massimi impostati viene rifiutato.
   - *Transizioni*, per qualunque via, anche un valore assoluto: HP attuali che scendono a 0 applicano Privo di sensi (e quindi Prono); HP che risalgono da 0 tolgono Privo di sensi, lasciano Prono e azzerano successi e fallimenti contro morte.
@@ -571,6 +571,28 @@ Il tooltip non è una perdita: non è raggiungibile da tastiera e non è annunci
 **Stato attuale:** stato condiviso, sessioni di login e undo vivono in memoria. Lo snapshot JSON viene scritto solo manualmente in `server/data/last-session.json`; all'avvio il server ne carica i metadati, ma non ripristina automaticamente la partita. Il database SQLite di P0.1 è presente, ma non conserva ancora lo stato live.
 
 **Accettazione:** dopo movimenti, modifiche ai token e passaggio di scena, il riavvio del server riporta tutti i client allo stesso stato senza intervento del master.
+
+### P0.12 — Miglioramenti minori della sessione
+
+**Perimetro preliminare:** raccolta di rifiniture indipendenti del flusso di gioco. La scelta dei suoni e la navigazione sono comportamenti da specificare in un change OpenSpec prima dell'implementazione; questa voce ne fissa l'obiettivo senza cambiare le capability correnti.
+
+**Players e Master**
+
+- [ ] Scegliere fra più effetti sonori predefiniti per gli eventi già sonorizzati (dadi e avvisi di combattimento), ascoltando un'anteprima prima della scelta. La preferenza è personale e si conserva nello stesso browser.
+- [ ] Consultare una sezione **Legenda dei comandi** aggiornata alle interazioni effettive di mappa, dadi, scheda, turni e condizioni, con differenze fra Player e Master esplicite.
+- [ ] Raggiungere più rapidamente un punto utile della mappa, per esempio il proprio token o un token selezionato, e recuperare una visuale leggibile dopo pan e zoom prolungati. I nuovi comandi devono restare utilizzabili con il pannello aperto o chiuso e non avviare per errore spostamenti o strumenti di mappa.
+
+**Sistema**
+
+- [ ] Mantenere la scelta dei suoni locale al browser e compatibile con silenziamento, volume, preferenze dei dadi e limiti di riproduzione audio del browser; un suono non disponibile non deve interrompere il gioco.
+- [ ] Allineare la guida in-app e `HOWITWORKS.md` ai comandi effettivamente consegnati, eliminando indicazioni superate.
+- [ ] Mantenere pan, zoom e centratura come stato della visuale del singolo client, senza modificare posizione dei token o stato condiviso della partita.
+
+**Stato attuale:** i dadi hanno un interruttore audio; gli avvisi di combattimento hanno silenziamento, volume e anteprima, ma non una scelta dell'effetto. La tab Legenda dei comandi e `HOWITWORKS.md` descrivono la navigazione esistente. Zoom, pan con `Ctrl` o tasto centrale e azione «Localizza» dalla lista personaggi sono già disponibili.
+
+**Da definire nel change:** catalogo e associazione degli effetti ai singoli eventi; comandi e gesti precisi per la navigazione migliorata, verificando che non confliggano con pianificazione del movimento, scorciatoie e strumenti della board.
+
+**Accettazione:** due partecipanti scelgono effetti diversi e ciascuno sente solo i propri, anche dopo un refresh; silenziamento e volume continuano a funzionare. Entrambi trovano nella guida i comandi realmente disponibili per il proprio ruolo. Dopo aver spostato e ingrandito la visuale, tornano rapidamente al punto d'interesse senza muovere token, cambiare la visuale altrui o attivare uno strumento.
 
 ## P1 — profondità delle regole e dell'esplorazione
 
