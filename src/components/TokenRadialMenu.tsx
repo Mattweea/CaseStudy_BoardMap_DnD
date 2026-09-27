@@ -2,8 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import type { TokenCondition, UnitToken } from '../types';
 import {
+  AURAS_ACCESS_KEY,
   CONDITION_ACCESS_KEYS,
   FREQUENT_CREATURE_CONDITIONS,
+  STAND_UP_ACCESS_KEY,
   conditionLabel,
   tokenConditionOptions,
 } from '../utils/tokens';
@@ -48,10 +50,6 @@ type MenuEntry =
 
 const MIN_EXHAUSTION = 0;
 const MAX_EXHAUSTION = 6;
-// Tasto d'accesso di «Alzati»: la L di «aLzati», libera tra le lettere delle condizioni.
-const STAND_UP_ACCESS_KEY = 'L';
-// Tasto d'accesso di «Aure»: la U di aUre, libera tra le lettere delle condizioni e di «Alzati».
-const AURAS_ACCESS_KEY = 'U';
 
 // Raggio minimo della corona (px a schermo) e distanza minima tra il bordo del token e il centro
 // delle voci: sui token grandi o con lo zoom alto la corona si allarga invece di coprire il token.

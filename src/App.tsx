@@ -14,9 +14,10 @@ import { InitiativePanel } from './components/InitiativePanel';
 import { Modal } from './components/Modal';
 import { CombatEmblem } from './components/CombatEmblem';
 import {
-  BlockIcon, BookIcon, ChatDiceIcon, CloseIcon, CrossedSwordsIcon, DashIcon, DirectionArrowIcon, GearIcon, KeyboardIcon,
-  MapIcon, MoonIcon, PawnIcon, PinIcon, PlusIcon, ResumeIcon, SaveIcon, SearchIcon, SidebarIcon, SpeakerIcon, TrashIcon, UndoIcon,
+  BlockIcon, ChatDiceIcon, CloseIcon, CrossedSwordsIcon, DashIcon, DirectionArrowIcon, GearIcon, KeyboardIcon,
+  MapIcon, MoonIcon, PawnIcon, PinIcon, PlusIcon, ResumeIcon, SaveIcon, SidebarIcon, SpeakerIcon, TrashIcon, UndoIcon,
 } from './components/UiIcons';
+import { CommandModules } from './components/CommandModules';
 import { DiceGlyph } from './components/DiceIcons';
 import { CHARACTER_PROFILES, findCharacterProfileByKey, resolveCharacterPortrait } from './constants/characters';
 import { useAnimatedPresence } from './hooks/useAnimatedPresence';
@@ -49,8 +50,8 @@ const MANUAL_PDF_PATH =
 // questo valore.
 const TOKEN_EDIT_MODAL_ENABLED = false;
 
-type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'movement' | 'notes' | 'dice' | 'initiative' | 'characters' | 'settings' | 'legend';
-type WorkspaceTabId = 'chat' | 'initiative' | 'characters' | 'settings' | 'legend';
+type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'movement' | 'notes' | 'dice' | 'initiative' | 'characters' | 'settings' | 'modules';
+type WorkspaceTabId = 'chat' | 'initiative' | 'characters' | 'settings' | 'modules';
 
 const KEYBOARD_MOVEMENTS: Record<string, { dx: number; dy: number }> = {
   ArrowUp: { dx: 0, dy: -1 },
@@ -1235,13 +1236,12 @@ function App() {
                 <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">CC BY 3.0</a>.
               </p>
               <p className="settings-panel__attribution">
-                Suoni di combattimento, tutti{' '}
-                <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noreferrer">CC0</a>: corno
-                d'inizio da{' '}
-                <a href="https://opengameart.org/content/their-coming-generic-horn-sound" target="_blank" rel="noreferrer">«Their coming» di StumpyStrust</a>{' '}
-                (OpenGameArt); «Sei il prossimo!» da{' '}
-                <a href="https://kenney.nl/assets/interface-sounds" target="_blank" rel="noreferrer">Interface Sounds</a> di Kenney; tamburi di
-                «Tocca a te!» sintetizzati per questo progetto.
+                Suoni di combattimento da <cite>Darkest Dungeon</cite>, usati con autorizzazione di
+                Dark Horse Games Inc. e Red Hook Studios Inc.:{' '}
+                <a href="https://www.101soundboards.com/sounds/42066404-29-gen-combat-start-advantage" target="_blank" rel="noreferrer">29 Gen Combat Start Advantage</a>{' '}
+                per l'inizio;{' '}
+                <a href="https://www.101soundboards.com/sounds/42066405-87-ui-town-dungeonprogress" target="_blank" rel="noreferrer">87 UI Town DungeonProgress</a>{' '}
+                per entrambi gli avvisi di turno. Tutti i diritti restano ai rispettivi titolari.
               </p>
             </details>
           </section>
@@ -1569,59 +1569,8 @@ function App() {
             })}
           </section>
         );
-      case 'legend':
-        return (
-          <section key="legend" className="sidebar__section">
-            <div className="panel-heading">
-              <div>
-                <h2>Comandi</h2>
-              </div>
-            </div>
-            <div className="command-legend">
-              <div className="command-legend__group">
-                <p className="command-legend__title">Comuni</p>
-                <p><strong>Click</strong>: seleziona elemento.</p>
-                <p><strong>Shift + click</strong>: multi-selezione.</p>
-                <p><strong>Rotella</strong>: zoom.</p>
-                <p><strong>Ctrl + drag</strong>: muovi visuale.</p>
-                <p><strong>/r 1d20+5</strong>: tiro libero (d4, d6, d8, d10, d12, d20, d100; max 20 dadi).</p>
-                <p><strong>Click / Esc</strong>: salta il tiro 3D in corso senza annullare il risultato.</p>
-                <p><strong>Presentazione dadi</strong>: animazione e suoni sono preferenze locali nella tab Impostazioni.</p>
-                <p><strong className="command-legend__icon" aria-label="Lista elementi"><SearchIcon /></strong>: lista elementi.</p>
-                <p><strong className="command-legend__icon" aria-label="Manuale"><BookIcon /></strong>: manuale.</p>
-                <p><strong>Tasto destro / S / Shift+F10</strong> su un token che puoi modificare: menu delle condizioni (nessuna interazione di mappa in corso).</p>
-                <p>
-                  <strong>Nel menu delle condizioni</strong>: la lettera sottolineata attiva la condizione (P Prono, A Afferrato, T Trattenuto, V Avvelenato, C Accecato, F Affascinato, D Assordato, S Spaventato, I Incapacitato, B Invisibile, R Paralizzato, E Pietrificato, O Stordito, N Privo di sensi; veicoli: R Rotto, B Ribaltato). P toglie Prono senza costo (per esempio quando un alleato aiuta a rialzarsi); <strong>L</strong>: Alzati, che costa metà del movimento; <strong>U</strong>: Aure, apre il pannello delle aure del personaggio. <strong>− / +</strong>: modifica i punti ferita del personaggio. <strong>0–6</strong>: livello di Indebolimento.
-                </p>
-              </div>
-
-              {canManageBattleMap ? (
-                <div className="command-legend__group">
-                  <p className="command-legend__title">Master</p>
-                  <p><strong>Drag</strong>: muovi token selezionati.</p>
-                  <p><strong>+</strong>: apre la card Azioni nella sidebar.</p>
-                  <p><strong className="command-legend__icon" aria-label="Aggiungi selezionati"><CrossedSwordsIcon size="1.1em" /></strong>: aggiungi selezionati ai turni.</p>
-                  <p><strong className="command-legend__icon" aria-label="Rimuovi selezionati"><TrashIcon /></strong>: rimuovi selezionati.</p>
-                  <p><strong>Canc</strong>: rimuovi selezionati.</p>
-                  <p><strong>Gestisci voci</strong>: tiro, valore manuale o rimozione per una singola creatura, nella tab Turni di iniziativa.</p>
-                  <p><strong>Invisibile</strong>: nasconde token ai player.</p>
-                  <p><strong className="command-legend__icon"><UndoIcon aria-label="Annulla" /> / Ctrl+Z</strong>: undo globale.</p>
-                </div>
-              ) : (
-                <div className="command-legend__group">
-                  <p className="command-legend__title">Player</p>
-                  <p><strong>Frecce</strong>: muovi il tuo PG.</p>
-                  <p><strong>Home / PgUp / End / PgDn</strong>: diagonali.</p>
-                  <p><strong>-1 / +1</strong>: rimuovi o aggiungi movimento extra.</p>
-                  <p><strong className="command-legend__icon" aria-label="Scatto"><DashIcon /></strong>: scatto.</p>
-                  <p><strong>PF</strong>: aggiorna i tuoi punti ferita.</p>
-                  <p><strong>Alzati</strong>: nel menu delle condizioni, solo quando sei Prono.</p>
-                  <p><strong className="command-legend__icon"><UndoIcon aria-label="Annulla" /> / Ctrl+Z</strong>: undo della tua ultima azione.</p>
-                </div>
-              )}
-            </div>
-          </section>
-        );
+      case 'modules':
+        return <CommandModules key="modules" role={canManageBattleMap ? 'master' : 'player'} />;
       default:
         return null;
     }
@@ -1709,7 +1658,7 @@ function App() {
             </div>
             <div className="workspace-tabs" role="tablist" aria-label="Pannello sessione">
               {([
-                ['chat', 'Chat + Dadi', <ChatDiceIcon key="chat" />], ['initiative', 'Turni di iniziativa', <CrossedSwordsIcon key="initiative" size="1.1em" />], ['characters', 'Personaggi', <PawnIcon key="characters" />], ['settings', 'Impostazioni', <GearIcon key="settings" />], ['legend', 'Legenda dei comandi', <KeyboardIcon key="legend" />],
+                ['chat', 'Chat + Dadi', <ChatDiceIcon key="chat" />], ['initiative', 'Turni di iniziativa', <CrossedSwordsIcon key="initiative" size="1.1em" />], ['characters', 'Personaggi', <PawnIcon key="characters" />], ['settings', 'Impostazioni', <GearIcon key="settings" />], ['modules', 'Moduli', <KeyboardIcon key="modules" />],
               ] as Array<[WorkspaceTabId, string, ReactNode]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
             </div>
             <div id={`panel-${workspaceTab}`} role="tabpanel" aria-labelledby={`tab-${workspaceTab}`} className="workspace-tabpanel">

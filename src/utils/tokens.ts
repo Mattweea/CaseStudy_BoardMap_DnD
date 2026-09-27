@@ -374,6 +374,11 @@ export const CONDITION_ACCESS_KEYS: Record<TokenCondition, string> = {
   overturned: 'B',
 };
 
+// Tasto d'accesso di «Alzati»: la L di «aLzati», libera tra le lettere delle condizioni.
+export const STAND_UP_ACCESS_KEY = 'L';
+// Tasto d'accesso di «Aure»: la U di aUre, libera tra le lettere delle condizioni e di «Alzati».
+export const AURAS_ACCESS_KEY = 'U';
+
 export function tokenConditionOptions(token: UnitToken): TokenCondition[] {
   return conditionCatalogFor(token.type) as TokenCondition[];
 }
