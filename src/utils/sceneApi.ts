@@ -97,7 +97,7 @@ export const sceneApi = {
     method: 'POST',
     body: JSON.stringify({ baseVersion, element }),
   }),
-  updateElement: (id: string, elementId: string, baseVersion: number, transform: Pick<SceneElement, 'position' | 'widthCells' | 'heightCells' | 'rotation'>) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/elements/${encodeURIComponent(elementId)}`, {
+  updateElement: (id: string, elementId: string, baseVersion: number, transform: Pick<SceneElement, 'position' | 'widthCells' | 'heightCells' | 'rotation' | 'blocksMovement' | 'blocksVision'>) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/elements/${encodeURIComponent(elementId)}`, {
     method: 'PATCH',
     body: JSON.stringify({ baseVersion, transform }),
   }),

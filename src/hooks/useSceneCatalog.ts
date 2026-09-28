@@ -191,7 +191,7 @@ export function useSceneCatalog(enabled: boolean) {
     undoDrawing: () => writeLayer((scene) => sceneApi.undoDrawing(scene.id, scene.version), 'Impossibile annullare il disegno. Riprova.'),
     redoDrawing: () => writeLayer((scene) => sceneApi.redoDrawing(scene.id, scene.version), 'Impossibile ripetere il disegno. Riprova.'),
     addElement: (element: SceneElement) => writeLayer((scene) => sceneApi.addElement(scene.id, scene.version, element), 'Aggiunta dell’elemento non riuscita. Riprova.'),
-    updateElement: (elementId: string, transform: Pick<SceneElement, 'position' | 'widthCells' | 'heightCells' | 'rotation'>) => writeLayer((scene) => sceneApi.updateElement(scene.id, elementId, scene.version, transform), 'Trasformazione dell’elemento non riuscita. Riprova.'),
+    updateElement: (elementId: string, transform: Pick<SceneElement, 'position' | 'widthCells' | 'heightCells' | 'rotation' | 'blocksMovement' | 'blocksVision'>) => writeLayer((scene) => sceneApi.updateElement(scene.id, elementId, scene.version, transform), 'Trasformazione dell’elemento non riuscita. Riprova.'),
     removeElement: (elementId: string) => writeLayer((scene) => sceneApi.removeElement(scene.id, elementId, scene.version), 'Rimozione dell’elemento non riuscita. Riprova.'),
   };
 }

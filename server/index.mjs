@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { normalizeSceneDrawings, normalizeSceneElements } from '../shared/scene-model.mjs';
+import { collectMovementBlockers, footprintsOverlap } from '../shared/scene-blockers.mjs';
 import { normalizeDiceLogDetail } from '../shared/dice-log-normalization.mjs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -663,31 +664,17 @@ function validateSharedState(nextState) {
   return null;
 }
 
-function isMovementBlockingToken(token) {
-  return token.blocksMovement === true;
-}
-
 function canTokenIgnoreObstacles(token, user) {
   return user?.role === 'master' || token.type === 'vehicle';
 }
 
-function findBlockingObstacle(tokens, movingTokenId, position, footprint) {
-  return tokens.find((token) => {
-    if (token.id === movingTokenId || !isMovementBlockingToken(token)) {
-      return false;
-    }
-
-    const obstacleFootprint = getTokenFootprint(token);
-    return !(
-      position.x + footprint.width - 1 < token.position.x ||
-      token.position.x + obstacleFootprint.width - 1 < position.x ||
-      position.y + footprint.height - 1 < token.position.y ||
-      token.position.y + obstacleFootprint.height - 1 < position.y
-    );
-  }) ?? null;
+function findBlockingObstacle(blockers, movingTokenId, position, footprint) {
+  return blockers.find((blocker) =>
+    !(blocker.source === 'token' && blocker.id === movingTokenId)
+    && footprintsOverlap(position, footprint, blocker)) ?? null;
 }
 
-function findBlockedMovement(tokens, movingToken, from, to) {
+function findBlockedMovement(blockers, movingToken, from, to) {
   const footprint = getTokenFootprint(movingToken);
   const stepX = Math.sign(to.x - from.x);
   const stepY = Math.sign(to.y - from.y);
@@ -703,7 +690,7 @@ function findBlockedMovement(tokens, movingToken, from, to) {
       currentY += stepY;
     }
 
-    const obstacle = findBlockingObstacle(tokens, movingToken.id, { x: currentX, y: currentY }, footprint);
+    const obstacle = findBlockingObstacle(blockers, movingToken.id, { x: currentX, y: currentY }, footprint);
     if (obstacle) {
       return obstacle;
     }
@@ -1477,9 +1464,12 @@ function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
   }
 
   if (!canTokenIgnoreObstacles(token, user)) {
+    const blockers = collectMovementBlockers(
+      battleMapState.tokens, battleMapState.activeSceneElements, getTokenFootprint,
+    );
     for (let index = 0; index < waypoints.length - 1; index += 1) {
       const blockingObstacle = findBlockedMovement(
-        battleMapState.tokens,
+        blockers,
         token,
         waypoints[index],
         waypoints[index + 1],

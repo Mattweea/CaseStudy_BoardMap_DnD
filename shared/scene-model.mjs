@@ -331,6 +331,10 @@ function normalizeElements(value, path, dimensions) {
     if (!Number.isSafeInteger(rotation) || rotation < 0 || rotation > 359) {
       fail(itemPath + '.rotation', 'must be an integer between 0 and 359');
     }
+    const blocksMovement = cloned.blocksMovement ?? false;
+    const blocksVision = cloned.blocksVision ?? false;
+    if (typeof blocksMovement !== 'boolean') fail(itemPath + '.blocksMovement', 'must be a boolean');
+    if (typeof blocksVision !== 'boolean') fail(itemPath + '.blocksVision', 'must be a boolean');
     if (dimensions.columns > 0
       && (position.x + widthCells > dimensions.columns || position.y + heightCells > dimensions.rows)) {
       fail(itemPath + '.position', 'must fit inside the board');
@@ -342,6 +346,8 @@ function normalizeElements(value, path, dimensions) {
       widthCells,
       heightCells,
       rotation,
+      blocksMovement,
+      blocksVision,
     };
   });
 }

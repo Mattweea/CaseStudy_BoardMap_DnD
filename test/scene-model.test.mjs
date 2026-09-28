@@ -36,7 +36,8 @@ function validScene() {
       },
     ],
     elements: [
-      { id: 'element-1', kind: 'rock', position: { x: 7, y: 8 }, widthCells: 2, heightCells: 1, rotation: 45 },
+      { id: 'element-1', kind: 'rock', position: { x: 7, y: 8 }, widthCells: 2, heightCells: 1, rotation: 45,
+        blocksMovement: false, blocksVision: false },
     ],
     entityReferences: [
       { id: 'reference-1', entityType: 'encounter-entity', entityId: 'entity-1' },
@@ -199,7 +200,12 @@ test('scene elements normalize a closed kind, bounded transform and strip token 
   const element = { id: 'rock-1', kind: 'rock', position: { x: 2, y: 3 }, hitPoints: 20, conditions: ['prone'] };
   assert.deepEqual(normalizeSceneElements([element], { columns: 30, rows: 30 }), [{
     id: 'rock-1', kind: 'rock', position: { x: 2, y: 3 }, widthCells: 1, heightCells: 1, rotation: 0,
+    blocksMovement: false, blocksVision: false,
   }]);
+  assert.deepEqual(normalizeSceneElements([{ ...element, blocksMovement: true, blocksVision: false }])[0], {
+    id: 'rock-1', kind: 'rock', position: { x: 2, y: 3 }, widthCells: 1, heightCells: 1, rotation: 0,
+    blocksMovement: true, blocksVision: false,
+  });
   assert.equal('hitPoints' in normalizeSceneElements([element])[0], false);
   for (const invalid of [
     { ...element, kind: 'monster' },
@@ -207,6 +213,8 @@ test('scene elements normalize a closed kind, bounded transform and strip token 
     { ...element, widthCells: 0 },
     { ...element, heightCells: SCENE_LIMITS.maxElementFootprintCells + 1 },
     { ...element, rotation: 360 },
+    { ...element, blocksMovement: 'yes' },
+    { ...element, blocksVision: 1 },
     { ...element, position: { x: 30, y: 0 } },
   ]) {
     assert.throws(() => normalizeSceneElements([invalid], { columns: 30, rows: 30 }), SceneValidationError);

@@ -97,6 +97,7 @@ SQLite is a separate persistence boundary:
 - `activeSceneId`, `activeSceneVersion`, `activeSceneSummary`, and `activeSceneBackground` identify the one persisted active
   scene in shared snapshots. `activeSceneDrawings` contains only that scene's normalized strokes and defaults to `[]` for older snapshots.
   `activeSceneElements` contiene solo gli arredi normalizzati della scena attiva e defaulta a `[]` per snapshot precedenti. Gli elementi hanno kind chiuso, posizione e ingombro interi in caselle, rotazione limitata; la normalizzazione elimina qualsiasi campo da token. Le scritture elementi passano dal documento scena versionato, non dal live-state undo o dalla history drawing.
+  `blocksMovement` e `blocksVision` sono booleani indipendenti del documento scena e defaultano a `false` per documenti precedenti. Soltanto gli elementi della proiezione attiva entrano nella validazione dei segmenti di movimento e nella visuale client; la rotazione resta presentazionale e non cambia l'ingombro usato dagli adapter.
   A drawing mutation saves the document to SQLite with optimistic concurrency and refreshes the realtime projection only for the active scene; it does not enter live-state undo. A centralized projection adapter installs the scene's board
   configuration into the legacy top-level fields consumed by current board code while retaining
   live runtime tokens in memory. A legacy snapshot without active-scene metadata receives the

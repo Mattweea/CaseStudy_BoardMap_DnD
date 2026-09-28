@@ -34,6 +34,7 @@ import {
 import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
 import { cellsToUnit, pathCost, pathStepCount, MAX_MOVEMENT_PATH_STEPS } from '../../shared/grid-movement';
 import { SCENE_LIMITS } from '../../shared/scene-model';
+import { collectMovementBlockers, footprintsOverlap, type SceneBlocker } from '../../shared/scene-blockers';
 import { sceneBackgroundViewportTransform } from '../../shared/scene-background-calibration';
 import { Token } from './Token';
 import { SceneElementArt } from './SceneElementArt';
@@ -77,10 +78,10 @@ interface BoardProps {
     enabled: boolean;
     radiusCells: number;
     sourceToken: UnitToken;
-    blockers: UnitToken[];
+    blockers: SceneBlocker[];
   } | null;
   lightSources?: LightSource[];
-  visionBlockers?: UnitToken[];
+  visionBlockers?: SceneBlocker[];
   canManageTokens?: boolean;
   movableTokenIds?: string[];
   lightPlacement?: {
@@ -371,26 +372,8 @@ type InteractionState =
 
 // Stesso footprint AABB usato da findBlockedMovement lato server, riprodotto qui solo per
 // l'avviso ottimistico durante il trascinamento: il server resta l'unica autorità sull'esito.
-function isMovementBlockingToken(token: UnitToken): boolean {
-  return token.blocksMovement === true;
-}
-
-function footprintsOverlap(
-  position: GridPosition,
-  footprint: { width: number; height: number },
-  other: UnitToken,
-): boolean {
-  const otherFootprint = getTokenFootprint(other);
-  return !(
-    position.x + footprint.width - 1 < other.position.x ||
-    other.position.x + otherFootprint.width - 1 < position.x ||
-    position.y + footprint.height - 1 < other.position.y ||
-    other.position.y + otherFootprint.height - 1 < position.y
-  );
-}
-
 function isSegmentBlocked(
-  allTokens: UnitToken[],
+  blockers: SceneBlocker[],
   movingTokenId: string,
   footprint: { width: number; height: number },
   from: GridPosition,
@@ -406,12 +389,9 @@ function isSegmentBlocked(
     if (x !== to.x) x += stepX;
     if (y !== to.y) y += stepY;
 
-    const blocked = allTokens.some(
-      (candidate) =>
-        candidate.id !== movingTokenId &&
-        isMovementBlockingToken(candidate) &&
-        footprintsOverlap({ x, y }, footprint, candidate),
-    );
+    const blocked = blockers.some((candidate) =>
+      !(candidate.source === 'token' && candidate.id === movingTokenId)
+      && footprintsOverlap({ x, y }, footprint, candidate));
     if (blocked) {
       return true;
     }
@@ -441,13 +421,13 @@ function segmentCosts(
 }
 
 function isPathBlocked(
-  allTokens: UnitToken[],
+  blockers: SceneBlocker[],
   movingTokenId: string,
   footprint: { width: number; height: number },
   waypoints: GridPosition[],
 ): boolean {
   for (let index = 0; index < waypoints.length - 1; index += 1) {
-    if (isSegmentBlocked(allTokens, movingTokenId, footprint, waypoints[index], waypoints[index + 1])) {
+    if (isSegmentBlocked(blockers, movingTokenId, footprint, waypoints[index], waypoints[index + 1])) {
       return true;
     }
   }
@@ -858,11 +838,13 @@ export function Board({
   }, [planPath, diagonalRule, planBudget]);
   const planExceedsStepLimit = planPath ? pathStepCount(planPath) > MAX_MOVEMENT_PATH_STEPS : false;
   const planIsBlocked = useMemo(() => {
-    if (!planPath || !planTargetToken || (planPathCost?.exceedsLimit ?? false)) {
+    if (!planPath || !planTargetToken || canManageTokens || planTargetToken.type === 'vehicle'
+      || (planPathCost?.exceedsLimit ?? false)) {
       return false;
     }
-    return isPathBlocked(tokens, planTargetToken.id, getTokenFootprint(planTargetToken), planPath);
-  }, [planPath, planPathCost?.exceedsLimit, planTargetToken, tokens]);
+    const blockers = collectMovementBlockers(tokens, elements, getTokenFootprint);
+    return isPathBlocked(blockers, planTargetToken.id, getTokenFootprint(planTargetToken), planPath);
+  }, [planPath, planPathCost?.exceedsLimit, planTargetToken, tokens, elements, canManageTokens]);
   const planExceedsBudget =
     planBudget?.totalCells != null && planPathCost ? planBudget.usedCells + planPathCost.cells > planBudget.totalCells : false;
 

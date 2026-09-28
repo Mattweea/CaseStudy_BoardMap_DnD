@@ -37,6 +37,7 @@ Define current combat sequencing, movement accounting, dice behavior, and role b
 - Base budget is `movementCells`; dash doubles it; extra movement adds to it.
 - Dash is owner-only, active-turn-only, and once per round.
 - A valid movement cannot overlap another uncontained creature or cross a blocking obstacle when the mover is subject to blockers, on any segment of the path — the server never reroutes around a blocked segment, it simply rejects the request.
+- Gli elementi della scena attiva con `blocksMovement` usano lo stesso controllo per segmento degli ostacoli-token. Il loro ingombro segue posizione e dimensioni, non la rotazione grafica; scena inattiva e `blocksVision` da solo non bloccano il movimento. Master e veicoli conservano il bypass esistente.
 
 Client pointer and keyboard paths must call the same server-authoritative movement operation for adventurers.
 

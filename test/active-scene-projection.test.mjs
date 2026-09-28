@@ -10,7 +10,8 @@ import { pathCost } from '../shared/grid-movement.mjs';
 function scene(id, name, version, boardOverrides = {}, marker = id) {
   const document = createDefaultSceneDocument();
   document.board = { ...document.board, ...boardOverrides };
-  document.elements = [{ id: `element-${marker}`, kind: 'rock', position: { x: 1, y: 1 }, widthCells: 1, heightCells: 1, rotation: 0 }];
+  document.elements = [{ id: `element-${marker}`, kind: 'rock', position: { x: 1, y: 1 }, widthCells: 1, heightCells: 1,
+    rotation: 0, blocksMovement: true, blocksVision: false }];
   return { id, name, version, document };
 }
 

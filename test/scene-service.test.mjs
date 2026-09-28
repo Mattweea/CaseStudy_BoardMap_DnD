@@ -183,7 +183,8 @@ test('scene element writes remain persisted, isolated and reject failed storage 
   const service = new SceneService({ repository, campaignId: 'campaign-test' });
   service.load();
   service.createScene({ id: 'scene-b', name: 'Seconda', sortOrder: 1, document: createDefaultSceneDocument() });
-  const element = { id: 'table-1', kind: 'table', position: { x: 2, y: 3 }, widthCells: 2, heightCells: 1, rotation: 0 };
+  const element = { id: 'table-1', kind: 'table', position: { x: 2, y: 3 }, widthCells: 2, heightCells: 1, rotation: 0,
+    blocksMovement: false, blocksVision: true };
   const added = service.addElement({ id: 'scene-b', expectedVersion: 1, element });
   assert.deepEqual(added.document.elements, [element]);
   assert.deepEqual(service.getActiveScene().document.elements, []);

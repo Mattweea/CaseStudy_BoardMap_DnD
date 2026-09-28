@@ -5,7 +5,7 @@ import { SCENE_ELEMENT_LIBRARY, SceneElementArt } from './SceneElementArt';
 
 const CELL_SIZE = 48;
 type Point = { x: number; y: number };
-type Transform = Pick<SceneElement, 'position' | 'widthCells' | 'heightCells' | 'rotation'>;
+type Transform = Pick<SceneElement, 'position' | 'widthCells' | 'heightCells' | 'rotation' | 'blocksMovement' | 'blocksVision'>;
 type Gesture = { pointerId: number; mode: 'move' | 'resize' | 'rotate'; original: SceneElement; start: Point };
 
 interface Props {
@@ -28,7 +28,8 @@ interface Props {
 }
 
 function transformOf(element: SceneElement): Transform {
-  return { position: element.position, widthCells: element.widthCells, heightCells: element.heightCells, rotation: element.rotation };
+  return { position: element.position, widthCells: element.widthCells, heightCells: element.heightCells, rotation: element.rotation,
+    blocksMovement: element.blocksMovement, blocksVision: element.blocksVision };
 }
 
 export function SceneElementEditor({
@@ -141,6 +142,7 @@ export function SceneElementEditor({
         y: dimensions.rows === 0 ? y : Math.max(0, Math.min(dimensions.rows - item.heightCells, y)),
       },
       widthCells: item.widthCells, heightCells: item.heightCells, rotation: 0,
+      blocksMovement: false, blocksVision: false,
     };
     writePendingRef.current = true;
     setLocalPreview(element);
@@ -216,8 +218,18 @@ export function SceneElementEditor({
             '--scene-handle-touch-target-size': `${44 / previewZoom}px`,
             '--scene-handle-dot-size': `${11 / previewZoom}px`,
             '--scene-handle-dot-border': `${1.5 / previewZoom}px`,
+            '--scene-footprint-border': `${2 / previewZoom}px`,
           } as CSSProperties}
           onPointerDown={(event) => void placeElement(event)}>
+          {selected && (selected.blocksMovement || selected.blocksVision) ? (
+            <div className={`scene-element-preview-footprint${selected.blocksMovement ? ' scene-element-preview-footprint--movement' : ''}${selected.blocksVision ? ' scene-element-preview-footprint--vision' : ''}`}
+              aria-hidden="true" style={{
+                left: `${(selected.position.x * CELL_SIZE - previewLeft) / previewWidth * 100}%`,
+                top: `${(selected.position.y * CELL_SIZE - previewTop) / previewHeight * 100}%`,
+                width: `${selected.widthCells * CELL_SIZE / previewWidth * 100}%`,
+                height: `${selected.heightCells * CELL_SIZE / previewHeight * 100}%`,
+              }} />
+          ) : null}
           {shownElements.map((element) => (
             <div key={element.id} className={`scene-element-preview-item${selectedId === element.id ? ' scene-element-preview-item--selected' : ''}`}
               style={{
@@ -277,6 +289,17 @@ export function SceneElementEditor({
         {selected ? (
           <div className="scene-element-editor__selection" role="group" aria-label="Trasforma elemento selezionato">
             <div className="scene-element-editor__selection-title"><strong>{SCENE_ELEMENT_LIBRARY.find((item) => item.kind === selected.kind)?.label}</strong><span>({selected.position.x}, {selected.position.y}) · {selected.widthCells} × {selected.heightCells} · {selected.rotation}°</span></div>
+            <div className="scene-element-editor__blocking-flags" role="group" aria-label="Blocchi dell’elemento">
+              <button type="button" disabled={!pointerEnabled} aria-pressed={selected.blocksMovement}
+                onClick={() => stepTransform((element) => ({ ...transformOf(element), blocksMovement: !element.blocksMovement }))}>
+                Blocca movimento
+              </button>
+              <button type="button" disabled={!pointerEnabled} aria-pressed={selected.blocksVision}
+                onClick={() => stepTransform((element) => ({ ...transformOf(element), blocksVision: !element.blocksVision }))}>
+                Blocca visuale
+              </button>
+            </div>
+            <p className="scene-element-editor__hint">Se attivi un blocco, il contorno mostra le caselle interessate; la rotazione cambia solo l’aspetto. La visuale non nasconde i dati inviati al Player.</p>
             <div className="scene-element-editor__actions">
               <div className="scene-element-editor__action-group" aria-label="Sposta di una casella">
                 {([['←', -1, 0, 'sinistra'], ['↑', 0, -1, 'alto'], ['↓', 0, 1, 'basso'], ['→', 1, 0, 'destra']] as const).map(([label, dx, dy, name]) => (

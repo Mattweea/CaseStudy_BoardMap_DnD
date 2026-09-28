@@ -17,7 +17,8 @@ function sessionHeaders(user) {
 
 function makeScene(id, name, version, marker) {
   const document = createDefaultSceneDocument();
-  document.elements = [{ id: `element-${marker}`, kind: 'rock', position: { x: 1, y: 1 }, widthCells: 1, heightCells: 1, rotation: 0 }];
+  document.elements = [{ id: `element-${marker}`, kind: 'rock', position: { x: 1, y: 1 }, widthCells: 1, heightCells: 1,
+    rotation: 0, blocksMovement: true, blocksVision: false }];
   return { id, name, version, document };
 }
 

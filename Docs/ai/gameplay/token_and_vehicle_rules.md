@@ -22,6 +22,8 @@ Every token has a stable ID, name, grid position, color, initiative modifier, an
 
 Objects can block movement through `blocksMovement`. Connected obstacle pieces share `groupId`; group-aware movement and vision must preserve the collection's spatial relationship and avoid treating a target group as its own occluder.
 
+Gli elementi scenici restano distinti dai token e configurano `blocksMovement` e `blocksVision` separatamente. Il loro ingombro rettangolare in caselle si aggiunge agli ostacoli esistenti nei rispettivi sistemi; la rotazione è soltanto presentazionale. I documenti precedenti, privi dei flag, restano non bloccanti. La visuale P0.9c.4 è calcolata nel client e non fornisce la segretezza dei payload prevista per P0.10.
+
 Obstacle drawing or grouped movement must produce valid integer positions and stable group membership.
 
 ## Vehicles

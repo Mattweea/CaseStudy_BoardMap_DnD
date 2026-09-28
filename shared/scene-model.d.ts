@@ -73,6 +73,8 @@ export interface SceneElement {
   widthCells: number;
   heightCells: number;
   rotation: number;
+  blocksMovement: boolean;
+  blocksVision: boolean;
 }
 
 export interface SceneEntityReference {

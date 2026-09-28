@@ -12,13 +12,9 @@ Gli elementi devono poter influire su movimento e visuale tramite i sistemi esis
 
 ## Capabilities
 
-### New Capabilities
-
-- scene-authoring: strumenti Master di preparazione della scena.
-
 ### Modified Capabilities
 
-Nessuna.
+- scene-authoring: aggiunge ai suoi elementi scenici i blocchi configurabili di movimento e visuale.
 
 ## Impact
 

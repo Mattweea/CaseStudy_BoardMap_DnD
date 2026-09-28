@@ -184,6 +184,59 @@ test('the master ignores budget and obstacles when moving a token', async () => 
   assert.deepEqual(response.json().state.tokens[0].position, { x: 3, y: 0 });
 });
 
+test('active scene elements block each path segment for a Player but not a Master', async () => {
+  const document = createDefaultSceneDocument();
+  document.elements = [{ id: 'rock-1', kind: 'rock', position: { x: 2, y: 0 }, widthCells: 2, heightCells: 1,
+    rotation: 90, blocksMovement: true, blocksVision: false }];
+  __testing.setSceneService({ getActiveScene: () => ({ id: 'scene-blockers', name: 'Ostacoli', version: 1, document }) });
+  try {
+    __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()] }));
+    const blocked = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 4, y: 0 }] });
+    assert.equal(blocked.statusCode, 400);
+    assert.match(blocked.json().message, /Roccia blocca il movimento/);
+    assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
+    assert.equal(__testing.getBattleMapState().movementUsedByTokenId['hero-1'] ?? 0, 0);
+    const master = await move(MASTER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 4, y: 0 }] });
+    assert.equal(master.statusCode, 200);
+    assert.deepEqual(master.json().state.tokens[0].position, { x: 4, y: 0 });
+  } finally {
+    __testing.setSceneService(null);
+  }
+});
+
+test('a scene element that blocks vision only does not block movement', async () => {
+  const document = createDefaultSceneDocument();
+  document.elements = [{ id: 'table-1', kind: 'table', position: { x: 1, y: 0 }, widthCells: 2, heightCells: 1,
+    rotation: 0, blocksMovement: false, blocksVision: true }];
+  __testing.setSceneService({ getActiveScene: () => ({ id: 'scene-blockers', name: 'Ostacoli', version: 1, document }) });
+  try {
+    __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()] }));
+    const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 3, y: 0 }] });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json().state.tokens[0].position, { x: 3, y: 0 });
+  } finally {
+    __testing.setSceneService(null);
+  }
+});
+
+test('an Adventurer-controlled vehicle retains its obstacle bypass with scene elements', async () => {
+  const document = createDefaultSceneDocument();
+  document.elements = [{ id: 'rock-vehicle', kind: 'rock', position: { x: 2, y: 0 }, widthCells: 1, heightCells: 1,
+    rotation: 0, blocksMovement: true, blocksVision: true }];
+  __testing.setSceneService({ getActiveScene: () => ({ id: 'scene-blockers', name: 'Ostacoli', version: 1, document }) });
+  try {
+    const vehicle = { id: 'vehicle-1', name: 'Moto', type: 'vehicle', size: 'large', vehicleKind: 'infernal-bike',
+      position: { x: 0, y: 0 }, widthCells: 2, heightCells: 1, color: '#554433', initiativeModifier: 0,
+      vehicleOccupantIds: ['hero-1'], conditions: [] };
+    __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken(), vehicle] }));
+    const response = await move(PLAYER, { tokenId: 'vehicle-1', waypoints: [{ x: 0, y: 0 }, { x: 3, y: 0 }] });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json().state.tokens.find((token) => token.id === 'vehicle-1').position, { x: 3, y: 0 });
+  } finally {
+    __testing.setSceneService(null);
+  }
+});
+
 test('undoing a move restores position, movement used and diagonal parity, and only for its own author', async () => {
   __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()], diagonalRule: 'alternating' }));
   const moveResponse = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 3, y: 3 }] });

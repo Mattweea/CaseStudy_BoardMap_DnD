@@ -28,6 +28,7 @@ import { usePageActivation } from './hooks/usePageActivation';
 import { getTokenFootprint } from './utils/board';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
+import { collectVisionBlockers } from '../shared/scene-blockers';
 import { characterSheetApi } from './utils/characterSheetApi';
 import { playCombatSound } from './utils/combatAudio';
 import type { CharacterSheetRosterEntry, PublicPortraitEntry } from './utils/characterSheetApi';
@@ -386,7 +387,7 @@ function App() {
   const activeTurnToken =
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
   const darkvisionCells = darkvisionToCells(user?.darkvision);
-  const visionBlockers = state.tokens.filter((token) => token.blocksMovement === true);
+  const visionBlockers = collectVisionBlockers(state.tokens, state.activeSceneElements, getTokenFootprint);
   const playerVision = !canManageBattleMap && sessionToken && !state.isBoardFullyLit
     ? {
         enabled: true,
