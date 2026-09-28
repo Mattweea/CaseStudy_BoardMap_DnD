@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { COMMAND_MODULES, commandModulesFor } from '../constants/commandModules';
+import { commandModulesFor } from '../constants/commandModules';
 import type { CommandModule, CommandModuleId } from '../constants/commandModules';
 import { Modal } from './Modal';
 import {
@@ -90,7 +90,7 @@ export function CommandModules({ role }: CommandModulesProps) {
   const buttonRefs = useRef(new Map<CommandModuleId, HTMLButtonElement>());
 
   const modules = commandModulesFor(role);
-  const openModule = COMMAND_MODULES.find((commandModule) => commandModule.id === openModuleId) ?? null;
+  const openModule = modules.find((commandModule) => commandModule.id === openModuleId) ?? null;
 
   useModalKeyIsolation(openModule !== null);
 
