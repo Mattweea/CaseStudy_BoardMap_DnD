@@ -126,6 +126,61 @@ test('drawing an inactive scene changes only its document until activation', asy
   }
 });
 
+test('scene elements are Master-only, versioned, persisted and broadcast only when active', async () => {
+  const refreshed = [];
+  const { app, service, repository, close } = await createApp({ onActiveSceneUpdated: (scene) => refreshed.push(scene.version) });
+  const headers = { 'x-test-user': 'master' };
+  const baseUrl = '/api/scenes/scene-initial/elements';
+  const element = { id: 'rock-1', kind: 'rock', position: { x: 3, y: 4 }, widthCells: 2, heightCells: 2, rotation: 0 };
+  try {
+    assert.equal((await app.inject({ method: 'POST', url: baseUrl, payload: { baseVersion: 1, element } })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'POST', url: baseUrl, headers: { 'x-test-user': 'player' }, payload: { baseVersion: 1, element } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'PATCH', url: `${baseUrl}/rock-1`, headers: { 'x-test-user': 'player' }, payload: { baseVersion: 1, transform: element } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'DELETE', url: `${baseUrl}/rock-1`, headers: { 'x-test-user': 'player' }, payload: { baseVersion: 1 } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: baseUrl, headers, payload: { baseVersion: 1, element: { ...element, kind: 'enemy' } } })).statusCode, 400);
+    const added = await app.inject({ method: 'POST', url: baseUrl, headers, payload: { baseVersion: 1, element: { ...element, hitPoints: 12 } } });
+    assert.equal(added.statusCode, 200);
+    assert.equal(added.json().version, 2);
+    assert.deepEqual(added.json().document.elements, [element]);
+    assert.deepEqual(repository.findById('scene-initial').document.elements, [element]);
+    assert.deepEqual(refreshed, [2]);
+    const stale = await app.inject({ method: 'PATCH', url: `${baseUrl}/rock-1`, headers, payload: { baseVersion: 1, transform: element } });
+    assert.equal(stale.statusCode, 409);
+    assert.equal(stale.json().currentScene.version, 2);
+    const updated = await app.inject({ method: 'PATCH', url: `${baseUrl}/rock-1`, headers, payload: { baseVersion: 2,
+      transform: { position: { x: 5, y: 6 }, widthCells: 3, heightCells: 1, rotation: 90 } } });
+    assert.equal(updated.statusCode, 200);
+    assert.deepEqual(updated.json().document.elements[0], { ...element, position: { x: 5, y: 6 }, widthCells: 3, heightCells: 1, rotation: 90 });
+    assert.equal((await app.inject({ method: 'DELETE', url: `${baseUrl}/missing`, headers, payload: { baseVersion: 3 } })).statusCode, 409);
+    const removed = await app.inject({ method: 'DELETE', url: `${baseUrl}/rock-1`, headers, payload: { baseVersion: 3 } });
+    assert.equal(removed.statusCode, 200);
+    assert.deepEqual(removed.json().document.elements, []);
+    assert.deepEqual(refreshed, [2, 3, 4]);
+    assert.deepEqual(service.getDrawingHistoryState('scene-initial'), { canUndo: false, canRedo: false });
+  } finally {
+    await close();
+  }
+});
+
+test('inactive-scene elements remain private until that scene is active', async () => {
+  const refreshed = [];
+  const { app, service, close } = await createApp({ onActiveSceneUpdated: (scene) => refreshed.push(scene.id) });
+  const headers = { 'x-test-user': 'master' };
+  try {
+    const created = await app.inject({ method: 'POST', url: '/api/scenes', headers, payload: { name: 'Riservata' } });
+    const sceneId = created.json().id;
+    const element = { id: 'crate-secret', kind: 'crate', position: { x: 2, y: 2 }, widthCells: 1, heightCells: 1, rotation: 0 };
+    const added = await app.inject({ method: 'POST', url: `/api/scenes/${sceneId}/elements`, headers,
+      payload: { baseVersion: 1, element } });
+    assert.equal(added.statusCode, 200);
+    assert.deepEqual(added.json().document.elements, [element]);
+    assert.deepEqual(refreshed, []);
+    assert.deepEqual(service.getActiveScene().document.elements, []);
+  } finally {
+    await close();
+  }
+});
+
 test('drawing undo and redo are Master-only, versioned and broadcast only for the active scene', async () => {
   const refreshed = [];
   const { app, service, close } = await createApp({ onActiveSceneUpdated: (scene) => refreshed.push(scene.version) });

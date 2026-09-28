@@ -28,6 +28,7 @@ Define the Fastify server boundary, authorization model, HTTP contracts, and SSE
 - Scene background delivery is authenticated. A Master may read any managed scene asset; an Adventurer may read only the active scene asset. Upload and reset-to-blank are Master-only, versioned scene mutations under `/api/scenes/:id/background`.
 - `POST` e `DELETE /api/scenes/:id/drawings` sono Master-only: aggiungono un tratto normalizzato o cancellano gli ID esistenti in una sola scrittura versionata; ID mancanti e versioni obsolete restituiscono `409` con la scena corrente. Un Player riceve i soli tratti della scena attiva tramite snapshot, senza accesso alle mutazioni.
 - `POST /api/scenes/:id/drawings/undo` e `/redo` sono Master-only e richiedono `baseVersion`. Ogni risposta di dettaglio scena include soltanto lo stato transitorio `drawingHistory.canUndo/canRedo`, non gli stack; un conflitto restituisce la scena corrente. Undo e redo persistono il nuovo layer drawing come una normale scrittura versionata.
+- `POST /api/scenes/:id/elements`, `PATCH` e `DELETE /api/scenes/:id/elements/:elementId` sono Master-only e richiedono `baseVersion`. Ogni add/update/remove modifica il solo layer elementi con una scrittura versionata; versioni obsolete o ID mancanti restituiscono `409` con la scena corrente. Gli elementi non hanno campi token e non entrano nella cronologia drawing o nell'undo dello stato live.
 
 Ownership-aware endpoints must validate the current server token and user. New mutations must be assigned deliberately to public, authenticated, owner-scoped, or master-only access.
 
@@ -54,6 +55,7 @@ Ownership-aware endpoints must validate the current server token and user. New m
   broadcast its preparation data.
 - The active projection carries `activeSceneBackground`: blank, or verified metadata, normalized calibration and the authenticated asset URL. Inactive background metadata and URLs remain outside Player snapshots.
 - La proiezione attiva porta anche `activeSceneDrawings`. Un aggiornamento del drawing della scena attiva incrementa la versione condivisa e viene diffuso ai client; la modifica di una scena inattiva non espone il suo documento.
+- La proiezione attiva porta `activeSceneElements` della sola scena attiva a Master e Player. Una mutazione elementi sulla scena attiva aggiorna la proiezione e il broadcast; la preparazione di una scena inattiva resta nel suo dettaglio Master e non raggiunge gli snapshot Player.
 - Disconnect cleanup must remove the client and its keepalive timer.
 - Never broadcast raw master state to all clients.
 - Per-die roll detail is part of its parent log rather than a separate event. The existing per-recipient snapshot sanitization therefore delivers the complete detail wherever that log is visible and delivers none of it where a secret log is hidden.

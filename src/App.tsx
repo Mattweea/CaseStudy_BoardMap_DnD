@@ -1710,6 +1710,7 @@ function App() {
           isBackgroundHidden={state.isBoardBackgroundHidden}
           background={state.activeSceneBackground}
           drawings={state.activeSceneDrawings}
+          elements={state.activeSceneElements}
           dimensions={state.boardDimensions}
           vision={playerVision}
           lightSources={state.lightSources}
@@ -1786,6 +1787,7 @@ function App() {
             isBackgroundHidden={state.isBoardBackgroundHidden}
             background={state.activeSceneBackground}
             drawings={state.activeSceneDrawings}
+            elements={state.activeSceneElements}
             dimensions={state.boardDimensions}
             vision={playerVision}
             lightSources={state.lightSources}

@@ -14,6 +14,7 @@ export const SCENE_LIMITS: Readonly<{
   maxReferenceTypeLength: number;
   maxLayerItems: number;
   maxDrawingPoints: number;
+  maxElementFootprintCells: number;
   minDrawingWidthCells: number;
   maxDrawingWidthCells: number;
   maxCoordinateMagnitude: number;
@@ -28,6 +29,8 @@ export class SceneValidationError extends Error {
   path: string;
   constructor(message: string, path?: string);
 }
+
+export const SCENE_ELEMENT_KINDS: readonly ['rock', 'crate', 'table'];
 
 export interface BlankSceneBackground {
   kind: 'blank';
@@ -65,8 +68,11 @@ export interface SceneDrawing {
 
 export interface SceneElement {
   id: string;
+  kind: (typeof SCENE_ELEMENT_KINDS)[number];
   position: GridPosition;
-  [key: string]: unknown;
+  widthCells: number;
+  heightCells: number;
+  rotation: number;
 }
 
 export interface SceneEntityReference {
@@ -121,6 +127,7 @@ export function normalizeSceneMetadata(value: unknown): SceneMetadata;
 export function normalizeScene(value: unknown): Scene;
 export function normalizeSceneDocument(value: unknown): SceneDocument;
 export function normalizeSceneDrawings(value: unknown): SceneDrawing[];
+export function normalizeSceneElements(value: unknown, dimensions?: { columns: number; rows: number }): SceneElement[];
 export function captureSceneConfiguration(scene: unknown): SceneConfigurationDocument;
 export function projectSceneRuntime(
   configuration: unknown,

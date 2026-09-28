@@ -17,7 +17,7 @@ function sessionHeaders(user) {
 
 function makeScene(id, name, version, marker) {
   const document = createDefaultSceneDocument();
-  document.elements = [{ id: `element-${id}`, kind: marker, position: { x: 1, y: 1 } }];
+  document.elements = [{ id: `element-${marker}`, kind: 'rock', position: { x: 1, y: 1 }, widthCells: 1, heightCells: 1, rotation: 0 }];
   return { id, name, version, document };
 }
 
@@ -57,6 +57,7 @@ test('HTTP and SSE provide Master catalog summaries while two Players receive on
     assert.equal(response.json().state.activeSceneId, 'scene-active');
     assert.equal(response.json().state.activeSceneVersion, 3);
     assert.deepEqual(response.json().state.activeSceneDrawings, active.document.drawings);
+    assert.deepEqual(response.json().state.activeSceneElements, active.document.elements);
     assert.equal('sceneCatalog' in response.json().state, false);
     assert.equal(JSON.stringify(response.json()).includes('Preparazione segreta'), false);
     assert.equal(JSON.stringify(response.json()).includes('secret-stroke'), false);
@@ -80,6 +81,7 @@ test('HTTP and SSE provide Master catalog summaries while two Players receive on
       const snapshot = client.snapshots()[0];
       assert.equal(snapshot.state.activeSceneId, 'scene-active');
       assert.deepEqual(snapshot.state.activeSceneDrawings, active.document.drawings);
+      assert.deepEqual(snapshot.state.activeSceneElements, active.document.elements);
       assert.equal('sceneCatalog' in snapshot.state, false);
       assert.equal(JSON.stringify(snapshot).includes('Preparazione segreta'), false);
       assert.equal(JSON.stringify(snapshot).includes('secret-stroke'), false);

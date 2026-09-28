@@ -10,7 +10,7 @@ import { pathCost } from '../shared/grid-movement.mjs';
 function scene(id, name, version, boardOverrides = {}, marker = id) {
   const document = createDefaultSceneDocument();
   document.board = { ...document.board, ...boardOverrides };
-  document.elements = [{ id: `element-${id}`, kind: marker, position: { x: 1, y: 1 } }];
+  document.elements = [{ id: `element-${marker}`, kind: 'rock', position: { x: 1, y: 1 }, widthCells: 1, heightCells: 1, rotation: 0 }];
   return { id, name, version, document };
 }
 
@@ -39,6 +39,7 @@ test('active scene projection keeps live runtime and adapts board configuration 
   assert.equal(projected.lightSources[0].id, 'torch');
   assert.equal(projected.tokens, tokens);
   assert.equal(projected.sharedNotes, 'live');
+  assert.deepEqual(projected.activeSceneElements, active.document.elements);
   assert.equal('elements' in projected, false);
 });
 
@@ -104,6 +105,7 @@ test('role views expose only summaries to the Master and only active identity to
   assert.equal('sceneCatalog' in player, false);
   assert.equal(player.activeSceneId, 'scene-a');
   assert.deepEqual(player.activeSceneDrawings, active.document.drawings);
+  assert.deepEqual(player.activeSceneElements, active.document.elements);
   assert.equal(JSON.stringify(master).includes('INACTIVE-ASSET-MARKER'), false);
   assert.equal(JSON.stringify(player).includes('Sala B'), false);
   assert.equal(JSON.stringify(player).includes('secret-stroke'), false);

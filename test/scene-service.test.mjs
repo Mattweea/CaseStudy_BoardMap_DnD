@@ -178,3 +178,27 @@ test('a failed undo does not consume drawing history or change the persisted sce
   const undone = service.replayDrawing({ id: 'scene-a', expectedVersion: added.version, direction: 'undo' });
   assert.deepEqual(undone.document.drawings, []);
 }));
+
+test('scene element writes remain persisted, isolated and reject failed storage without projection', () => withRepository((repository) => {
+  const service = new SceneService({ repository, campaignId: 'campaign-test' });
+  service.load();
+  service.createScene({ id: 'scene-b', name: 'Seconda', sortOrder: 1, document: createDefaultSceneDocument() });
+  const element = { id: 'table-1', kind: 'table', position: { x: 2, y: 3 }, widthCells: 2, heightCells: 1, rotation: 0 };
+  const added = service.addElement({ id: 'scene-b', expectedVersion: 1, element });
+  assert.deepEqual(added.document.elements, [element]);
+  assert.deepEqual(service.getActiveScene().document.elements, []);
+  assert.throws(() => service.addElement({ id: 'scene-b', expectedVersion: 1, element: { ...element, id: 'stale' } }),
+    (error) => error instanceof ScenePersistenceConflictError && error.currentScene.version === 2);
+  const restarted = new SceneService({ repository, campaignId: 'campaign-test' });
+  restarted.load();
+  assert.deepEqual(restarted.getScene('scene-b').document.elements, [element]);
+  const originalSave = repository.saveVersion.bind(repository);
+  repository.saveVersion = () => { throw new Error('disk full'); };
+  try {
+    assert.throws(() => service.removeElement({ id: 'scene-b', elementId: element.id, expectedVersion: 2 }), /disk full/);
+  } finally {
+    repository.saveVersion = originalSave;
+  }
+  assert.deepEqual(service.getScene('scene-b').document.elements, [element]);
+  assert.deepEqual(repository.findById('scene-b').document.elements, [element]);
+}));

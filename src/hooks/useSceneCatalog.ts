@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BoardDimensions, SceneDrawing } from '../types';
+import type { BoardDimensions, SceneDrawing, SceneElement } from '../types';
 import {
   sceneApi,
   SceneApiError,
@@ -36,7 +36,7 @@ export function useSceneCatalog(enabled: boolean) {
   const [isLoading, setIsLoading] = useState(enabled);
   const [isMutating, setIsMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const drawingWritePending = useRef(false);
+  const layerWritePending = useRef(false);
 
   const loadCatalog = useCallback(async () => {
     if (!enabled) return;
@@ -150,9 +150,9 @@ export function useSceneCatalog(enabled: boolean) {
     }
   };
 
-  const writeDrawing = async (action: (scene: PersistedScene) => Promise<PersistedScene>, fallback = 'Salvataggio del disegno non riuscito. Riprova.') => {
-    if (!selectedScene || drawingWritePending.current) return false;
-    drawingWritePending.current = true;
+  const writeLayer = async (action: (scene: PersistedScene) => Promise<PersistedScene>, fallback: string) => {
+    if (!selectedScene || layerWritePending.current) return false;
+    layerWritePending.current = true;
     setIsMutating(true);
     setError(null);
     try {
@@ -165,13 +165,13 @@ export function useSceneCatalog(enabled: boolean) {
         const current = requestError.payload.currentScene;
         setCatalog((catalogState) => replaceEntry(catalogState, current));
         setSelectedScene(current);
-        setError('La scena è cambiata nel frattempo. Ho caricato la versione più recente; ripeti il gesto.');
+        setError('La scena è cambiata nel frattempo. Ho caricato la versione più recente; ripeti l’operazione.');
       } else {
         setError(readableError(requestError, fallback));
       }
       return false;
     } finally {
-      drawingWritePending.current = false;
+      layerWritePending.current = false;
       setIsMutating(false);
     }
   };
@@ -186,9 +186,12 @@ export function useSceneCatalog(enabled: boolean) {
     selectScene,
     createScene,
     updateScene,
-    addDrawing: (drawing: SceneDrawing) => writeDrawing((scene) => sceneApi.addDrawing(scene.id, scene.version, drawing)),
-    eraseDrawings: (ids: string[]) => writeDrawing((scene) => sceneApi.eraseDrawings(scene.id, scene.version, ids)),
-    undoDrawing: () => writeDrawing((scene) => sceneApi.undoDrawing(scene.id, scene.version), 'Impossibile annullare il disegno. Riprova.'),
-    redoDrawing: () => writeDrawing((scene) => sceneApi.redoDrawing(scene.id, scene.version), 'Impossibile ripetere il disegno. Riprova.'),
+    addDrawing: (drawing: SceneDrawing) => writeLayer((scene) => sceneApi.addDrawing(scene.id, scene.version, drawing), 'Salvataggio del disegno non riuscito. Riprova.'),
+    eraseDrawings: (ids: string[]) => writeLayer((scene) => sceneApi.eraseDrawings(scene.id, scene.version, ids), 'Cancellazione del disegno non riuscita. Riprova.'),
+    undoDrawing: () => writeLayer((scene) => sceneApi.undoDrawing(scene.id, scene.version), 'Impossibile annullare il disegno. Riprova.'),
+    redoDrawing: () => writeLayer((scene) => sceneApi.redoDrawing(scene.id, scene.version), 'Impossibile ripetere il disegno. Riprova.'),
+    addElement: (element: SceneElement) => writeLayer((scene) => sceneApi.addElement(scene.id, scene.version, element), 'Aggiunta dell’elemento non riuscita. Riprova.'),
+    updateElement: (elementId: string, transform: Pick<SceneElement, 'position' | 'widthCells' | 'heightCells' | 'rotation'>) => writeLayer((scene) => sceneApi.updateElement(scene.id, elementId, scene.version, transform), 'Trasformazione dell’elemento non riuscita. Riprova.'),
+    removeElement: (elementId: string) => writeLayer((scene) => sceneApi.removeElement(scene.id, elementId, scene.version), 'Rimozione dell’elemento non riuscita. Riprova.'),
   };
 }

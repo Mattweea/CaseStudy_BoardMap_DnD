@@ -9,6 +9,7 @@ export const SCENE_LIMITS = Object.freeze({
   maxDrawingPoints: 20000,
   minDrawingWidthCells: 0.05,
   maxDrawingWidthCells: 20,
+  maxElementFootprintCells: 40,
   maxCoordinateMagnitude: 1_000_000,
   maxLightRadiusCells: 1000,
   maxBoardDimensionCells: 500,
@@ -21,6 +22,8 @@ const DEFAULT_MEASUREMENT_UNIT = Object.freeze({
   label: 'm',
   cellsValue: 1.5,
 });
+
+export const SCENE_ELEMENT_KINDS = Object.freeze(['rock', 'crate', 'table']);
 
 export class SceneValidationError extends Error {
   constructor(message, path = 'scene') {
@@ -309,15 +312,42 @@ export function normalizeSceneDrawings(value) {
   return normalizeDrawings(value, 'drawings');
 }
 
-function normalizeElements(value, path) {
+function normalizeElements(value, path, dimensions) {
   return normalizeCollection(value, path, (item, itemPath) => {
     const cloned = cloneJsonObject(item, itemPath);
+    if (!SCENE_ELEMENT_KINDS.includes(cloned.kind)) {
+      fail(itemPath + '.kind', 'must be a supported scene element kind');
+    }
+    const position = normalizePosition(cloned.position, itemPath + '.position');
+    if (position.x < 0 || position.y < 0) fail(itemPath + '.position', 'must be non-negative');
+    const widthCells = cloned.widthCells ?? (cloned.kind === 'table' ? 2 : 1);
+    const heightCells = cloned.heightCells ?? 1;
+    for (const [axis, size] of [['widthCells', widthCells], ['heightCells', heightCells]]) {
+      if (!Number.isSafeInteger(size) || size < 1 || size > SCENE_LIMITS.maxElementFootprintCells) {
+        fail(itemPath + '.' + axis, `must be an integer between 1 and ${SCENE_LIMITS.maxElementFootprintCells}`);
+      }
+    }
+    const rotation = cloned.rotation ?? 0;
+    if (!Number.isSafeInteger(rotation) || rotation < 0 || rotation > 359) {
+      fail(itemPath + '.rotation', 'must be an integer between 0 and 359');
+    }
+    if (dimensions.columns > 0
+      && (position.x + widthCells > dimensions.columns || position.y + heightCells > dimensions.rows)) {
+      fail(itemPath + '.position', 'must fit inside the board');
+    }
     return {
-      ...cloned,
       id: normalizeId(cloned.id, itemPath + '.id'),
-      position: normalizePosition(cloned.position, itemPath + '.position'),
+      kind: cloned.kind,
+      position,
+      widthCells,
+      heightCells,
+      rotation,
     };
   });
+}
+
+export function normalizeSceneElements(value, dimensions = { columns: 0, rows: 0 }) {
+  return normalizeElements(value, 'elements', dimensions);
 }
 
 function normalizeEntityReferences(value, path) {
@@ -438,12 +468,13 @@ export function normalizeSceneDocument(value) {
     ? {}
     : cloneJsonObject(value.runtime, 'scene.runtime');
 
+  const board = normalizeBoardConfig(value.board, 'scene.board');
   const normalized = {
     schemaVersion,
     background: normalizeBackground(value.background, 'scene.background'),
-    board: normalizeBoardConfig(value.board, 'scene.board'),
+    board,
     drawings: normalizeDrawings(value.drawings ?? [], 'scene.drawings'),
-    elements: normalizeElements(value.elements ?? [], 'scene.elements'),
+    elements: normalizeElements(value.elements ?? [], 'scene.elements', board.dimensions),
     entityReferences,
     preparedPlacements: normalizePreparedPlacements(
       value.preparedPlacements ?? [],

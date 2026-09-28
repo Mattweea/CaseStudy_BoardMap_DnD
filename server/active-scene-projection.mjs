@@ -24,6 +24,7 @@ export function attachActiveSceneMetadata(state, activeScene) {
     activeSceneVersion: summary?.version ?? null,
     activeSceneSummary: summary,
     activeSceneDrawings: clone(activeScene?.document.drawings ?? []),
+    activeSceneElements: clone(activeScene?.document.elements ?? []),
     activeSceneBackground: activeScene?.document.background.kind === 'image'
       ? {
           ...clone(activeScene.document.background),

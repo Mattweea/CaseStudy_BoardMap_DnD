@@ -232,6 +232,31 @@ export function registerSceneRoutes(app, {
   app.post('/api/scenes/:id/drawings/undo', (request, reply) => replayDrawing(request, reply, 'undo'));
   app.post('/api/scenes/:id/drawings/redo', (request, reply) => replayDrawing(request, reply, 'redo'));
 
+  function mutateElement(request, reply, mode) {
+    if (!masterOnly(request, reply)) return;
+    try {
+      const body = request.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || !Number.isSafeInteger(body.baseVersion) || body.baseVersion < 1) {
+        throw new TypeError('La versione base della scena è obbligatoria.');
+      }
+      const args = { id: request.params.id, expectedVersion: body.baseVersion };
+      const scene = mode === 'add'
+        ? service.addElement({ ...args, element: body.element })
+        : mode === 'update'
+          ? service.updateElement({ ...args, elementId: request.params.elementId, transform: body.transform })
+          : service.removeElement({ ...args, elementId: request.params.elementId });
+      if (scene.id === service.getActiveScene()?.id) onActiveSceneUpdated?.(scene);
+      return sceneDetail(scene);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  }
+
+  app.post('/api/scenes/:id/elements', (request, reply) => mutateElement(request, reply, 'add'));
+  app.patch('/api/scenes/:id/elements/:elementId', (request, reply) => mutateElement(request, reply, 'update'));
+  app.delete('/api/scenes/:id/elements/:elementId', (request, reply) => mutateElement(request, reply, 'remove'));
+
   if (backgroundStorage) {
     app.addContentTypeParser(
       ['image/jpeg', 'image/png', 'image/webp'],

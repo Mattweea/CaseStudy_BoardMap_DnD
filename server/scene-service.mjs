@@ -1,4 +1,4 @@
-import { normalizeSceneDrawings, SCENE_LIMITS } from '../shared/scene-model.mjs';
+import { normalizeSceneDrawings, normalizeSceneElements, SCENE_LIMITS } from '../shared/scene-model.mjs';
 
 const DRAWING_HISTORY_LIMIT = 40;
 
@@ -125,7 +125,7 @@ export class SceneService {
     return clone(persisted);
   }
 
-  versionedDrawingScene(id, expectedVersion) {
+  versionedScene(id, expectedVersion) {
     const current = this.getScene(id);
     if (!current) throw new SceneNotFoundError(id);
     if (current.version !== expectedVersion) throw new ScenePersistenceConflictError(current);
@@ -152,7 +152,7 @@ export class SceneService {
   }
 
   addDrawing({ id, expectedVersion, drawing }) {
-    const current = this.versionedDrawingScene(id, expectedVersion);
+    const current = this.versionedScene(id, expectedVersion);
     const [normalized] = normalizeSceneDrawings([drawing]);
     const drawings = normalizeSceneDrawings([...current.document.drawings, normalized]);
     const updated = this.persistDrawings(current, expectedVersion, drawings);
@@ -164,7 +164,7 @@ export class SceneService {
   }
 
   eraseDrawings({ id, expectedVersion, ids }) {
-    const current = this.versionedDrawingScene(id, expectedVersion);
+    const current = this.versionedScene(id, expectedVersion);
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > SCENE_LIMITS.maxLayerItems
       || ids.some((value) => typeof value !== 'string' || !value)
       || new Set(ids).size !== ids.length) {
@@ -183,7 +183,7 @@ export class SceneService {
   }
 
   replayDrawing({ id, expectedVersion, direction }) {
-    const current = this.versionedDrawingScene(id, expectedVersion);
+    const current = this.versionedScene(id, expectedVersion);
     const history = this.drawingHistory.get(id);
     const source = direction === 'undo' ? history?.undo : history?.redo;
     if (!source?.length) throw new SceneDrawingHistoryUnavailableError(current);
@@ -198,6 +198,49 @@ export class SceneService {
     const destination = direction === 'undo' ? history.redo : history.undo;
     destination.push(entry);
     return updated;
+  }
+
+  persistElements(current, expectedVersion, elements) {
+    return this.updateScene({
+      id: current.id,
+      expectedVersion,
+      name: current.name,
+      document: { ...current.document, elements },
+      sortOrder: current.sortOrder,
+    });
+  }
+
+  addElement({ id, expectedVersion, element }) {
+    const current = this.versionedScene(id, expectedVersion);
+    const elements = normalizeSceneElements(
+      [...current.document.elements, element], current.document.board.dimensions,
+    );
+    return this.persistElements(current, expectedVersion, elements);
+  }
+
+  updateElement({ id, elementId, expectedVersion, transform }) {
+    const current = this.versionedScene(id, expectedVersion);
+    const index = current.document.elements.findIndex((element) => element.id === elementId);
+    if (index < 0) throw new ScenePersistenceConflictError(current);
+    if (!transform || typeof transform !== 'object' || Array.isArray(transform)
+      || !transform.position || transform.widthCells === undefined
+      || transform.heightCells === undefined || transform.rotation === undefined) {
+      throw new TypeError('Specifica posizione, dimensioni e rotazione dell’elemento.');
+    }
+    const elements = [...current.document.elements];
+    elements[index] = { ...elements[index], ...transform, id: elementId, kind: elements[index].kind };
+    return this.persistElements(
+      current, expectedVersion, normalizeSceneElements(elements, current.document.board.dimensions),
+    );
+  }
+
+  removeElement({ id, elementId, expectedVersion }) {
+    const current = this.versionedScene(id, expectedVersion);
+    if (!current.document.elements.some((element) => element.id === elementId)) {
+      throw new ScenePersistenceConflictError(current);
+    }
+    return this.persistElements(current, expectedVersion,
+      current.document.elements.filter((element) => element.id !== elementId));
   }
 
   async replaceBackground({ id, expectedVersion, buffer, mediaType, storage }) {

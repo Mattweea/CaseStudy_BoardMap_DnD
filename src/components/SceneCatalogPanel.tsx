@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type P
 import type { BoardDimensions, SceneDrawing } from '../types';
 import { useSceneCatalog } from '../hooks/useSceneCatalog';
 import { sceneBackgroundUrl } from '../utils/sceneApi';
+import { SceneElementEditor } from './SceneElementEditor';
 
 const DEFAULT_CALIBRATION = { scale: 1, offsetX: 0, offsetY: 0 };
 const CELL_SIZE = 48;
@@ -67,6 +68,9 @@ export function SceneCatalogPanel({
     eraseDrawings,
     undoDrawing,
     redoDrawing,
+    addElement,
+    updateElement,
+    removeElement,
   } = useSceneCatalog(true);
   const [newName, setNewName] = useState('');
   const [nameDraft, setNameDraft] = useState('');
@@ -75,8 +79,13 @@ export function SceneCatalogPanel({
   const [calibrationDraft, setCalibrationDraft] = useState(DEFAULT_CALIBRATION);
   const [previewImageSize, setPreviewImageSize] = useState<{ width: number; height: number } | null>(null);
   const previewFrameRef = useRef<HTMLDivElement | null>(null);
+  const [previewHost, setPreviewHost] = useState<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const [previewSpace, setPreviewSpace] = useState({ width: 0, height: 0 });
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const [previewPan, setPreviewPan] = useState({ x: 0, y: 0 });
+  const [isPreviewPanMode, setIsPreviewPanMode] = useState(false);
+  const panGestureRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const [isChangingVisibility, setIsChangingVisibility] = useState(false);
   const [boardDimensionsDraft, setBoardDimensionsDraft] = useState({ columns: '', rows: '' });
   const [dimensionsError, setDimensionsError] = useState<string | null>(null);
@@ -102,6 +111,10 @@ export function SceneCatalogPanel({
     setPendingDrawing(null);
     setPendingEraseIds([]);
     setEraserPreviewPoint(null);
+    panGestureRef.current = null;
+    setPreviewZoom(1);
+    setPreviewPan({ x: 0, y: 0 });
+    setIsPreviewPanMode(false);
   }, [selectedScene?.id]);
 
   useEffect(() => {
@@ -116,6 +129,19 @@ export function SceneCatalogPanel({
     window.addEventListener('keydown', cancelOnEscape, true);
     return () => window.removeEventListener('keydown', cancelOnEscape, true);
   }, [drawingGesture]);
+
+  useEffect(() => {
+    if (!isPreviewPanMode) return undefined;
+    const cancelPan = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      panGestureRef.current = null;
+      setIsPreviewPanMode(false);
+    };
+    window.addEventListener('keydown', cancelPan, true);
+    return () => window.removeEventListener('keydown', cancelPan, true);
+  }, [isPreviewPanMode]);
 
   useEffect(() => {
     const dimensions = selectedScene?.document.board.dimensions;
@@ -195,14 +221,15 @@ export function SceneCatalogPanel({
     ? Math.min(previewSpace.width / previewWidth, previewSpace.height / previewHeight)
     : 0;
   const previewCellSize = 48 * previewScale;
-  const drawingEnabled = Boolean(selectedScene && drawingTool && previewScale > 0 && !hasDraftChanges && !isMutating && !isLoading);
+  const drawingEnabled = Boolean(selectedScene && drawingTool && previewScale > 0 && !hasDraftChanges && !isMutating && !isLoading && !isPreviewPanMode);
   const historyEnabled = Boolean(selectedScene && !hasDraftChanges && !isMutating && !isLoading && !drawingGesture);
   const canUndoDrawing = historyEnabled && Boolean(selectedScene?.drawingHistory?.canUndo);
   const canRedoDrawing = historyEnabled && Boolean(selectedScene?.drawingHistory?.canRedo);
   const previewPointFromPointer = (event: ReactPointerEvent<HTMLDivElement>): DrawingPoint => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / previewScale + previewLeft) / CELL_SIZE;
-    const y = ((event.clientY - rect.top) / previewScale + previewTop) / CELL_SIZE;
+    const renderedScale = rect.width / previewWidth;
+    const x = ((event.clientX - rect.left) / renderedScale + previewLeft) / CELL_SIZE;
+    const y = ((event.clientY - rect.top) / renderedScale + previewTop) / CELL_SIZE;
     return {
       x: Math.round(Math.max(0, Math.min(previewColumns, x)) * 100) / 100,
       y: Math.round(Math.max(0, Math.min(previewRows, y)) * 100) / 100,
@@ -219,8 +246,10 @@ export function SceneCatalogPanel({
   };
   const handleDrawingPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!drawingEnabled || !drawingTool || event.button !== 0 || drawingGestureRef.current) return;
-    const rawX = ((event.clientX - event.currentTarget.getBoundingClientRect().left) / previewScale + previewLeft) / CELL_SIZE;
-    const rawY = ((event.clientY - event.currentTarget.getBoundingClientRect().top) / previewScale + previewTop) / CELL_SIZE;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const renderedScale = rect.width / previewWidth;
+    const rawX = ((event.clientX - rect.left) / renderedScale + previewLeft) / CELL_SIZE;
+    const rawY = ((event.clientY - rect.top) / renderedScale + previewTop) / CELL_SIZE;
     if (!pointInsideBoard({ x: rawX, y: rawY })) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -394,11 +423,13 @@ export function SceneCatalogPanel({
               <div className="scene-catalog__calibration-preview-frame">
                 <div className="scene-catalog__calibration-preview-viewport" ref={previewFrameRef}>
                   <div
+                    ref={setPreviewHost}
                     className="scene-catalog__calibration-preview"
                     style={{
                       width: previewWidth * previewScale,
                       height: previewHeight * previewScale,
                       visibility: previewScale > 0 ? 'visible' : 'hidden',
+                      transform: `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`,
                     }}
                   >
                     {imageSource ? (
@@ -460,8 +491,38 @@ export function SceneCatalogPanel({
                       onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove}
                       onPointerUp={handleDrawingPointerUp} onPointerCancel={() => { setGesture(null); setEraserPreviewPoint(null); }}
                       onPointerLeave={() => { if (!drawingGestureRef.current) setEraserPreviewPoint(null); }} /> : null}
+                    {isPreviewPanMode ? <div className="scene-catalog__pan-capture" role="presentation"
+                      onPointerDown={(event) => { if (event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); panGestureRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }; }}
+                      onPointerMove={(event) => { const gesture = panGestureRef.current; if (!gesture || gesture.pointerId !== event.pointerId) return; setPreviewPan((current) => ({ x: current.x + event.clientX - gesture.x, y: current.y + event.clientY - gesture.y })); panGestureRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }; }}
+                      onPointerUp={(event) => { if (panGestureRef.current?.pointerId !== event.pointerId) return; event.currentTarget.releasePointerCapture(event.pointerId); panGestureRef.current = null; }}
+                      onPointerCancel={() => { panGestureRef.current = null; }} /> : null}
                   </div>
                 </div>
+                <div className="scene-catalog__preview-navigation" role="group" aria-label="Navigazione anteprima">
+                  <button type="button" aria-pressed={isPreviewPanMode} onClick={() => { setDrawingTool(null); setIsPreviewPanMode((current) => !current); }}>Sposta vista</button>
+                  <button type="button" aria-label="Riduci zoom anteprima" disabled={previewZoom <= 1} onClick={() => setPreviewZoom((current) => Math.max(1, Math.round((current - .25) * 100) / 100))}>−</button>
+                  <output aria-label="Zoom anteprima">{Math.round(previewZoom * 100)}%</output>
+                  <button type="button" aria-label="Aumenta zoom anteprima" disabled={previewZoom >= 4} onClick={() => setPreviewZoom((current) => Math.min(4, Math.round((current + .25) * 100) / 100))}>+</button>
+                  <button type="button" onClick={() => { setPreviewZoom(1); setPreviewPan({ x: 0, y: 0 }); setIsPreviewPanMode(false); }}>Centra</button>
+                </div>
+                <SceneElementEditor
+                  sceneId={selectedScene.id}
+                  elements={selectedScene.document.elements}
+                  dimensions={selectedScene.document.board.dimensions}
+                  previewHost={previewHost}
+                  previewLeft={previewLeft}
+                  previewTop={previewTop}
+                  previewWidth={previewWidth}
+                  previewHeight={previewHeight}
+                  canPrepare={!hasDraftChanges && !isMutating && !isLoading && previewScale > 0}
+                  drawingToolActive={drawingTool !== null}
+                  panMode={isPreviewPanMode}
+                  previewZoom={previewZoom}
+                  onBeginEdit={() => { setDrawingTool(null); setIsPreviewPanMode(false); }}
+                  onAdd={addElement}
+                  onUpdate={updateElement}
+                  onRemove={removeElement}
+                />
                 <div className="scene-catalog__drawing-tools" role="group" aria-label="Disegno della scena">
                   <button type="button" className="scene-catalog__drawing-tool" aria-pressed={drawingTool === 'pencil'}
                     disabled={isLoading || isMutating || hasDraftChanges} onClick={() => setDrawingTool(drawingTool === 'pencil' ? null : 'pencil')}>✎ <span>Matita</span></button>

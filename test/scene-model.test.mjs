@@ -9,6 +9,7 @@ import {
   normalizeScene,
   normalizeSceneMetadata,
   normalizeSceneDocument,
+  normalizeSceneElements,
   projectSceneRuntime,
 } from '../shared/scene-model.mjs';
 
@@ -35,7 +36,7 @@ function validScene() {
       },
     ],
     elements: [
-      { id: 'element-1', kind: 'rock', position: { x: 7, y: 8 } },
+      { id: 'element-1', kind: 'rock', position: { x: 7, y: 8 }, widthCells: 2, heightCells: 1, rotation: 45 },
     ],
     entityReferences: [
       { id: 'reference-1', entityType: 'encounter-entity', entityId: 'entity-1' },
@@ -192,6 +193,25 @@ test('duplicate ids are rejected within every collection', () => {
       && error.path === 'scene.elements[1].id'
       && /duplicates id/.test(error.message),
   );
+});
+
+test('scene elements normalize a closed kind, bounded transform and strip token fields', () => {
+  const element = { id: 'rock-1', kind: 'rock', position: { x: 2, y: 3 }, hitPoints: 20, conditions: ['prone'] };
+  assert.deepEqual(normalizeSceneElements([element], { columns: 30, rows: 30 }), [{
+    id: 'rock-1', kind: 'rock', position: { x: 2, y: 3 }, widthCells: 1, heightCells: 1, rotation: 0,
+  }]);
+  assert.equal('hitPoints' in normalizeSceneElements([element])[0], false);
+  for (const invalid of [
+    { ...element, kind: 'monster' },
+    { ...element, position: { x: -1, y: 0 } },
+    { ...element, widthCells: 0 },
+    { ...element, heightCells: SCENE_LIMITS.maxElementFootprintCells + 1 },
+    { ...element, rotation: 360 },
+    { ...element, position: { x: 30, y: 0 } },
+  ]) {
+    assert.throws(() => normalizeSceneElements([invalid], { columns: 30, rows: 30 }), SceneValidationError);
+  }
+  assert.throws(() => normalizeSceneElements([element, element]), /duplicates id/);
 });
 
 test('prepared placements cannot reference a missing entity', () => {

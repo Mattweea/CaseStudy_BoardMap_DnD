@@ -18,6 +18,7 @@ import type {
   MovementNotice,
   SceneBackground,
   SceneDrawing,
+  SceneElement,
   TemplateShape,
   TokenMovementBudget,
   TokenWalkEvent,
@@ -35,6 +36,7 @@ import { cellsToUnit, pathCost, pathStepCount, MAX_MOVEMENT_PATH_STEPS } from '.
 import { SCENE_LIMITS } from '../../shared/scene-model';
 import { sceneBackgroundViewportTransform } from '../../shared/scene-background-calibration';
 import { Token } from './Token';
+import { SceneElementArt } from './SceneElementArt';
 
 function formatNumber(value: number): string {
   return value % 1 === 0 ? String(value) : value.toFixed(1);
@@ -69,6 +71,7 @@ interface BoardProps {
   isBackgroundHidden?: boolean;
   background?: SceneBackground;
   drawings?: SceneDrawing[];
+  elements?: SceneElement[];
   dimensions?: BoardDimensions;
   vision?: {
     enabled: boolean;
@@ -462,6 +465,7 @@ export function Board({
   isBackgroundHidden = false,
   background = { kind: 'blank' },
   drawings = [],
+  elements = [],
   dimensions = { columns: 30, rows: 30 },
   vision = null,
   lightSources = [],
@@ -2091,6 +2095,19 @@ export function Board({
                   strokeLinecap="round" strokeLinejoin="round" />
               ))}
             </svg>
+            <div className="board-scene-elements" aria-hidden="true">
+              {elements.map((element) => (
+                <div key={element.id} className="board-scene-element" style={{
+                  left: (element.position.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+                  top: (element.position.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+                  width: element.widthCells * BOARD_CONFIG.cellSize * zoom,
+                  height: element.heightCells * BOARD_CONFIG.cellSize * zoom,
+                  transform: `rotate(${element.rotation}deg)`,
+                }}>
+                  <SceneElementArt kind={element.kind} />
+                </div>
+              ))}
+            </div>
             {planInteraction && planEndCell ? (
               <div
                 className={`board-highlight ${

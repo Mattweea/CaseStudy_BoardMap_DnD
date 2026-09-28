@@ -7,20 +7,16 @@ Il Master deve costruire battle map semplici con arredi riutilizzabili senza con
 ## What Changes
 
 - Aggiunge una piccola libreria locale di elementi scenici.
-- Supporta add, select, move, resize, rotate e remove.
+- Supporta add, select, move, resize, rotate e remove nel dialog Preparazione scena; la board live mostra soltanto il risultato confermato.
 - Mantiene modello, layer e controlli separati dai token.
 
 ## Capabilities
 
-### New Capabilities
-
-- scene-authoring: strumenti Master di preparazione della scena.
-
 ### Modified Capabilities
 
-Nessuna.
+- scene-authoring: aggiunge la preparazione degli elementi scenici alla capability esistente.
 
 ## Impact
 
-- Nuova collezione scene elements e layer Board.
+- Nuova collezione scene elements, strumenti nel dialog e layer di sola visualizzazione sulla Board.
 - Asset iniziali esclusivamente locali e approvati nel repository.

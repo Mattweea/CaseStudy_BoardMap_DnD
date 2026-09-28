@@ -1,4 +1,4 @@
-import type { Scene, SceneDrawing } from '../types';
+import type { Scene, SceneDrawing, SceneElement } from '../types';
 import { API_BASE_URL } from './api';
 
 export interface SceneCatalogEntry {
@@ -91,6 +91,18 @@ export const sceneApi = {
   }),
   redoDrawing: (id: string, baseVersion: number) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/drawings/redo`, {
     method: 'POST',
+    body: JSON.stringify({ baseVersion }),
+  }),
+  addElement: (id: string, baseVersion: number, element: SceneElement) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/elements`, {
+    method: 'POST',
+    body: JSON.stringify({ baseVersion, element }),
+  }),
+  updateElement: (id: string, elementId: string, baseVersion: number, transform: Pick<SceneElement, 'position' | 'widthCells' | 'heightCells' | 'rotation'>) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/elements/${encodeURIComponent(elementId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ baseVersion, transform }),
+  }),
+  removeElement: (id: string, elementId: string, baseVersion: number) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/elements/${encodeURIComponent(elementId)}`, {
+    method: 'DELETE',
     body: JSON.stringify({ baseVersion }),
   }),
 };
