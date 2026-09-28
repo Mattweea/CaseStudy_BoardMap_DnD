@@ -2,6 +2,18 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useSceneCatalog } from '../hooks/useSceneCatalog';
 import { sceneBackgroundUrl } from '../utils/sceneApi';
 
+const DEFAULT_CALIBRATION = { scale: 1, offsetX: 0, offsetY: 0 };
+
+function sceneCalibration(scene: ReturnType<typeof useSceneCatalog>['selectedScene']) {
+  return scene?.document.background.kind === 'image'
+    ? {
+        scale: scene.document.background.scale,
+        offsetX: scene.document.background.offsetX,
+        offsetY: scene.document.background.offsetY,
+      }
+    : DEFAULT_CALIBRATION;
+}
+
 export function SceneCatalogPanel() {
   const {
     catalog,
@@ -18,10 +30,13 @@ export function SceneCatalogPanel() {
   const [nameDraft, setNameDraft] = useState('');
   const [backgroundDraft, setBackgroundDraft] = useState<File | 'blank' | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [calibrationDraft, setCalibrationDraft] = useState(DEFAULT_CALIBRATION);
+  const [previewImageSize, setPreviewImageSize] = useState<{ width: number; height: number } | null>(null);
 
   useEffect(() => {
     setNameDraft(selectedScene?.name ?? '');
     setBackgroundDraft(null);
+    setCalibrationDraft(sceneCalibration(selectedScene));
   }, [selectedScene]);
 
   useEffect(() => {
@@ -41,8 +56,33 @@ export function SceneCatalogPanel() {
 
   const submitUpdate = async (event: FormEvent) => {
     event.preventDefault();
-    if (await updateScene(nameDraft, backgroundDraft)) setBackgroundDraft(null);
+    const hasImage = backgroundDraft instanceof File
+      || (backgroundDraft !== 'blank' && selectedScene?.document.background.kind === 'image');
+    if (await updateScene(nameDraft, backgroundDraft, hasImage ? calibrationDraft : null)) {
+      setBackgroundDraft(null);
+    }
   };
+
+  const persistedCalibration = sceneCalibration(selectedScene);
+  const calibrationChanged = calibrationDraft.scale !== persistedCalibration.scale
+    || calibrationDraft.offsetX !== persistedCalibration.offsetX
+    || calibrationDraft.offsetY !== persistedCalibration.offsetY;
+  const imageSource = previewUrl ?? (backgroundDraft === 'blank' || !selectedScene
+    ? null
+    : sceneBackgroundUrl(selectedScene));
+  const hasImage = backgroundDraft instanceof File
+    || (backgroundDraft !== 'blank' && selectedScene?.document.background.kind === 'image');
+  const hasDraftChanges = selectedScene !== null && (
+    nameDraft.trim() !== selectedScene.name
+    || backgroundDraft !== null
+    || (hasImage && calibrationChanged)
+  );
+  const previewBoard = selectedScene?.document.board.dimensions ?? { columns: 30, rows: 30 };
+  const previewBoardWidth = previewBoard.columns * 48;
+
+  useEffect(() => {
+    setPreviewImageSize(null);
+  }, [imageSource]);
 
   return (
     <section className="sidebar__section scene-catalog" aria-labelledby="scene-catalog-heading">
@@ -116,8 +156,36 @@ export function SceneCatalogPanel() {
           />
           <fieldset className="scene-catalog__background">
             <legend>Sfondo board</legend>
-            {(previewUrl ?? (backgroundDraft === 'blank' ? null : sceneBackgroundUrl(selectedScene))) ? (
-              <img src={previewUrl ?? sceneBackgroundUrl(selectedScene) ?? ''} alt="Anteprima dello sfondo della scena" />
+            {imageSource ? (
+              <div
+                className="scene-catalog__calibration-preview"
+                style={{ aspectRatio: `${previewBoard.columns} / ${previewBoard.rows}` }}
+              >
+                <img
+                  src={imageSource}
+                  alt="Anteprima dello sfondo calibrato rispetto alla griglia"
+                  onLoad={(event) => setPreviewImageSize({
+                    width: event.currentTarget.naturalWidth,
+                    height: event.currentTarget.naturalHeight,
+                  })}
+                  style={{
+                    left: `${calibrationDraft.offsetX / previewBoardWidth * 100}%`,
+                    top: `${calibrationDraft.offsetY / (previewBoard.rows * 48) * 100}%`,
+                    width: previewImageSize
+                      ? `${previewImageSize.width * calibrationDraft.scale / previewBoardWidth * 100}%`
+                      : 'auto',
+                    height: previewImageSize
+                      ? `${previewImageSize.height * calibrationDraft.scale / (previewBoard.rows * 48) * 100}%`
+                      : 'auto',
+                  }}
+                />
+                <span
+                  aria-hidden="true"
+                  style={{
+                    backgroundSize: `${100 / previewBoard.columns}% ${100 / previewBoard.rows}%`,
+                  }}
+                />
+              </div>
             ) : (
               <div className="scene-catalog__blank-preview">Board bianca con griglia</div>
             )}
@@ -139,17 +207,55 @@ export function SceneCatalogPanel() {
                 Usa board bianca
               </button>
             </div>
+            <div className="scene-catalog__calibration-controls" aria-label="Calibrazione sfondo sulla griglia">
+              <label>
+                Scala
+                <input
+                  type="number"
+                  min="0.05"
+                  max="20"
+                  step="0.05"
+                  value={calibrationDraft.scale}
+                  disabled={isMutating || !hasImage}
+                  onChange={(event) => setCalibrationDraft((current) => ({ ...current, scale: Number(event.target.value) }))}
+                />
+              </label>
+              <label>
+                Offset X (px)
+                <input
+                  type="number"
+                  min="-1000000"
+                  max="1000000"
+                  step="1"
+                  value={calibrationDraft.offsetX}
+                  disabled={isMutating || !hasImage}
+                  onChange={(event) => setCalibrationDraft((current) => ({ ...current, offsetX: Number(event.target.value) }))}
+                />
+              </label>
+              <label>
+                Offset Y (px)
+                <input
+                  type="number"
+                  min="-1000000"
+                  max="1000000"
+                  step="1"
+                  value={calibrationDraft.offsetY}
+                  disabled={isMutating || !hasImage}
+                  onChange={(event) => setCalibrationDraft((current) => ({ ...current, offsetY: Number(event.target.value) }))}
+                />
+              </label>
+            </div>
             <small>JPEG, PNG o WebP · massimo 10 MB. La scelta resta in bozza fino al salvataggio.</small>
           </fieldset>
           <p className="scene-catalog__hint">La selezione apre solo la preparazione: non cambia ciò che vedono i Player.</p>
           <div className="scene-catalog__draft-actions">
-            <button type="button" className="secondary-button" disabled={isMutating || (nameDraft === selectedScene.name && backgroundDraft === null)} onClick={() => { setNameDraft(selectedScene.name); setBackgroundDraft(null); }}>
+            <button type="button" className="secondary-button" disabled={isMutating || !hasDraftChanges} onClick={() => { setNameDraft(selectedScene.name); setBackgroundDraft(null); setCalibrationDraft(sceneCalibration(selectedScene)); }}>
               Annulla
             </button>
             <button
               type="submit"
               className="primary-button"
-              disabled={isMutating || nameDraft.trim().length === 0 || (nameDraft.trim() === selectedScene.name && backgroundDraft === null)}
+              disabled={isMutating || nameDraft.trim().length === 0 || !hasDraftChanges}
             >
               {isMutating ? 'Salvataggio...' : 'Salva modifiche'}
             </button>

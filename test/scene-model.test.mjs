@@ -89,7 +89,12 @@ test('scene document accepts only normalized managed image metadata for backgrou
     etag: 'a'.repeat(64),
     updatedAt: '2026-09-28T10:00:00.000Z',
   };
-  assert.deepEqual(normalizeSceneDocument(document).background, document.background);
+  assert.deepEqual(normalizeSceneDocument(document).background, {
+    ...document.background,
+    scale: 1,
+    offsetX: 0,
+    offsetY: 0,
+  });
   document.background.mediaType = 'text/html';
   assert.throws(() => normalizeSceneDocument(document), /mediaType/);
 });
@@ -138,6 +143,28 @@ test('board dimensions are bounded and image calibration cannot redefine measure
   assert.deepEqual(normalized.board.measurementUnit, { label: 'ft', cellsValue: 5 });
   scene.board.dimensions.columns = 0;
   assert.throws(() => normalizeSceneDocument(scene), /dimensions.columns/);
+});
+
+test('image calibration accepts bounded scale and signed pixel offsets', () => {
+  const scene = createDefaultSceneDocument();
+  scene.background = {
+    kind: 'image',
+    assetId: 'map-calibrated',
+    mediaType: 'image/webp',
+    byteLength: 128,
+    etag: 'b'.repeat(64),
+    updatedAt: '2026-09-28T10:00:00.000Z',
+    scale: 1.25,
+    offsetX: -96,
+    offsetY: 144,
+  };
+  assert.deepEqual(normalizeSceneDocument(scene).background, scene.background);
+
+  scene.background.scale = SCENE_LIMITS.maxBackgroundScale + 0.01;
+  assert.throws(() => normalizeSceneDocument(scene), /background.scale/);
+  scene.background.scale = 1;
+  scene.background.offsetX = SCENE_LIMITS.maxBackgroundOffsetPixels + 1;
+  assert.throws(() => normalizeSceneDocument(scene), /background.offsetX/);
 });
 
 test('valid data is cloned and normalized while preserving layer-specific fields', () => {

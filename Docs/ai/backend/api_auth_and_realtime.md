@@ -36,7 +36,7 @@ Ownership-aware endpoints must validate the current server token and user. New m
 - Invalid authentication returns `401`; insufficient authority returns `403`; invalid data or rule violations return `400`; stale versioned commits return `409`; missing resources return `404`.
 - Rejected state mutations should return the current sanitized snapshot when the client can use it to reconcile.
 - Full state replacement accepts `baseVersion` and rejects stale commits.
-- Scene updates accept `baseVersion`; a stale update returns `409` with `currentScene` so the Master client can replace its obsolete draft base. Scene names are labels rather than identities, so duplicate names remain valid and stable scene IDs disambiguate them.
+- Scene updates accept `baseVersion`; a stale update returns `409` with `currentScene` so the Master client can replace its obsolete draft base. One update may carry the scene name and a complete image calibration (`scale`, `offsetX`, `offsetY`), producing one persisted version regardless of how many local preview adjustments preceded confirmation. Calibration is rejected for a blank background. Scene names are labels rather than identities, so duplicate names remain valid and stable scene IDs disambiguate them.
 - `POST /api/battle-map/settings` remains Master-only, but grid dimensions, diagonal rule, and measurement unit are persisted as one update of the active scene and then projected atomically into the shared snapshot. Invalid dimensions, units, or a shrink that excludes existing tokens are rejected without changing the scene.
 - Scene background upload accepts only raw JPEG, PNG, or WebP bodies whose declared media type matches their signature. `X-Scene-Base-Version` supplies the optimistic base; the response is the updated scene. Asset responses use an ETag and `Cache-Control: private`, and never expose a runtime filesystem path.
 
@@ -50,7 +50,7 @@ Ownership-aware endpoints must validate the current server token and user. New m
   Player view omits the catalog and every inactive document or asset. Updating the active scene
   refreshes and broadcasts that projection once, while managing an inactive scene does not
   broadcast its preparation data.
-- The active projection carries `activeSceneBackground`: blank, or verified metadata plus the authenticated asset URL. Inactive background metadata and URLs remain outside Player snapshots.
+- The active projection carries `activeSceneBackground`: blank, or verified metadata, normalized calibration and the authenticated asset URL. Inactive background metadata and URLs remain outside Player snapshots.
 - Disconnect cleanup must remove the client and its keepalive timer.
 - Never broadcast raw master state to all clients.
 - Per-die roll detail is part of its parent log rather than a separate event. The existing per-recipient snapshot sanitization therefore delivers the complete detail wherever that log is visible and delivers none of it where a secret log is hidden.

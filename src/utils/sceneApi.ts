@@ -19,6 +19,12 @@ export interface PersistedScene extends Scene {
   isActive: boolean;
 }
 
+export interface SceneBackgroundCalibration {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+}
+
 export class SceneApiError extends Error {
   status: number;
   payload: { message?: string; currentScene?: PersistedScene | null };
@@ -53,9 +59,9 @@ export const sceneApi = {
     method: 'POST',
     body: JSON.stringify({ name }),
   }),
-  update: (id: string, baseVersion: number, name: string) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}`, {
+  update: (id: string, baseVersion: number, patch: { name?: string; backgroundCalibration?: SceneBackgroundCalibration }) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ baseVersion, name }),
+    body: JSON.stringify({ baseVersion, ...patch }),
   }),
   uploadBackground: (id: string, baseVersion: number, file: File) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/background`, {
     method: 'PUT',

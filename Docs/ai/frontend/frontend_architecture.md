@@ -12,7 +12,7 @@ Define the stable React boundaries and client-state rules used by D&D Battle Map
 - `src/hooks/useBattleMapState.ts` owns the client copy of shared game state, SSE subscription, version tracking, optimistic mutations, mutation serialization, and local zoom.
 - `src/hooks/useSceneCatalog.ts` owns the Master-only scene catalog request state, management selection, local edit draft reconciliation, and version-conflict feedback. Catalog selection is not active-scene selection and never mutates the battle-map snapshot.
 - `src/components/Board.tsx` owns board-space rendering and pointer interaction.
-- `src/components/SceneCatalogPanel.tsx` is the dedicated Master workspace surface for creating, listing, selecting and renaming persisted scenes and choosing a blank or uploaded background. Name and background remain one local draft with explicit save/cancel behavior. It is not mounted for an Adventurer and exposes no delete, archive or activation control.
+- `src/components/SceneCatalogPanel.tsx` is the dedicated Master workspace surface for creating, listing, selecting and renaming persisted scenes, choosing a blank or uploaded background, and calibrating image scale and pixel offsets against a local grid preview. Name, background choice and calibration remain one local draft with explicit save/cancel behavior; calibration controls never write on pointer/input change. It is not mounted for an Adventurer and exposes no delete, archive or activation control.
 - `src/components/Dice3DOverlay.tsx` owns the single client-local 3D dice scene, its FIFO presentation queue, and capability fallback. It draws no textual result summary over the map: the dice log is the only place where a roll is read. `App.tsx` points it at the currently active normal or fullscreen board host; individual `Board` instances do not own renderer instances.
 - Feature components receive state and actions through typed props; they must not create a second shared-state source.
 
@@ -35,7 +35,7 @@ fields from the active-scene projection. A Master snapshot may additionally cont
 `sceneCatalog`, made only of metadata summaries. An Adventurer snapshot never contains that
 catalog or an inactive scene document. The client normalizer must preserve the optional Master
 catalog without inventing one for a Player or treating catalog selection as activation.
-The board renders a neutral blank surface plus the application grid when the background is blank; an image background is loaded only from the authenticated URL in the active projection.
+The board renders a neutral blank surface plus the application grid when the background is blank; an image background is loaded only from the authenticated URL in the active projection. The calibrated image is a presentation layer inside the existing Board stage, below the canonical grid, rather than a shell background or a second renderer.
 `boardDimensions`, `measurementUnit`, and `diagonalRule` are compatible top-level projection fields sourced from the active scene. The settings UI edits that persisted scene configuration; it must not maintain a second local or snapshot-only scale.
 
 ## Server authority and optimistic updates

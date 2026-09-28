@@ -36,6 +36,7 @@ async function createApp({ onActiveSceneUpdated = null } = {}) {
   return {
     app,
     repository,
+    service,
     close: async () => {
       await app.close();
       db.close();
@@ -52,6 +53,70 @@ test('scene catalog routes enforce authentication and master authorization', asy
     assert.equal((await app.inject({ method: 'GET', url: '/api/scenes/scene-initial', headers: { 'x-test-user': 'player' } })).statusCode, 403);
     assert.equal((await app.inject({ method: 'POST', url: '/api/scenes', headers: { 'x-test-user': 'player' }, payload: { name: 'Vietata' } })).statusCode, 403);
     assert.equal((await app.inject({ method: 'PATCH', url: '/api/scenes/scene-initial', headers: { 'x-test-user': 'player' }, payload: { baseVersion: 1, name: 'Vietata' } })).statusCode, 403);
+  } finally {
+    await close();
+  }
+});
+
+test('master persists image calibration in one versioned scene update and stale writes conflict', async () => {
+  const { app, service, close } = await createApp();
+  const headers = { 'x-test-user': 'master' };
+  try {
+    const current = service.getScene('scene-initial');
+    const blankCalibration = await app.inject({
+      method: 'PATCH', url: '/api/scenes/scene-initial', headers,
+      payload: {
+        baseVersion: current.version,
+        backgroundCalibration: { scale: 1, offsetX: 0, offsetY: 0 },
+      },
+    });
+    assert.equal(blankCalibration.statusCode, 400);
+
+    const withImage = service.updateScene({
+      id: current.id,
+      expectedVersion: current.version,
+      name: current.name,
+      sortOrder: current.sortOrder,
+      document: {
+        ...current.document,
+        background: {
+          kind: 'image',
+          assetId: 'managed-map',
+          mediaType: 'image/png',
+          byteLength: 64,
+          etag: 'c'.repeat(64),
+          updatedAt: '2026-09-28T10:00:00.000Z',
+        },
+      },
+    });
+
+    const updated = await app.inject({
+      method: 'PATCH', url: '/api/scenes/scene-initial', headers,
+      payload: {
+        baseVersion: withImage.version,
+        backgroundCalibration: { scale: 1.5, offsetX: -72, offsetY: 108 },
+      },
+    });
+    assert.equal(updated.statusCode, 200);
+    assert.equal(updated.json().version, withImage.version + 1);
+    assert.deepEqual(
+      {
+        scale: updated.json().document.background.scale,
+        offsetX: updated.json().document.background.offsetX,
+        offsetY: updated.json().document.background.offsetY,
+      },
+      { scale: 1.5, offsetX: -72, offsetY: 108 },
+    );
+
+    const conflict = await app.inject({
+      method: 'PATCH', url: '/api/scenes/scene-initial', headers,
+      payload: {
+        baseVersion: withImage.version,
+        backgroundCalibration: { scale: 2, offsetX: 0, offsetY: 0 },
+      },
+    });
+    assert.equal(conflict.statusCode, 409);
+    assert.equal(conflict.json().currentScene.version, withImage.version + 1);
   } finally {
     await close();
   }

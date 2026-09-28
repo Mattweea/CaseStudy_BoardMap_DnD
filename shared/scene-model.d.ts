@@ -17,6 +17,9 @@ export const SCENE_LIMITS: Readonly<{
   maxCoordinateMagnitude: number;
   maxLightRadiusCells: number;
   maxBoardDimensionCells: number;
+  minBackgroundScale: number;
+  maxBackgroundScale: number;
+  maxBackgroundOffsetPixels: number;
 }>;
 
 export class SceneValidationError extends Error {
@@ -35,6 +38,9 @@ export interface ImageSceneBackground {
   byteLength: number;
   etag: string;
   updatedAt: string;
+  scale: number;
+  offsetX: number;
+  offsetY: number;
 }
 
 export type SceneBackground = BlankSceneBackground | ImageSceneBackground;

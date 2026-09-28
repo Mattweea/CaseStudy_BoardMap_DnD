@@ -31,6 +31,7 @@ import {
 } from '../utils/board';
 import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
 import { cellsToUnit, pathCost } from '../../shared/grid-movement';
+import { sceneBackgroundViewportTransform } from '../../shared/scene-background-calibration';
 import { Token } from './Token';
 
 function formatNumber(value: number): string {
@@ -676,6 +677,9 @@ export function Board({
   }, [onZoomChange, zoom]);
 
   const { width, height } = boardPixelSize(viewportCells.columns, viewportCells.rows);
+  const backgroundTransform = background.kind === 'image'
+    ? sceneBackgroundViewportTransform(background, camera, zoom, BOARD_CONFIG.cellSize)
+    : null;
 
   useEffect(() => {
     if (!focusRequest) {
@@ -1877,9 +1881,6 @@ export function Board({
       <div
         ref={shellRef}
         className={`board-shell ${isBackgroundHidden ? 'board-shell--hidden-map' : background.kind === 'image' ? 'board-shell--image-map' : 'board-shell--blank-map'}`}
-        style={!isBackgroundHidden && background.kind === 'image' && background.url
-          ? { '--scene-background-url': `url("${background.url}")` } as CSSProperties
-          : undefined}
       >
         <div className="board-zoom-controls">
           <button
@@ -2027,6 +2028,23 @@ export function Board({
             onPointerMove={handleBoardPointerMove}
             onPointerLeave={() => setLightPreviewCell(null)}
           >
+            {!isBackgroundHidden && background.kind === 'image' && background.url && backgroundTransform ? (
+              <img
+                className="board-scene-background"
+                src={background.url}
+                alt=""
+                aria-hidden="true"
+                draggable={false}
+                style={{
+                  transform: `translate3d(${backgroundTransform.translateX}px, ${backgroundTransform.translateY}px, 0) scale(${backgroundTransform.scale})`,
+                }}
+              />
+            ) : null}
+            <div
+              className="board-grid"
+              aria-hidden="true"
+              style={{ backgroundSize: `${BOARD_CONFIG.cellSize * zoom}px ${BOARD_CONFIG.cellSize * zoom}px` }}
+            />
             {planInteraction && planEndCell ? (
               <div
                 className={`board-highlight ${

@@ -57,10 +57,14 @@ test('active image background exposes only its authenticated scene URL', () => {
   active.document.background = {
     kind: 'image', assetId: 'asset-1', mediaType: 'image/png', byteLength: 12,
     etag: 'b'.repeat(64), updatedAt: '2026-09-28T10:00:00.000Z',
+    scale: 1.2, offsetX: -32, offsetY: 64,
   };
   const projected = installActiveSceneProjection({ tokens: [] }, active);
   assert.equal(projected.activeSceneBackground.kind, 'image');
   assert.equal(projected.activeSceneBackground.url, `/api/scenes/${active.id}/background?v=${'b'.repeat(64)}`);
+  assert.equal(projected.activeSceneBackground.scale, 1.2);
+  assert.equal(projected.activeSceneBackground.offsetX, -32);
+  assert.equal(projected.activeSceneBackground.offsetY, 64);
   assert.equal('fileName' in projected.activeSceneBackground, false);
 });
 

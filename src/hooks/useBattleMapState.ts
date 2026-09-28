@@ -230,6 +230,9 @@ function normalizeSceneBackground(value: unknown, sceneId: string | null): Scene
     return { kind: 'blank' };
   }
   const candidate = value as Partial<Extract<SceneBackground, { kind: 'image' }>>;
+  const scale = candidate.scale ?? 1;
+  const offsetX = candidate.offsetX ?? 0;
+  const offsetY = candidate.offsetY ?? 0;
   if (
     typeof candidate.assetId !== 'string'
     || (candidate.mediaType !== 'image/jpeg' && candidate.mediaType !== 'image/png' && candidate.mediaType !== 'image/webp')
@@ -239,6 +242,13 @@ function normalizeSceneBackground(value: unknown, sceneId: string | null): Scene
     || !/^[a-f0-9]{64}$/.test(candidate.etag)
     || typeof candidate.updatedAt !== 'string'
     || Number.isNaN(Date.parse(candidate.updatedAt))
+    || !Number.isFinite(scale)
+    || scale < 0.05
+    || scale > 20
+    || !Number.isFinite(offsetX)
+    || Math.abs(offsetX) > 1_000_000
+    || !Number.isFinite(offsetY)
+    || Math.abs(offsetY) > 1_000_000
     || !sceneId
   ) return { kind: 'blank' };
   return {
@@ -248,6 +258,9 @@ function normalizeSceneBackground(value: unknown, sceneId: string | null): Scene
     byteLength: candidate.byteLength,
     etag: candidate.etag,
     updatedAt: candidate.updatedAt,
+    scale,
+    offsetX,
+    offsetY,
     url: `${API_BASE_URL}/scenes/${encodeURIComponent(sceneId)}/background?v=${candidate.etag}`,
   } as Extract<SceneBackground, { kind: 'image' }>;
 }

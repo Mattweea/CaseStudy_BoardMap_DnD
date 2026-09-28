@@ -47,11 +47,27 @@ function validateUpdateBody(body) {
     || Array.isArray(body)
     || !Number.isSafeInteger(body.baseVersion)
     || body.baseVersion < 1
-    || typeof body.name !== 'string'
+    || (body.name === undefined && body.backgroundCalibration === undefined)
+    || (body.name !== undefined && typeof body.name !== 'string')
+    || (
+      body.backgroundCalibration !== undefined
+      && (
+        !body.backgroundCalibration
+        || typeof body.backgroundCalibration !== 'object'
+        || Array.isArray(body.backgroundCalibration)
+        || typeof body.backgroundCalibration.scale !== 'number'
+        || typeof body.backgroundCalibration.offsetX !== 'number'
+        || typeof body.backgroundCalibration.offsetY !== 'number'
+      )
+    )
   ) {
-    throw new TypeError('Nome e versione base della scena sono obbligatori.');
+    throw new TypeError('Modifica e versione base della scena sono obbligatorie.');
   }
-  return { baseVersion: body.baseVersion, name: body.name };
+  return {
+    baseVersion: body.baseVersion,
+    name: body.name,
+    backgroundCalibration: body.backgroundCalibration,
+  };
 }
 
 export function registerSceneRoutes(app, {
@@ -110,14 +126,23 @@ export function registerSceneRoutes(app, {
   app.patch('/api/scenes/:id', async (request, reply) => {
     if (!masterOnly(request, reply)) return;
     try {
-      const { baseVersion, name } = validateUpdateBody(request.body);
+      const { baseVersion, name, backgroundCalibration } = validateUpdateBody(request.body);
       const current = service.getScene(request.params.id);
       if (!current) return reply.code(404).send({ message: 'Scena non trovata.' });
+      if (backgroundCalibration !== undefined && current.document.background.kind !== 'image') {
+        throw new TypeError('La calibrazione richiede uno sfondo immagine.');
+      }
+      const document = backgroundCalibration === undefined
+        ? current.document
+        : {
+            ...current.document,
+            background: { ...current.document.background, ...backgroundCalibration },
+          };
       const scene = service.updateScene({
         id: current.id,
         expectedVersion: baseVersion,
-        name,
-        document: current.document,
+        name: name ?? current.name,
+        document,
         sortOrder: current.sortOrder,
       });
       if (scene.id === service.getActiveScene()?.id) {

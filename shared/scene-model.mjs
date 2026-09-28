@@ -10,6 +10,9 @@ export const SCENE_LIMITS = Object.freeze({
   maxCoordinateMagnitude: 1_000_000,
   maxLightRadiusCells: 1000,
   maxBoardDimensionCells: 500,
+  minBackgroundScale: 0.05,
+  maxBackgroundScale: 20,
+  maxBackgroundOffsetPixels: 1_000_000,
 });
 
 const DEFAULT_MEASUREMENT_UNIT = Object.freeze({
@@ -218,6 +221,33 @@ function normalizeBackground(value, path) {
   if (typeof background.updatedAt !== 'string' || Number.isNaN(Date.parse(background.updatedAt))) {
     fail(path + '.updatedAt', 'must be an ISO date');
   }
+  const scale = background.scale ?? 1;
+  if (
+    typeof scale !== 'number'
+    || !Number.isFinite(scale)
+    || scale < SCENE_LIMITS.minBackgroundScale
+    || scale > SCENE_LIMITS.maxBackgroundScale
+  ) {
+    fail(
+      path + '.scale',
+      `must be between ${SCENE_LIMITS.minBackgroundScale} and ${SCENE_LIMITS.maxBackgroundScale}`,
+    );
+  }
+  const offsets = {};
+  for (const axis of ['offsetX', 'offsetY']) {
+    const offset = background[axis] ?? 0;
+    if (
+      typeof offset !== 'number'
+      || !Number.isFinite(offset)
+      || Math.abs(offset) > SCENE_LIMITS.maxBackgroundOffsetPixels
+    ) {
+      fail(
+        path + `.${axis}`,
+        `must be between -${SCENE_LIMITS.maxBackgroundOffsetPixels} and ${SCENE_LIMITS.maxBackgroundOffsetPixels}`,
+      );
+    }
+    offsets[axis] = Object.is(offset, -0) ? 0 : offset;
+  }
   return {
     kind: 'image',
     assetId: normalizeId(background.assetId, path + '.assetId'),
@@ -225,6 +255,8 @@ function normalizeBackground(value, path) {
     byteLength: background.byteLength,
     etag: background.etag,
     updatedAt: background.updatedAt,
+    scale,
+    ...offsets,
   };
 }
 

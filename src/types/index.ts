@@ -180,6 +180,9 @@ export type SceneBackground =
       byteLength: number;
       etag: string;
       updatedAt: string;
+      scale: number;
+      offsetX: number;
+      offsetY: number;
       url?: string;
     };
 

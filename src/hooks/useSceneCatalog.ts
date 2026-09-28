@@ -3,6 +3,7 @@ import {
   sceneApi,
   SceneApiError,
   type PersistedScene,
+  type SceneBackgroundCalibration,
   type SceneCatalogEntry,
 } from '../utils/sceneApi';
 
@@ -88,19 +89,35 @@ export function useSceneCatalog(enabled: boolean) {
     }
   };
 
-  const updateScene = async (name: string, backgroundDraft: File | 'blank' | null = null) => {
+  const updateScene = async (
+    name: string,
+    backgroundDraft: File | 'blank' | null = null,
+    backgroundCalibration: SceneBackgroundCalibration | null = null,
+  ) => {
     if (!selectedScene) return false;
     setIsMutating(true);
     setError(null);
     try {
       let updated = selectedScene;
-      if (name.trim() !== selectedScene.name) {
-        updated = await sceneApi.update(selectedScene.id, updated.version, name);
-      }
       if (backgroundDraft instanceof File) {
         updated = await sceneApi.uploadBackground(selectedScene.id, updated.version, backgroundDraft);
       } else if (backgroundDraft === 'blank' && updated.document.background.kind !== 'blank') {
         updated = await sceneApi.clearBackground(selectedScene.id, updated.version);
+      }
+      const patch: { name?: string; backgroundCalibration?: SceneBackgroundCalibration } = {};
+      if (name.trim() !== updated.name) patch.name = name;
+      if (backgroundCalibration && updated.document.background.kind === 'image') {
+        const current = updated.document.background;
+        if (
+          current.scale !== backgroundCalibration.scale
+          || current.offsetX !== backgroundCalibration.offsetX
+          || current.offsetY !== backgroundCalibration.offsetY
+        ) {
+          patch.backgroundCalibration = backgroundCalibration;
+        }
+      }
+      if (Object.keys(patch).length > 0) {
+        updated = await sceneApi.update(selectedScene.id, updated.version, patch);
       }
       setCatalog((current) => replaceEntry(current, updated));
       setSelectedScene(updated);
