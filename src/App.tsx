@@ -43,8 +43,8 @@ const COMBAT_ANNOUNCEMENT_STORAGE_KEY = 'dnd-battle-map:last-combat-announcement
 const MANUAL_PDF_PATH =
   'https://drive.google.com/file/d/1v4XF37X1QjXrhEX3Y2dHouMkYnNedfGw/preview';
 
-type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'movement' | 'notes' | 'dice' | 'scenes' | 'initiative' | 'characters' | 'settings' | 'legend';
-type WorkspaceTabId = 'chat' | 'scenes' | 'initiative' | 'characters' | 'settings' | 'legend';
+type SidebarSectionId = 'session' | 'actions' | 'lighting' | 'movement' | 'notes' | 'dice' | 'initiative' | 'characters' | 'settings' | 'legend';
+type WorkspaceTabId = 'chat' | 'initiative' | 'characters' | 'settings' | 'legend';
 
 const KEYBOARD_MOVEMENTS: Record<string, { dx: number; dy: number }> = {
   ArrowUp: { dx: 0, dy: -1 },
@@ -229,6 +229,7 @@ function App() {
   const [isNotesCollapsed, setIsNotesCollapsed] = useState(false);
   const [isDiceLogModalOpen, setIsDiceLogModalOpen] = useState(false);
   const [isInitiativeModalOpen, setIsInitiativeModalOpen] = useState(false);
+  const [isSceneCatalogModalOpen, setIsSceneCatalogModalOpen] = useState(false);
   const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
   const [latestDiceResult, setLatestDiceResult] = useState<DiceResultScene | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ tokenId: string; nonce: number } | null>(null);
@@ -300,8 +301,8 @@ function App() {
   const canManageBattleMap = user?.role === 'master';
 
   useEffect(() => {
-    if (!canManageBattleMap && workspaceTab === 'scenes') setWorkspaceTab('chat');
-  }, [canManageBattleMap, workspaceTab]);
+    if (!canManageBattleMap) setIsSceneCatalogModalOpen(false);
+  }, [canManageBattleMap]);
   const hasUnsavedNotes = draftNotes !== state.sharedNotes;
   const sessionCharacter = findCharacterProfileByKey(user?.characterKey);
   const sessionSheet = characterSheets.find((sheet) => sheet.ownerUserId === user?.id) ?? null;
@@ -1086,8 +1087,6 @@ function App() {
         return (
           <DicePanel key="dice" onRoll={rollDice} />
         );
-      case 'scenes':
-        return canManageBattleMap ? <SceneCatalogPanel key="scenes" /> : null;
       case 'settings':
         return (
           <section key="settings" className="sidebar__section settings-panel">
@@ -1691,15 +1690,29 @@ function App() {
               {canManageBattleMap ? renderSidebarSection('lighting') : null}
               {canManageBattleMap ? renderSidebarSection('movement') : null}
             </div>
-            <div className={`workspace-tabs ${canManageBattleMap ? 'workspace-tabs--master' : ''}`} role="tablist" aria-label="Pannello sessione">
-              {([
-                ['chat', 'Chat + Dadi', <ChatDiceIcon key="chat" />],
-                ...(canManageBattleMap ? [['scenes', 'Catalogo scene', <MapIcon key="scenes" />] as [WorkspaceTabId, string, ReactNode]] : []),
-                ['initiative', 'Turni di iniziativa', <CrossedSwordsIcon key="initiative" size="1.1em" />],
-                ['characters', 'Personaggi', <PawnIcon key="characters" />],
-                ['settings', 'Impostazioni', <GearIcon key="settings" />],
-                ['legend', 'Legenda dei comandi', <KeyboardIcon key="legend" />],
-              ] as Array<[WorkspaceTabId, string, ReactNode]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
+            <div className={`workspace-tabs ${canManageBattleMap ? 'workspace-tabs--master' : ''}`}>
+              {canManageBattleMap ? (
+                <button
+                  type="button"
+                  className={isSceneCatalogModalOpen ? 'workspace-tab workspace-tab--active' : 'workspace-tab'}
+                  aria-haspopup="dialog"
+                  aria-expanded={isSceneCatalogModalOpen}
+                  onClick={() => setIsSceneCatalogModalOpen(true)}
+                  title="Preparazione scene"
+                  aria-label="Apri preparazione scene"
+                >
+                  <span aria-hidden="true"><MapIcon /></span>
+                </button>
+              ) : null}
+              <div className="workspace-tabs__tablist" role="tablist" aria-label="Pannello sessione">
+                {([
+                  ['chat', 'Chat + Dadi', <ChatDiceIcon key="chat" />],
+                  ['initiative', 'Turni di iniziativa', <CrossedSwordsIcon key="initiative" size="1.1em" />],
+                  ['characters', 'Personaggi', <PawnIcon key="characters" />],
+                  ['settings', 'Impostazioni', <GearIcon key="settings" />],
+                  ['legend', 'Legenda dei comandi', <KeyboardIcon key="legend" />],
+                ] as Array<[WorkspaceTabId, string, ReactNode]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
+              </div>
             </div>
             <div id={`panel-${workspaceTab}`} role="tabpanel" aria-labelledby={`tab-${workspaceTab}`} className="workspace-tabpanel">
               {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div ref={diceLogFeedRef} className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => <DiceLogEntry key={log.id} log={log} characterSheets={characterSheets} isExpanded={expandedDiceLogId === log.id} onToggle={() => setExpandedDiceLogId(expandedDiceLogId === log.id ? null : log.id)} onRoll={(request) => void rollAndReport(request)} />) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab)}
@@ -1962,6 +1975,15 @@ function App() {
           ) : null}
         </div>
       </div>
+
+      <Modal
+        title="Preparazione scene"
+        isOpen={canManageBattleMap && isSceneCatalogModalOpen}
+        onClose={() => setIsSceneCatalogModalOpen(false)}
+        className="modal-card--scene-catalog"
+      >
+        <SceneCatalogPanel />
+      </Modal>
 
       <Modal
         title="Note condivise"
