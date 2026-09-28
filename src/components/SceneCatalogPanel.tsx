@@ -161,7 +161,7 @@ export function SceneCatalogPanel({
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [selectedScene?.id]);
 
   return (
     <section className="scene-catalog" aria-label="Catalogo e preparazione delle scene">
