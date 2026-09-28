@@ -1614,9 +1614,18 @@ kbd {
   position: absolute;
   z-index: 2;
   display: flex;
+  overflow: hidden;
   color: #f2cfbc;
   font-size: 0.76rem;
   background: rgba(18, 7, 9, 0.92);
+}
+
+.board-axis__track {
+  display: flex;
+}
+
+.board-axis__track--vertical {
+  flex-direction: column;
 }
 
 .board-axis--top {
@@ -1654,6 +1663,9 @@ kbd {
   position: relative;
   transform-origin: top left;
   background: transparent;
+  /* Il pinch e lo scorrimento a due dita arrivano come `wheel` (D1): senza questo il browser
+     può comunque intercettare il gesto come zoom/scroll nativo della pagina sopra la mappa. */
+  touch-action: none;
 }
 
 .board-stage--virtual {

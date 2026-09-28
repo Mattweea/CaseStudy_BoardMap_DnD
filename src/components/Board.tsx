@@ -22,12 +22,18 @@ import type {
   UnitToken,
 } from '../types';
 import {
+  applyZoomDelta,
   boardPixelSize,
+  classifyWheelBurst,
+  clampCamera,
   clampZoom,
   getTokenFootprint,
   gridRowToLabel,
   gridToPixels,
   viewportPointToWorldCell,
+  wheelAction,
+  zoomAtPoint,
+  type WheelBurstState,
 } from '../utils/board';
 import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
 import { cellsToUnit, pathCost } from '../../shared/grid-movement';
@@ -164,13 +170,6 @@ function tokenCenter(token: UnitToken): { x: number; y: number } {
   return {
     x: token.position.x + footprint.width / 2,
     y: token.position.y + footprint.height / 2,
-  };
-}
-
-function clampCamera(position: GridPosition): GridPosition {
-  return {
-    x: Math.max(0, position.x),
-    y: Math.max(0, position.y),
   };
 }
 
@@ -626,6 +625,14 @@ export function Board({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeTool, interaction]);
   const [camera, setCamera] = useState<GridPosition>(INITIAL_CAMERA);
+  const cameraRef = useRef(camera);
+  useEffect(() => {
+    cameraRef.current = camera;
+  }, [camera]);
+  const zoomRef = useRef(zoom);
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
   const [viewportCells, setViewportCells] = useState<{ columns: number; rows: number }>({
     columns: BOARD_CONFIG.minVisibleColumns,
     rows: BOARD_CONFIG.minVisibleRows,
@@ -638,7 +645,10 @@ export function Board({
     [obstacleClusters],
   );
   const effectiveVision = vision?.enabled ? vision : null;
-  const visionPolygonPoints = useMemo(() => {
+  // Geometria mondo e proiezione a schermo su due livelli di memo (D7): il ray-cast dipende
+  // solo dai bloccanti, la proiezione dipende da camera e zoom. Uno spostamento della visuale
+  // non deve ricalcolare il poligono, solo riproiettarne i punti già noti.
+  const visionWorldPolygon = useMemo(() => {
     if (!effectiveVision) {
       return [];
     }
@@ -647,12 +657,17 @@ export function Board({
       effectiveVision.sourceToken,
       effectiveVision.radiusCells,
       effectiveVision.blockers,
-    ).map((point) => ({
-      x: (point.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
-      y: (point.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
-    }));
-  }, [camera.x, camera.y, effectiveVision, zoom]);
-  const lightPolygonPoints = useMemo(
+    );
+  }, [effectiveVision]);
+  const visionPolygonPoints = useMemo(
+    () =>
+      visionWorldPolygon.map((point) => ({
+        x: (point.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+        y: (point.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+      })),
+    [camera.x, camera.y, visionWorldPolygon, zoom],
+  );
+  const lightWorldPolygons = useMemo(
     () =>
       lightSources.map((light) => ({
         id: light.id,
@@ -660,14 +675,22 @@ export function Board({
           { x: light.position.x + 0.5, y: light.position.y + 0.5 },
           light.radiusCells,
           visionBlockers,
-        ).map((point) => ({
+        ),
+      })),
+    [lightSources, visionBlockers],
+  );
+  const lightPolygonPoints = useMemo(
+    () =>
+      lightWorldPolygons.map((light) => ({
+        id: light.id,
+        points: light.points.map((point) => ({
           x: (point.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
           y: (point.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
         })),
       })),
-    [camera.x, camera.y, lightSources, visionBlockers, zoom],
+    [camera.x, camera.y, lightWorldPolygons, zoom],
   );
-  const lightPreviewPolygonPoints = useMemo(() => {
+  const lightPreviewWorldPolygon = useMemo(() => {
     if (!lightPlacement || !lightPreviewCell) {
       return [];
     }
@@ -676,11 +699,16 @@ export function Board({
       { x: lightPreviewCell.x + 0.5, y: lightPreviewCell.y + 0.5 },
       lightPlacement.radiusCells,
       visionBlockers,
-    ).map((point) => ({
-      x: (point.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
-      y: (point.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
-    }));
-  }, [camera.x, camera.y, lightPlacement, lightPreviewCell, visionBlockers, zoom]);
+    );
+  }, [lightPlacement, lightPreviewCell, visionBlockers]);
+  const lightPreviewPolygonPoints = useMemo(
+    () =>
+      lightPreviewWorldPolygon.map((point) => ({
+        x: (point.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+        y: (point.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+      })),
+    [camera.x, camera.y, lightPreviewWorldPolygon, zoom],
+  );
   const visionPolygonPath = visionPolygonPoints.map((point) => `${point.x},${point.y}`).join(' ');
   const lightPolygonPaths = lightPolygonPoints.map((light) => ({
     id: light.id,
@@ -724,21 +752,114 @@ export function Board({
     return () => observer.disconnect();
   }, [zoom]);
 
+  // La sorgente (rotella o trackpad) si riconosce dalla forma del delta, indipendentemente da
+  // `ctrlKey` — il pinch del trackpad arriva anch'esso come `wheel` con `ctrlKey: true`, ma ha
+  // comunque la forma di un trackpad — ed è fissata per l'intera raffica (`classifyWheelBurst`)
+  // cosi' un gesto misto non alterna azioni diverse a metà. `wheelAction` combina sorgente e
+  // i modificatori nella tabella prodotto: rotella ingrandisce, Ctrl+rotella sposta in
+  // verticale, Alt+rotella in orizzontale, due dita spostano su entrambi gli assi, pinch (Ctrl+trackpad) ingrandisce ancorato alle
+  // dita. Gli eventi si accumulano in un ref e si applicano una sola volta per frame (D7): un
+  // trackpad emette circa cento eventi al secondo e ogni cambio di camera ridisegna il
+  // sottoalbero della board.
+  const wheelBurstRef = useRef<WheelBurstState | null>(null);
+  const wheelAccumRef = useRef<
+    | { action: 'zoom'; deltaY: number; pointer: { x: number; y: number }; factor: number }
+    | { action: 'pan-xy'; deltaX: number; deltaY: number }
+    | { action: 'pan-y'; deltaY: number }
+    | { action: 'pan-x'; deltaX: number }
+    | null
+  >(null);
+  const wheelRafRef = useRef<number | null>(null);
+
   useEffect(() => {
     const node = shellRef.current;
     if (!node) {
       return undefined;
     }
 
+    const flushWheelAccum = () => {
+      wheelRafRef.current = null;
+      const accum = wheelAccumRef.current;
+      wheelAccumRef.current = null;
+      if (!accum) {
+        return;
+      }
+
+      if (accum.action === 'zoom') {
+        const nextZoom = applyZoomDelta(zoomRef.current, accum.deltaY, accum.factor);
+        const nextCamera = zoomAtPoint(cameraRef.current, zoomRef.current, nextZoom, accum.pointer);
+        onZoomChange(nextZoom);
+        setCamera(nextCamera);
+        return;
+      }
+
+      const screenCell = BOARD_CONFIG.cellSize * zoomRef.current;
+      const deltaX = accum.action === 'pan-y' ? 0 : accum.deltaX;
+      const deltaY = accum.action === 'pan-x' ? 0 : accum.deltaY;
+      setCamera(
+        clampCamera({
+          x: cameraRef.current.x + deltaX / screenCell,
+          y: cameraRef.current.y + deltaY / screenCell,
+        }),
+      );
+    };
+
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
-      const delta = event.deltaY < 0 ? BOARD_CONFIG.zoomStep : -BOARD_CONFIG.zoomStep;
-      onZoomChange(clampZoom(zoom + delta));
+
+      const burst = classifyWheelBurst(event, event.timeStamp, wheelBurstRef.current);
+      wheelBurstRef.current = burst;
+      const action = wheelAction(event, burst.kind);
+
+      if (action === 'zoom') {
+        const factor =
+          burst.kind === 'trackpad' ? BOARD_CONFIG.pinchZoomFactorPerPixel : BOARD_CONFIG.wheelZoomFactorPerPixel;
+        const stageRect = stageRef.current?.getBoundingClientRect();
+        const pointer = stageRect
+          ? { x: event.clientX - stageRect.left, y: event.clientY - stageRect.top }
+          : { x: 0, y: 0 };
+        const previous = wheelAccumRef.current;
+        wheelAccumRef.current =
+          previous && previous.action === 'zoom'
+            ? { action: 'zoom', deltaY: previous.deltaY + event.deltaY, pointer, factor }
+            : { action: 'zoom', deltaY: event.deltaY, pointer, factor };
+      } else if (action === 'pan-xy') {
+        const previous = wheelAccumRef.current;
+        wheelAccumRef.current =
+          previous && previous.action === 'pan-xy'
+            ? { action: 'pan-xy', deltaX: previous.deltaX + event.deltaX, deltaY: previous.deltaY + event.deltaY }
+            : { action: 'pan-xy', deltaX: event.deltaX, deltaY: event.deltaY };
+      } else if (action === 'pan-y') {
+        const previous = wheelAccumRef.current;
+        wheelAccumRef.current =
+          previous && previous.action === 'pan-y'
+            ? { action: 'pan-y', deltaY: previous.deltaY + event.deltaY }
+            : { action: 'pan-y', deltaY: event.deltaY };
+      } else {
+        // La rotella gira solo in verticale: con Alt la sua rotazione diventa orizzontale,
+        // verso il basso a destra, come Shift+rotella nei browser.
+        const previous = wheelAccumRef.current;
+        wheelAccumRef.current =
+          previous && previous.action === 'pan-x'
+            ? { action: 'pan-x', deltaX: previous.deltaX + event.deltaY }
+            : { action: 'pan-x', deltaX: event.deltaY };
+      }
+
+      if (wheelRafRef.current === null) {
+        wheelRafRef.current = requestAnimationFrame(flushWheelAccum);
+      }
     };
 
     node.addEventListener('wheel', handleWheel, { passive: false });
-    return () => node.removeEventListener('wheel', handleWheel);
-  }, [onZoomChange, zoom]);
+    return () => {
+      node.removeEventListener('wheel', handleWheel);
+      if (wheelRafRef.current !== null) {
+        cancelAnimationFrame(wheelRafRef.current);
+        wheelRafRef.current = null;
+      }
+      wheelAccumRef.current = null;
+    };
+  }, [onZoomChange]);
 
   const { width, height } = boardPixelSize(viewportCells.columns, viewportCells.rows);
 
@@ -1267,8 +1388,10 @@ export function Board({
 
         const deltaX = event.clientX - interaction.startX;
         const deltaY = event.clientY - interaction.startY;
-        const cellsX = Math.round(deltaX / (BOARD_CONFIG.cellSize * zoom));
-        const cellsY = Math.round(deltaY / (BOARD_CONFIG.cellSize * zoom));
+        // Spostamento continuo (D4): niente arrotondamento a cella intera, altrimenti il
+        // trascinamento avanza a scatti di una cella invece di seguire il puntatore.
+        const cellsX = deltaX / (BOARD_CONFIG.cellSize * zoom);
+        const cellsY = deltaY / (BOARD_CONFIG.cellSize * zoom);
 
         setCamera(
           clampCamera({
@@ -1926,8 +2049,27 @@ export function Board({
     );
   };
 
-  const topLabels = Array.from({ length: viewportCells.columns }, (_, index) => camera.x + index);
-  const leftLabels = Array.from({ length: viewportCells.rows }, (_, index) => camera.y + index);
+  // Pulsanti +/-: stesso passo moltiplicativo dei gesti (D3), ancorato al centro della visuale
+  // invece che al puntatore, perché il click non ne ha uno (D4).
+  const handleZoomButtonClick = (factor: number) => {
+    const nextZoom = clampZoom(zoom * factor);
+    const stageRect = stageRef.current?.getBoundingClientRect();
+    const pointer = stageRect ? { x: stageRect.width / 2, y: stageRect.height / 2 } : { x: 0, y: 0 };
+    const nextCamera = zoomAtPoint(camera, zoom, nextZoom, pointer);
+    onZoomChange(nextZoom);
+    setCamera(nextCamera);
+  };
+
+  // La camera è frazionaria (D5): griglia e assi assumevano finora una camera intera.
+  // `Math.floor` ricava l'etichetta intera della prima cella parzialmente visibile, e la parte
+  // frazionaria trasla griglia e assi della stessa quantità (D6), altrimenti scivolerebbero
+  // rispetto al contenuto che etichettano.
+  const cameraFloorX = Math.floor(camera.x);
+  const cameraFloorY = Math.floor(camera.y);
+  const cameraFracX = camera.x - cameraFloorX;
+  const cameraFracY = camera.y - cameraFloorY;
+  const topLabels = Array.from({ length: viewportCells.columns }, (_, index) => cameraFloorX + index);
+  const leftLabels = Array.from({ length: viewportCells.rows }, (_, index) => cameraFloorY + index);
   const orderedTokens = useMemo(() => {
     const hiddenOccupantIds = new Set(
       tokens
@@ -1992,7 +2134,7 @@ export function Board({
           <button
             type="button"
             className="board-zoom-button"
-            onClick={() => onZoomChange(clampZoom(zoom - BOARD_CONFIG.zoomStep))}
+            onClick={() => handleZoomButtonClick(1 / BOARD_CONFIG.buttonZoomFactor)}
             aria-label="Zoom out"
           >
             -
@@ -2000,7 +2142,7 @@ export function Board({
           <button
             type="button"
             className="board-zoom-button"
-            onClick={() => onZoomChange(clampZoom(zoom + BOARD_CONFIG.zoomStep))}
+            onClick={() => handleZoomButtonClick(BOARD_CONFIG.buttonZoomFactor)}
             aria-label="Zoom in"
           >
             +
@@ -2094,26 +2236,36 @@ export function Board({
         </div>
         <div className="board-corner" aria-hidden="true" />
         <div className="board-axis board-axis--top" aria-hidden="true">
-          {topLabels.map((value, index) => (
-            <span
-              key={`${value}-${index}`}
-              className="board-axis__cell"
-              style={{ width: BOARD_CONFIG.cellSize * zoom }}
-            >
-              {Math.max(1, value + 1)}
-            </span>
-          ))}
+          <div
+            className="board-axis__track"
+            style={{ transform: `translateX(${-cameraFracX * BOARD_CONFIG.cellSize * zoom}px)` }}
+          >
+            {topLabels.map((value, index) => (
+              <span
+                key={`${value}-${index}`}
+                className="board-axis__cell"
+                style={{ width: BOARD_CONFIG.cellSize * zoom }}
+              >
+                {Math.max(1, value + 1)}
+              </span>
+            ))}
+          </div>
         </div>
         <div className="board-axis board-axis--left" aria-hidden="true">
-          {leftLabels.map((value, index) => (
-            <span
-              key={`${value}-${index}`}
-              className="board-axis__cell"
-              style={{ height: BOARD_CONFIG.cellSize * zoom }}
-            >
-              {gridRowToLabel(value)}
-            </span>
-          ))}
+          <div
+            className="board-axis__track board-axis__track--vertical"
+            style={{ transform: `translateY(${-cameraFracY * BOARD_CONFIG.cellSize * zoom}px)` }}
+          >
+            {leftLabels.map((value, index) => (
+              <span
+                key={`${value}-${index}`}
+                className="board-axis__cell"
+                style={{ height: BOARD_CONFIG.cellSize * zoom }}
+              >
+                {gridRowToLabel(value)}
+              </span>
+            ))}
+          </div>
         </div>
 
         <div
@@ -2130,6 +2282,12 @@ export function Board({
               width,
               height,
               backgroundSize: `${BOARD_CONFIG.cellSize * zoom}px ${BOARD_CONFIG.cellSize * zoom}px`,
+              // La griglia è un pattern CSS statico rispetto al palco (D6): senza questo
+              // scostamento resterebbe agganciata al bordo del palco mentre il contenuto
+              // scorre di una frazione di cella.
+              backgroundPosition: `${-cameraFracX * BOARD_CONFIG.cellSize * zoom}px ${
+                -cameraFracY * BOARD_CONFIG.cellSize * zoom
+              }px`,
             }}
             onPointerDown={handleBoardPointerDown}
             onPointerMove={handleBoardPointerMove}

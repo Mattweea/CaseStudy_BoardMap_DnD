@@ -473,9 +473,36 @@ export function useBattleMapState(isAuthenticated: boolean) {
     versionRef.current = version;
   }, [version]);
 
+  // Un gesto continuo di zoom produce dell'ordine di una variazione per frame: scrivere in
+  // `localStorage` a ogni variazione diventerebbe una scrittura per frame (D7). La scrittura
+  // resta pigra, alla quiete del gesto, e un `unmount` la esegue comunque per non perdere
+  // l'ultimo valore di una sessione chiusa subito dopo un gesto.
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const zoomWriteTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   useEffect(() => {
-    window.localStorage.setItem(ZOOM_STORAGE_KEY, String(zoom));
+    if (zoomWriteTimeoutRef.current !== null) {
+      window.clearTimeout(zoomWriteTimeoutRef.current);
+    }
+
+    zoomWriteTimeoutRef.current = window.setTimeout(() => {
+      zoomWriteTimeoutRef.current = null;
+      window.localStorage.setItem(ZOOM_STORAGE_KEY, String(zoom));
+    }, 400);
+
+    return () => {
+      if (zoomWriteTimeoutRef.current !== null) {
+        window.clearTimeout(zoomWriteTimeoutRef.current);
+        zoomWriteTimeoutRef.current = null;
+      }
+    };
   }, [zoom]);
+  useEffect(
+    () => () => {
+      window.localStorage.setItem(ZOOM_STORAGE_KEY, String(zoomRef.current));
+    },
+    [],
+  );
 
   const recordDiceSnapshot = useCallback((logs: DiceRollLog[], baseline: boolean) => {
     const deliveries = collectDiceDeliveries(logs, diceDeliverySeenIdsRef.current, { baseline });
