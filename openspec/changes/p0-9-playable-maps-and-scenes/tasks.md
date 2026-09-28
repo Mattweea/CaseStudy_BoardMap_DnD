@@ -2,9 +2,9 @@
 
 ## 1. Revisione delle change foglia
 
-- [ ] 1.1 Revisionare e approvare P0.9a.1–a.4.
-- [ ] 1.2 Revisionare e approvare P0.9b.1–b.4.
-- [ ] 1.3 Revisionare e approvare P0.9c.1–c.4.
+- [x] 1.1 Revisionare e approvare P0.9a.1–a.4.
+- [x] 1.2 Revisionare e approvare P0.9b.1–b.4.
+- [x] 1.3 Revisionare e approvare P0.9c.1–c.4.
 - [ ] 1.4 Revisionare e approvare P0.9d.1–d.4.
 - [ ] 1.5 Revisionare e approvare P0.9e.1–e.5.
 

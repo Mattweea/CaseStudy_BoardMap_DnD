@@ -10,7 +10,7 @@
 
 - [x] 2.1 Collegare blocksMovement alla validazione server per ogni segmento.
 - [x] 2.2 Collegare blocksVision al calcolo client corrente.
-- [ ] 2.3 Verificare Player, Master e bypass già specificati senza nuovi comportamenti.
+- [x] 2.3 Verificare Player, Master e bypass già specificati senza nuovi comportamenti.
 
 ## 3. Verifica autonoma
 
