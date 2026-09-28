@@ -83,6 +83,7 @@ const initialSharedState = {
   diagonalParityByTokenId: {},
   diagonalRule: 'standard',
   measurementUnit: { label: 'm', cellsValue: 1.5 },
+  boardDimensions: { columns: 30, rows: 30 },
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
   isBoardBackgroundHidden: false,
@@ -370,6 +371,15 @@ function normalizeSharedState(parsed) {
     isValidCellsValue(parsed.measurementUnit.cellsValue)
       ? { label: parsed.measurementUnit.label, cellsValue: parsed.measurementUnit.cellsValue }
       : { label: 'm', cellsValue: 1.5 };
+  const boardDimensions =
+    Number.isSafeInteger(parsed?.boardDimensions?.columns)
+    && parsed.boardDimensions.columns > 0
+    && parsed.boardDimensions.columns <= 500
+    && Number.isSafeInteger(parsed?.boardDimensions?.rows)
+    && parsed.boardDimensions.rows > 0
+    && parsed.boardDimensions.rows <= 500
+      ? { columns: parsed.boardDimensions.columns, rows: parsed.boardDimensions.rows }
+      : { columns: 30, rows: 30 };
 
   return {
     activeSceneId: typeof parsed?.activeSceneId === 'string' ? parsed.activeSceneId : null,
@@ -462,6 +472,7 @@ function normalizeSharedState(parsed) {
     diagonalParityByTokenId,
     diagonalRule,
     measurementUnit,
+    boardDimensions,
     dashUsedByTokenId:
       parsed?.dashUsedByTokenId && typeof parsed.dashUsedByTokenId === 'object'
         ? Object.fromEntries(
@@ -1291,11 +1302,55 @@ function updateBattleMapSettings(updates) {
     nextMeasurementUnit = { label, cellsValue };
   }
 
+  let nextBoardDimensions = battleMapState.boardDimensions;
+  if (updates?.boardDimensions !== undefined) {
+    const columns = updates.boardDimensions?.columns;
+    const rows = updates.boardDimensions?.rows;
+    if (
+      !Number.isSafeInteger(columns) || columns < 1 || columns > 500
+      || !Number.isSafeInteger(rows) || rows < 1 || rows > 500
+    ) return { status: 400, message: 'Dimensioni della griglia non valide.' };
+    const outsideToken = battleMapState.tokens.some((token) => {
+      const footprint = getTokenFootprint(token);
+      return token.position.x < 0 || token.position.y < 0
+        || token.position.x + footprint.width > columns
+        || token.position.y + footprint.height > rows;
+    });
+    if (outsideToken) return { status: 400, message: 'La griglia non può escludere token già presenti.' };
+    nextBoardDimensions = { columns, rows };
+  }
+
+  const activeScene = sceneService?.getActiveScene?.() ?? null;
+  if (activeScene && typeof sceneService.updateScene === 'function') {
+    try {
+      sceneService.updateScene({
+        id: activeScene.id,
+        expectedVersion: activeScene.version,
+        name: activeScene.name,
+        sortOrder: activeScene.sortOrder,
+        document: {
+          ...activeScene.document,
+          board: {
+            ...activeScene.document.board,
+            diagonalRule: nextDiagonalRule,
+            measurementUnit: nextMeasurementUnit,
+            dimensions: nextBoardDimensions,
+          },
+        },
+      });
+      refreshActiveSceneProjection();
+      return nextSnapshot();
+    } catch (error) {
+      return { status: error?.statusCode ?? 500, message: error?.message ?? 'Impostazioni scena non salvate.' };
+    }
+  }
+
   return commitBattleMapState(
     {
       ...battleMapState,
       diagonalRule: nextDiagonalRule,
       measurementUnit: nextMeasurementUnit,
+      boardDimensions: nextBoardDimensions,
     },
     { recordMasterUndo: true, validate: false },
   );
@@ -1353,6 +1408,13 @@ function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
 
   if (waypoints[0].x !== token.position.x || waypoints[0].y !== token.position.y) {
     return { status: 400, message: 'Il percorso deve partire dalla posizione corrente del token.' };
+  }
+
+  const movingFootprint = getTokenFootprint(token);
+  if (waypoints.some((point) =>
+    point.x + movingFootprint.width > battleMapState.boardDimensions.columns
+    || point.y + movingFootprint.height > battleMapState.boardDimensions.rows)) {
+    return { status: 400, message: 'Il percorso esce dai confini della scena.' };
   }
 
   const destination = waypoints[waypoints.length - 1];

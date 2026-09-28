@@ -60,6 +60,11 @@ export interface MeasurementUnit {
   cellsValue: number;
 }
 
+export interface BoardDimensions {
+  columns: number;
+  rows: number;
+}
+
 export interface LightSource {
   id: string;
   position: GridPosition;
@@ -201,6 +206,7 @@ export interface BattleMapState {
   diagonalParityByTokenId: Record<string, DiagonalParity>;
   diagonalRule: DiagonalRule;
   measurementUnit: MeasurementUnit;
+  boardDimensions: BoardDimensions;
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
   isBoardBackgroundHidden: boolean;
@@ -232,6 +238,7 @@ export interface BattleMapSharedState {
   diagonalParityByTokenId: Record<string, DiagonalParity>;
   diagonalRule: DiagonalRule;
   measurementUnit: MeasurementUnit;
+  boardDimensions: BoardDimensions;
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
   isBoardBackgroundHidden: boolean;

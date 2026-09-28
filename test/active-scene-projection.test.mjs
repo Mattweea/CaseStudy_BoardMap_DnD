@@ -5,6 +5,7 @@ import {
   buildSceneStateView,
   installActiveSceneProjection,
 } from '../server/active-scene-projection.mjs';
+import { pathCost } from '../shared/grid-movement.mjs';
 
 function scene(id, name, version, boardOverrides = {}, marker = id) {
   const document = createDefaultSceneDocument();
@@ -32,6 +33,7 @@ test('active scene projection keeps live runtime and adapts board configuration 
   });
   assert.equal(projected.diagonalRule, 'alternating');
   assert.deepEqual(projected.measurementUnit, { label: 'ft', cellsValue: 5 });
+  assert.deepEqual(projected.boardDimensions, { columns: 30, rows: 30 });
   assert.equal(projected.isBoardBackgroundHidden, true);
   assert.equal(projected.isBoardFullyLit, true);
   assert.equal(projected.lightSources[0].id, 'torch');
@@ -60,6 +62,21 @@ test('active image background exposes only its authenticated scene URL', () => {
   assert.equal(projected.activeSceneBackground.kind, 'image');
   assert.equal(projected.activeSceneBackground.url, `/api/scenes/${active.id}/background?v=${'b'.repeat(64)}`);
   assert.equal('fileName' in projected.activeSceneBackground, false);
+});
+
+test('scene scale switches atomically and image calibration does not alter cell distance', () => {
+  const metric = scene('metric', 'Metrica', 1, { measurementUnit: { label: 'm', cellsValue: 1.5 }, dimensions: { columns: 30, rows: 30 } });
+  const imperial = scene('imperial', 'Imperiale', 1, { measurementUnit: { label: 'ft', cellsValue: 5 }, dimensions: { columns: 48, rows: 36 } });
+  imperial.document.background = {
+    kind: 'image', assetId: 'asset-grid', mediaType: 'image/png', byteLength: 12,
+    etag: 'c'.repeat(64), updatedAt: '2026-09-28T10:00:00.000Z', scale: 3, offsetX: 120, offsetY: -20,
+  };
+  const metricProjection = installActiveSceneProjection({}, metric);
+  const imperialProjection = installActiveSceneProjection({}, imperial);
+  assert.deepEqual(metricProjection.measurementUnit, { label: 'm', cellsValue: 1.5 });
+  assert.deepEqual(imperialProjection.measurementUnit, { label: 'ft', cellsValue: 5 });
+  assert.deepEqual(imperialProjection.boardDimensions, { columns: 48, rows: 36 });
+  assert.equal(pathCost([{ x: 0, y: 0 }, { x: 3, y: 3 }], { rule: imperialProjection.diagonalRule }).cells, 3);
 });
 
 test('role views expose only summaries to the Master and only active identity to a Player', () => {

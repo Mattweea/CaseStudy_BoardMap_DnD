@@ -8,6 +8,7 @@ import type {
   BattleMapSessionSnapshot,
   BattleMapSessionStatus,
   BattleMapState,
+  BoardDimensions,
   DiagonalRule,
   DiceRollLog,
   DiceRollRequest,
@@ -151,6 +152,7 @@ const initialSharedState: BattleMapSharedState = {
   diagonalParityByTokenId: {},
   diagonalRule: 'standard',
   measurementUnit: { label: 'm', cellsValue: 1.5 },
+  boardDimensions: { columns: 30, rows: 30 },
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
   isBoardBackgroundHidden: false,
@@ -456,6 +458,15 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
       isValidCellsValue(parsed.measurementUnit.cellsValue)
         ? { label: parsed.measurementUnit.label, cellsValue: parsed.measurementUnit.cellsValue }
         : { label: 'm', cellsValue: 1.5 },
+    boardDimensions:
+      Number.isSafeInteger(parsed?.boardDimensions?.columns)
+      && (parsed?.boardDimensions?.columns ?? 0) > 0
+      && (parsed?.boardDimensions?.columns ?? 0) <= 500
+      && Number.isSafeInteger(parsed?.boardDimensions?.rows)
+      && (parsed?.boardDimensions?.rows ?? 0) > 0
+      && (parsed?.boardDimensions?.rows ?? 0) <= 500
+        ? parsed!.boardDimensions as BoardDimensions
+        : { columns: 30, rows: 30 },
     dashUsedByTokenId:
       parsed?.dashUsedByTokenId && typeof parsed.dashUsedByTokenId === 'object'
         ? Object.fromEntries(
@@ -1454,7 +1465,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
   };
 
   const updateBattleMapSettings = async (
-    updates: Partial<{ diagonalRule: DiagonalRule; measurementUnit: MeasurementUnit }>,
+    updates: Partial<{ diagonalRule: DiagonalRule; measurementUnit: MeasurementUnit; boardDimensions: BoardDimensions }>,
   ) => {
     return enqueueMutation(async () => {
       const previousState = sharedStateRef.current;

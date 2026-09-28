@@ -19,6 +19,7 @@ function validScene() {
     board: {
       diagonalRule: 'alternating',
       measurementUnit: { label: 'ft', cellsValue: 5 },
+      dimensions: { columns: 42, rows: 36 },
       isBackgroundHidden: true,
       isFullyLit: false,
       lightSources: [
@@ -65,6 +66,7 @@ test('default scene contains independent, versioned, separated sections', () => 
   assert.equal(first.schemaVersion, 1);
   assert.deepEqual(first.background, { kind: 'blank' });
   assert.deepEqual(first.board.measurementUnit, { label: 'm', cellsValue: 1.5 });
+  assert.deepEqual(first.board.dimensions, { columns: 30, rows: 30 });
   assert.deepEqual(first.drawings, []);
   assert.deepEqual(first.elements, []);
   assert.deepEqual(first.entityReferences, []);
@@ -125,6 +127,17 @@ test('legacy partial scene receives canonical defaults without merging layers', 
   assert.notEqual(normalized.drawings, normalized.elements);
   assert.notEqual(normalized.elements, normalized.preparedPlacements);
   assert.notEqual(normalized.preparedPlacements, normalized.runtime.tokens);
+  assert.deepEqual(normalized.board.dimensions, { columns: 30, rows: 30 });
+});
+
+test('board dimensions are bounded and image calibration cannot redefine measurement', () => {
+  const scene = validScene();
+  scene.background = { ...scene.background, scale: 8, offsetX: 400, offsetY: -200 };
+  const normalized = normalizeSceneDocument(scene);
+  assert.deepEqual(normalized.background, { kind: 'blank' });
+  assert.deepEqual(normalized.board.measurementUnit, { label: 'ft', cellsValue: 5 });
+  scene.board.dimensions.columns = 0;
+  assert.throws(() => normalizeSceneDocument(scene), /dimensions.columns/);
 });
 
 test('valid data is cloned and normalized while preserving layer-specific fields', () => {

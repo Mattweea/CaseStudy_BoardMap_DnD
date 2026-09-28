@@ -9,6 +9,7 @@ import { BOARD_CONFIG } from '../constants/board';
 import type {
   DiagonalParity,
   DiagonalRule,
+  BoardDimensions,
   EphemeralPing,
   EphemeralTemplate,
   GridPosition,
@@ -64,6 +65,7 @@ interface BoardProps {
   isFullscreen?: boolean;
   isBackgroundHidden?: boolean;
   background?: SceneBackground;
+  dimensions?: BoardDimensions;
   vision?: {
     enabled: boolean;
     radiusCells: number;
@@ -142,10 +144,10 @@ function tokenCenter(token: UnitToken): { x: number; y: number } {
   };
 }
 
-function clampCamera(position: GridPosition): GridPosition {
+function clampCamera(position: GridPosition, dimensions: BoardDimensions, viewport: BoardDimensions): GridPosition {
   return {
-    x: Math.max(0, position.x),
-    y: Math.max(0, position.y),
+    x: Math.min(Math.max(0, position.x), Math.max(0, dimensions.columns - viewport.columns)),
+    y: Math.min(Math.max(0, position.y), Math.max(0, dimensions.rows - viewport.rows)),
   };
 }
 
@@ -449,6 +451,7 @@ export function Board({
   isFullscreen = false,
   isBackgroundHidden = false,
   background = { kind: 'blank' },
+  dimensions = { columns: 30, rows: 30 },
   vision = null,
   lightSources = [],
   visionBlockers = [],
@@ -643,14 +646,18 @@ export function Board({
       const screenCell = BOARD_CONFIG.cellSize * zoom;
 
       setViewportCells({
-        columns: Math.max(BOARD_CONFIG.minVisibleColumns, Math.ceil(width / screenCell) + 2),
-        rows: Math.max(BOARD_CONFIG.minVisibleRows, Math.ceil(height / screenCell) + 2),
+        columns: Math.min(dimensions.columns, Math.max(1, Math.ceil(width / screenCell) + 2)),
+        rows: Math.min(dimensions.rows, Math.max(1, Math.ceil(height / screenCell) + 2)),
       });
     });
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [zoom]);
+  }, [dimensions.columns, dimensions.rows, zoom]);
+
+  useEffect(() => {
+    setCamera((current) => clampCamera(current, dimensions, viewportCells));
+  }, [dimensions, viewportCells]);
 
   useEffect(() => {
     const node = shellRef.current;
@@ -685,9 +692,9 @@ export function Board({
       clampCamera({
         x: token.position.x - Math.floor((viewportCells.columns - footprint.width) / 2),
         y: token.position.y - Math.floor((viewportCells.rows - footprint.height) / 2),
-      }),
+      }, dimensions, viewportCells),
     );
-  }, [focusRequest, tokens, viewportCells.columns, viewportCells.rows]);
+  }, [dimensions, focusRequest, tokens, viewportCells]);
 
   const planInteraction = interaction?.mode === 'plan' ? interaction : null;
   const isMapInteractionActive = planInteraction !== null || isRulerActive || activeTemplateShape !== null;
@@ -1172,7 +1179,7 @@ export function Board({
           clampCamera({
             x: interaction.startCamera.x - cellsX,
             y: interaction.startCamera.y - cellsY,
-          }),
+          }, dimensions, viewportCells),
         );
         return;
       }

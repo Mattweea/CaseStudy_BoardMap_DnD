@@ -16,6 +16,7 @@ export const SCENE_LIMITS: Readonly<{
   maxDrawingPoints: number;
   maxCoordinateMagnitude: number;
   maxLightRadiusCells: number;
+  maxBoardDimensionCells: number;
 }>;
 
 export class SceneValidationError extends Error {
@@ -41,6 +42,7 @@ export type SceneBackground = BlankSceneBackground | ImageSceneBackground;
 export interface SceneBoardConfig {
   diagonalRule: DiagonalRule;
   measurementUnit: MeasurementUnit;
+  dimensions: { columns: number; rows: number };
   isBackgroundHidden: boolean;
   isFullyLit: boolean;
   lightSources: LightSource[];

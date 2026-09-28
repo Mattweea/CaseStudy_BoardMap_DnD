@@ -99,6 +99,7 @@ SQLite is a separate persistence boundary:
   configuration into the legacy top-level fields consumed by current board code while retaining
   live runtime tokens in memory. A legacy snapshot without active-scene metadata receives the
   persisted active identity and configuration during installation.
+- `boardDimensions`, `measurementUnit`, and `diagonalRule` remain top-level compatibility fields for current consumers, but their authority is the active scene document. Master settings validate and persist a versioned scene update before refreshing and broadcasting all three together. Legacy documents default to 30 × 30 cells, `1.5 m`, and the standard diagonal rule.
 - Snapshot construction is role-specific: the Master receives metadata-only `sceneCatalog`
   summaries plus the active projection; an Adventurer receives only the active identity and
   sanitized projection. Complete inactive documents and assets never enter either repeated
@@ -114,6 +115,7 @@ SQLite is a separate persistence boundary:
 - Undo stacks are in memory and are not persisted in session snapshots.
 - Adding a mutation requires an explicit decision: master snapshot undo, adventurer inverse undo, both, or intentionally non-undoable.
 - Combat endpoints: entering/leaving combat, starting round one, the master's turn advance, and the `playersCanEndTurn` setting use master snapshot undo. Initiative rolls (single or roll-all) are intentionally non-undoable, since undoing would also remove the log entry; the master corrects with edit or removal. An adventurer's end of turn has no inverse; the master can move the turn back.
+- Active-scene grid dimensions, unit, and diagonal settings are versioned scene configuration and intentionally do not enter the live-state undo stack.
 
 ## Verification
 

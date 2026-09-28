@@ -36,6 +36,7 @@ fields from the active-scene projection. A Master snapshot may additionally cont
 catalog or an inactive scene document. The client normalizer must preserve the optional Master
 catalog without inventing one for a Player or treating catalog selection as activation.
 The board renders a neutral blank surface plus the application grid when the background is blank; an image background is loaded only from the authenticated URL in the active projection.
+`boardDimensions`, `measurementUnit`, and `diagonalRule` are compatible top-level projection fields sourced from the active scene. The settings UI edits that persisted scene configuration; it must not maintain a second local or snapshot-only scale.
 
 ## Server authority and optimistic updates
 

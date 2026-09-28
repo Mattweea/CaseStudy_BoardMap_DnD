@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createDefaultSceneDocument } from '../shared/scene-model.mjs';
 
 process.env.BATTLE_MAP_TEST_MODE = '1';
 const { __testing } = await import('../server/index.mjs');
@@ -81,6 +82,13 @@ test('an invalid waypoints payload is rejected with 400 and leaves the token in 
     assert.equal(response.statusCode, 400, JSON.stringify(body));
     assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
   }
+});
+
+test('movement cannot leave the active scene dimensions', async () => {
+  __testing.setBattleMapState({ tokens: [heroToken()], boardDimensions: { columns: 3, rows: 3 } });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 3, y: 0 }] });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /confini/);
 });
 
 test('an L-shaped path costs 6 cells under both diagonal rules', async () => {
@@ -257,15 +265,54 @@ test('the master-only settings route rejects non-master callers and invalid valu
   assert.equal(zeroCellsValue.statusCode, 400);
   assert.equal(__testing.getBattleMapState().measurementUnit.cellsValue, 1.5);
 
+  const invalidDimensions = await __testing.app.inject({
+    method: 'POST', url: '/api/battle-map/settings', headers: sessionHeaders(MASTER),
+    payload: { boardDimensions: { columns: 0, rows: 30 } },
+  });
+  assert.equal(invalidDimensions.statusCode, 400);
+  assert.deepEqual(__testing.getBattleMapState().boardDimensions, { columns: 30, rows: 30 });
+
   const valid = await __testing.app.inject({
     method: 'POST',
     url: '/api/battle-map/settings',
     headers: sessionHeaders(MASTER),
-    payload: { diagonalRule: 'alternating', measurementUnit: { label: 'ft', cellsValue: 5 } },
+    payload: { diagonalRule: 'alternating', measurementUnit: { label: 'ft', cellsValue: 5 }, boardDimensions: { columns: 40, rows: 35 } },
   });
   assert.equal(valid.statusCode, 200);
   assert.equal(valid.json().state.diagonalRule, 'alternating');
   assert.deepEqual(valid.json().state.measurementUnit, { label: 'ft', cellsValue: 5 });
+  assert.deepEqual(valid.json().state.boardDimensions, { columns: 40, rows: 35 });
+});
+
+test('grid settings persist on the active scene and project atomically', async () => {
+  let active = {
+    id: 'scene-grid', name: 'Griglia', version: 1, sortOrder: 0,
+    document: createDefaultSceneDocument(),
+  };
+  const service = {
+    getActiveScene: () => structuredClone(active),
+    getCatalog: () => [structuredClone(active)],
+    updateScene: (input) => {
+      assert.equal(input.expectedVersion, active.version);
+      active = { ...active, version: active.version + 1, document: structuredClone(input.document) };
+      return structuredClone(active);
+    },
+  };
+  __testing.setSceneService(service);
+  __testing.setBattleMapState({ tokens: [] });
+  try {
+    const response = await __testing.app.inject({
+      method: 'POST', url: '/api/battle-map/settings', headers: sessionHeaders(MASTER),
+      payload: { diagonalRule: 'alternating', measurementUnit: { label: 'ft', cellsValue: 5 }, boardDimensions: { columns: 48, rows: 32 } },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(active.version, 2);
+    assert.deepEqual(active.document.board.measurementUnit, { label: 'ft', cellsValue: 5 });
+    assert.deepEqual(response.json().state.boardDimensions, { columns: 48, rows: 32 });
+    assert.deepEqual(response.json().state.measurementUnit, { label: 'ft', cellsValue: 5 });
+  } finally {
+    __testing.setSceneService(null);
+  }
 });
 
 function fakeClient(user) {

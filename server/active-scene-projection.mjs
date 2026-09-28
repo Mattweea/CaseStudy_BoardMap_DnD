@@ -43,6 +43,7 @@ export function installActiveSceneProjection(state, activeScene) {
     ...state,
     diagonalRule: board.diagonalRule,
     measurementUnit: clone(board.measurementUnit),
+    boardDimensions: clone(board.dimensions),
     isBoardBackgroundHidden: board.isBackgroundHidden,
     isBoardFullyLit: board.isFullyLit,
     lightSources: clone(board.lightSources),

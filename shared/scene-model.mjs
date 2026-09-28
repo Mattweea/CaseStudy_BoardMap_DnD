@@ -9,6 +9,7 @@ export const SCENE_LIMITS = Object.freeze({
   maxDrawingPoints: 20000,
   maxCoordinateMagnitude: 1_000_000,
   maxLightRadiusCells: 1000,
+  maxBoardDimensionCells: 500,
 });
 
 const DEFAULT_MEASUREMENT_UNIT = Object.freeze({
@@ -178,9 +179,21 @@ function normalizeBoardConfig(value, path) {
     fail(path + '.measurementUnit.cellsValue', 'must be a positive finite number');
   }
 
+  const rawDimensions = board.dimensions ?? { columns: 30, rows: 30 };
+  if (!isRecord(rawDimensions)) fail(path + '.dimensions', 'must be an object');
+  const dimensions = {};
+  for (const axis of ['columns', 'rows']) {
+    const dimension = rawDimensions[axis];
+    if (!Number.isSafeInteger(dimension) || dimension < 1 || dimension > SCENE_LIMITS.maxBoardDimensionCells) {
+      fail(path + `.dimensions.${axis}`, `must be an integer between 1 and ${SCENE_LIMITS.maxBoardDimensionCells}`);
+    }
+    dimensions[axis] = dimension;
+  }
+
   return {
     diagonalRule,
     measurementUnit: { label, cellsValue },
+    dimensions,
     isBackgroundHidden: board.isBackgroundHidden === true,
     isFullyLit: board.isFullyLit === true,
     lightSources: normalizeLightSources(board.lightSources ?? [], path + '.lightSources'),
@@ -302,6 +315,7 @@ export function createDefaultSceneDocument() {
     board: {
       diagonalRule: 'standard',
       measurementUnit: { ...DEFAULT_MEASUREMENT_UNIT },
+      dimensions: { columns: 30, rows: 30 },
       isBackgroundHidden: false,
       isFullyLit: false,
       lightSources: [],

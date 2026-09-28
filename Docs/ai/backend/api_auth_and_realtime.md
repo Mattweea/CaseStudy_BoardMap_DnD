@@ -37,6 +37,7 @@ Ownership-aware endpoints must validate the current server token and user. New m
 - Rejected state mutations should return the current sanitized snapshot when the client can use it to reconcile.
 - Full state replacement accepts `baseVersion` and rejects stale commits.
 - Scene updates accept `baseVersion`; a stale update returns `409` with `currentScene` so the Master client can replace its obsolete draft base. Scene names are labels rather than identities, so duplicate names remain valid and stable scene IDs disambiguate them.
+- `POST /api/battle-map/settings` remains Master-only, but grid dimensions, diagonal rule, and measurement unit are persisted as one update of the active scene and then projected atomically into the shared snapshot. Invalid dimensions, units, or a shrink that excludes existing tokens are rejected without changing the scene.
 - Scene background upload accepts only raw JPEG, PNG, or WebP bodies whose declared media type matches their signature. `X-Scene-Base-Version` supplies the optimistic base; the response is the updated scene. Asset responses use an ETag and `Cache-Control: private`, and never expose a runtime filesystem path.
 
 ## Realtime
