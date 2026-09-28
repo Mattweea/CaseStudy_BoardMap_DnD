@@ -35,6 +35,8 @@ function fakeClient(user) {
 test('HTTP and SSE provide Master catalog summaries while two Players receive only the active scene', async () => {
   const active = makeScene('scene-active', 'Attiva', 3, 'ACTIVE-ASSET');
   const inactive = makeScene('scene-secret', 'Preparazione segreta', 9, 'INACTIVE-ASSET-MARKER');
+  active.document.drawings = [{ id: 'visible-stroke', color: '#ffffff', widthCells: 0.12, points: [{ x: 1.25, y: 2.5 }] }];
+  inactive.document.drawings = [{ id: 'secret-stroke', color: '#ffffff', widthCells: 0.12, points: [{ x: 4, y: 5 }] }];
   __testing.setSceneService({
     getActiveScene: () => structuredClone(active),
     getCatalog: () => structuredClone([active, inactive]),
@@ -54,8 +56,10 @@ test('HTTP and SSE provide Master catalog summaries while two Players receive on
   for (const response of [firstResponse, secondResponse]) {
     assert.equal(response.json().state.activeSceneId, 'scene-active');
     assert.equal(response.json().state.activeSceneVersion, 3);
+    assert.deepEqual(response.json().state.activeSceneDrawings, active.document.drawings);
     assert.equal('sceneCatalog' in response.json().state, false);
     assert.equal(JSON.stringify(response.json()).includes('Preparazione segreta'), false);
+    assert.equal(JSON.stringify(response.json()).includes('secret-stroke'), false);
   }
   assert.equal(JSON.stringify(masterResponse.json()).includes('INACTIVE-ASSET-MARKER'), false);
 
@@ -75,8 +79,10 @@ test('HTTP and SSE provide Master catalog summaries while two Players receive on
     for (const client of clients.slice(1)) {
       const snapshot = client.snapshots()[0];
       assert.equal(snapshot.state.activeSceneId, 'scene-active');
+      assert.deepEqual(snapshot.state.activeSceneDrawings, active.document.drawings);
       assert.equal('sceneCatalog' in snapshot.state, false);
       assert.equal(JSON.stringify(snapshot).includes('Preparazione segreta'), false);
+      assert.equal(JSON.stringify(snapshot).includes('secret-stroke'), false);
     }
   } finally {
     clients.forEach((client) => __testing.streamClients.delete(client));

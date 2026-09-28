@@ -17,6 +17,7 @@ import type {
   MeasurementUnit,
   MovementNotice,
   SceneBackground,
+  SceneDrawing,
   TemplateShape,
   TokenMovementBudget,
   TokenWalkEvent,
@@ -67,6 +68,7 @@ interface BoardProps {
   isFullscreen?: boolean;
   isBackgroundHidden?: boolean;
   background?: SceneBackground;
+  drawings?: SceneDrawing[];
   dimensions?: BoardDimensions;
   vision?: {
     enabled: boolean;
@@ -459,6 +461,7 @@ export function Board({
   isFullscreen = false,
   isBackgroundHidden = false,
   background = { kind: 'blank' },
+  drawings = [],
   dimensions = { columns: 30, rows: 30 },
   vision = null,
   lightSources = [],
@@ -890,7 +893,7 @@ export function Board({
         }`
       : null;
   const toolHintText = isRulerActive
-    ? 'Righello: ogni click aggiunge un waypoint, Esc chiude la misura.'
+      ? 'Righello: ogni click aggiunge un waypoint, Esc chiude la misura.'
     : isPingToolActive
       ? 'Ping: un click segnala il punto a tutti i partecipanti.'
       : activeTemplateShape
@@ -2080,6 +2083,14 @@ export function Board({
               aria-hidden="true"
               style={{ backgroundSize: `${BOARD_CONFIG.cellSize * zoom}px ${BOARD_CONFIG.cellSize * zoom}px` }}
             />
+            <svg className="board-drawing-layer" width={width} height={height} aria-hidden="true">
+              {drawings.map((drawing) => (
+                <path key={drawing.id}
+                  d={drawing.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${(point.x - camera.x) * BOARD_CONFIG.cellSize * zoom} ${(point.y - camera.y) * BOARD_CONFIG.cellSize * zoom}`).join(' ') + (drawing.points.length === 1 ? ` l 0.001 0` : '')}
+                  fill="none" stroke={drawing.color} strokeWidth={drawing.widthCells * BOARD_CONFIG.cellSize * zoom}
+                  strokeLinecap="round" strokeLinejoin="round" />
+              ))}
+            </svg>
             {planInteraction && planEndCell ? (
               <div
                 className={`board-highlight ${

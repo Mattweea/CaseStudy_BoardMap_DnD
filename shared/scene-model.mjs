@@ -7,6 +7,8 @@ export const SCENE_LIMITS = Object.freeze({
   maxReferenceTypeLength: 64,
   maxLayerItems: 5000,
   maxDrawingPoints: 20000,
+  minDrawingWidthCells: 0.05,
+  maxDrawingWidthCells: 20,
   maxCoordinateMagnitude: 1_000_000,
   maxLightRadiusCells: 1000,
   maxBoardDimensionCells: 500,
@@ -275,13 +277,36 @@ function normalizeDrawings(value, path) {
         'must not contain more than ' + SCENE_LIMITS.maxDrawingPoints + ' points',
       );
     }
+    const color = cloned.color ?? '#ffffff';
+    if (typeof color !== 'string' || !/^#[a-fA-F0-9]{6}$/.test(color)) {
+      fail(itemPath + '.color', 'must be a six-digit hex color');
+    }
+    const widthCells = cloned.widthCells ?? 0.12;
+    if (typeof widthCells !== 'number' || !Number.isFinite(widthCells)
+      || widthCells < SCENE_LIMITS.minDrawingWidthCells
+      || widthCells > SCENE_LIMITS.maxDrawingWidthCells) {
+      fail(itemPath + '.widthCells', 'must be a valid cell width');
+    }
     return {
-      ...cloned,
       id: normalizeId(cloned.id, itemPath + '.id'),
-      points: cloned.points.map((point, pointIndex) =>
-        normalizePosition(point, itemPath + '.points[' + pointIndex + ']')),
+      color: color.toLowerCase(),
+      widthCells,
+      points: cloned.points.map((point, pointIndex) => {
+        const pointPath = itemPath + '.points[' + pointIndex + ']';
+        if (!isRecord(point) || !Number.isFinite(point.x) || !Number.isFinite(point.y)
+          || point.x < 0 || point.y < 0
+          || point.x > SCENE_LIMITS.maxCoordinateMagnitude
+          || point.y > SCENE_LIMITS.maxCoordinateMagnitude) {
+          fail(pointPath, 'must contain finite non-negative cell coordinates');
+        }
+        return { x: point.x, y: point.y };
+      }),
     };
   });
+}
+
+export function normalizeSceneDrawings(value) {
+  return normalizeDrawings(value, 'drawings');
 }
 
 function normalizeElements(value, path) {

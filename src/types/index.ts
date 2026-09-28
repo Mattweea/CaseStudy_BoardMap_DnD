@@ -192,6 +192,7 @@ export interface BattleMapState {
   activeSceneSummary: SceneSummary | null;
   sceneCatalog?: SceneSummary[];
   activeSceneBackground: SceneBackground;
+  activeSceneDrawings: import('../../shared/scene-model.mjs').SceneDrawing[];
   tokens: UnitToken[];
   zoom: number;
   diceLogs: DiceRollLog[];
@@ -225,6 +226,7 @@ export interface BattleMapSharedState {
   // Present only in the Master view. Player HTTP/SSE snapshots never carry inactive summaries.
   sceneCatalog?: SceneSummary[];
   activeSceneBackground: SceneBackground;
+  activeSceneDrawings: import('../../shared/scene-model.mjs').SceneDrawing[];
   tokens: UnitToken[];
   diceLogs: DiceRollLog[];
   latestDicePreview: DicePreviewState | null;

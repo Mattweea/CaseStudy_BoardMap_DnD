@@ -59,6 +59,73 @@ test('scene catalog routes enforce authentication and master authorization', asy
   }
 });
 
+test('Master drawing gestures persist once each; invalid, stale and unauthorized writes do not commit', async () => {
+  const refreshed = [];
+  const { app, service, close } = await createApp({ onActiveSceneUpdated: (scene) => refreshed.push(scene.version) });
+  const url = '/api/scenes/scene-initial/drawings';
+  const headers = { 'x-test-user': 'master' };
+  const drawing = { id: 'stroke-1', color: '#ff8a3d', widthCells: 0.12,
+    points: [{ x: 1.25, y: 2.5 }, { x: 3, y: 4.75 }] };
+  try {
+    assert.equal((await app.inject({ method: 'POST', url, payload: { baseVersion: 1, drawing } })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'POST', url, headers: { 'x-test-user': 'player' }, payload: { baseVersion: 1, drawing } })).statusCode, 403);
+    const invalid = await app.inject({ method: 'POST', url, headers, payload: {
+      baseVersion: 1, drawing: { ...drawing, points: [{ x: -1, y: 0 }] },
+    } });
+    assert.equal(invalid.statusCode, 400);
+    const tooManyPoints = await app.inject({ method: 'POST', url, headers, payload: {
+      baseVersion: 1,
+      drawing: { ...drawing, points: Array.from({ length: 20001 }, () => ({ x: 1, y: 1 })) },
+    } });
+    assert.equal(tooManyPoints.statusCode, 400);
+    assert.equal(service.getScene('scene-initial').version, 1);
+    const added = await app.inject({ method: 'POST', url, headers, payload: { baseVersion: 1, drawing } });
+    assert.equal(added.statusCode, 200);
+    assert.equal(added.json().version, 2);
+    assert.deepEqual(added.json().document.drawings, [drawing]);
+    assert.deepEqual(refreshed, [2]);
+    const stale = await app.inject({ method: 'POST', url, headers, payload: { baseVersion: 1, drawing: { ...drawing, id: 'stroke-2' } } });
+    assert.equal(stale.statusCode, 409);
+    assert.equal(stale.json().currentScene.version, 2);
+    const missing = await app.inject({ method: 'DELETE', url, headers, payload: { baseVersion: 2, ids: ['not-here'] } });
+    assert.equal(missing.statusCode, 409);
+    assert.equal(service.getScene('scene-initial').version, 2);
+    const erased = await app.inject({ method: 'DELETE', url, headers, payload: { baseVersion: 2, ids: ['stroke-1'] } });
+    assert.equal(erased.statusCode, 200);
+    assert.equal(erased.json().version, 3);
+    assert.deepEqual(erased.json().document.drawings, []);
+    assert.deepEqual(refreshed, [2, 3]);
+  } finally {
+    await close();
+  }
+});
+
+test('drawing an inactive scene changes only its document until activation', async () => {
+  const refreshed = [];
+  const { app, service, close } = await createApp({ onActiveSceneUpdated: (scene) => refreshed.push(scene.id) });
+  const headers = { 'x-test-user': 'master' };
+  try {
+    const created = await app.inject({ method: 'POST', url: '/api/scenes', headers, payload: { name: 'Mappa preparata' } });
+    assert.equal(created.statusCode, 201);
+    const sceneId = created.json().id;
+    const drawing = { id: 'prepared-stroke', color: '#ff8a3d', widthCells: 0.12, points: [{ x: 2.5, y: 3.75 }] };
+    const added = await app.inject({ method: 'POST', url: `/api/scenes/${sceneId}/drawings`, headers,
+      payload: { baseVersion: created.json().version, drawing } });
+    assert.equal(added.statusCode, 200);
+    assert.deepEqual(added.json().document.drawings, [drawing]);
+    assert.deepEqual(refreshed, []);
+    assert.equal(service.getActiveScene().id, 'scene-initial');
+    assert.deepEqual(service.getActiveScene().document.drawings, []);
+    const erased = await app.inject({ method: 'DELETE', url: `/api/scenes/${sceneId}/drawings`, headers,
+      payload: { baseVersion: added.json().version, ids: [drawing.id] } });
+    assert.equal(erased.statusCode, 200);
+    assert.deepEqual(erased.json().document.drawings, []);
+    assert.deepEqual(refreshed, []);
+  } finally {
+    await close();
+  }
+});
+
 test('master persists image calibration in one versioned scene update and stale writes conflict', async () => {
   const { app, service, close } = await createApp();
   const headers = { 'x-test-user': 'master' };

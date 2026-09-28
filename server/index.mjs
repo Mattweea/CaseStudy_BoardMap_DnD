@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { normalizeSceneDrawings } from '../shared/scene-model.mjs';
 import { normalizeDiceLogDetail } from '../shared/dice-log-normalization.mjs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -70,6 +71,7 @@ const initialSharedState = {
   activeSceneVersion: null,
   activeSceneSummary: null,
   activeSceneBackground: { kind: 'blank' },
+  activeSceneDrawings: [],
   tokens: [],
   diceLogs: [],
   latestDicePreview: null,
@@ -402,6 +404,10 @@ function normalizeSharedState(parsed) {
             isActive: parsed.activeSceneSummary.isActive === true,
           }
         : null,
+    activeSceneDrawings: (() => {
+      try { return normalizeSceneDrawings(parsed?.activeSceneDrawings ?? []); }
+      catch { return []; }
+    })(),
     activeSceneBackground:
       parsed?.activeSceneBackground?.kind === 'image'
       && typeof parsed.activeSceneBackground.assetId === 'string'

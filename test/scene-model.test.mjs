@@ -30,6 +30,7 @@ function validScene() {
       {
         id: 'drawing-1',
         color: '#123456',
+        widthCells: 0.12,
         points: [{ x: 1, y: 2 }, { x: 4, y: 5 }],
       },
     ],
@@ -217,8 +218,22 @@ test('coordinates must be safe integers inside the configured guardrail', () => 
   excessive.drawings[0].points[0].y = SCENE_LIMITS.maxCoordinateMagnitude + 1;
   assert.throws(
     () => normalizeSceneDocument(excessive),
-    (error) => error instanceof SceneValidationError && error.path.endsWith('.points[0].y'),
+    (error) => error instanceof SceneValidationError && error.path.endsWith('.points[0]'),
   );
+});
+
+test('drawing points allow fractional cells but reject unsafe color, width and excessive points', () => {
+  const fractional = validScene();
+  fractional.drawings[0].points[0] = { x: 1.25, y: 2.75 };
+  assert.deepEqual(normalizeSceneDocument(fractional).drawings[0].points[0], { x: 1.25, y: 2.75 });
+  for (const [field, value] of [['color', 'red'], ['widthCells', 0], ['widthCells', 21]]) {
+    const invalid = validScene();
+    invalid.drawings[0][field] = value;
+    assert.throws(() => normalizeSceneDocument(invalid), SceneValidationError);
+  }
+  const excessive = validScene();
+  excessive.drawings[0].points = Array.from({ length: SCENE_LIMITS.maxDrawingPoints + 1 }, () => ({ x: 1, y: 1 }));
+  assert.throws(() => normalizeSceneDocument(excessive), SceneValidationError);
 });
 
 test('unsupported versions, invalid board values, and non-JSON input are rejected', () => {

@@ -182,6 +182,27 @@ button {
 .scene-catalog__board-boundary { position: absolute; z-index: 2; box-sizing: border-box; border: 2px solid #e44f26; background: transparent; box-shadow: 0 0 0 9999px rgba(27, 13, 16, .34); pointer-events: none; }
 .scene-catalog__blank-preview-label { position: absolute; inset: 0; z-index: 0; display: grid; place-items: center; color: #5a433d; font-size: .78rem; }
 .scene-catalog__preview-caption { color: #b98e7c; font-size: .68rem; line-height: 1.4; text-align: center; }
+.scene-catalog__drawing-layer { position: absolute; z-index: 3; inset: 0; pointer-events: none; overflow: hidden; }
+.scene-catalog__drawing-capture { position: absolute; z-index: 4; inset: 0; cursor: crosshair; touch-action: none; }
+.scene-catalog__drawing-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .4rem; width: 100%; padding: .4rem; border: 1px solid rgba(255, 185, 142, .18); border-radius: .5rem; background: rgba(18, 7, 9, .66); }
+.scene-catalog__drawing-tool { display: inline-flex; align-items: center; gap: .35rem; min-height: 2.35rem; padding: .35rem .65rem; border: 1px solid rgba(255, 185, 142, .28); border-radius: .42rem; background: rgba(46, 21, 23, .9); color: #f5d7c6; }
+.scene-catalog__drawing-tool[aria-pressed="true"] { border-color: #e58e63; background: rgba(132, 51, 36, .75); color: #fff1e4; }
+.scene-catalog__drawing-tool:disabled { opacity: .48; cursor: not-allowed; }
+.scene-catalog__brush-settings { display: flex; align-items: center; gap: .65rem; padding-left: .7rem; border-left: 1px solid rgba(255, 185, 142, .2); }
+.scene-catalog__brush-size, .scene-catalog__brush-color { position: relative; display: grid; justify-items: center; gap: .2rem; color: #d8ae97; font-size: .63rem; font-weight: 700; letter-spacing: .04em; }
+.scene-catalog__brush-preview { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #16090c; box-shadow: inset 0 0 0 1px rgba(255, 208, 177, .25); }
+.scene-catalog__brush-preview > span { border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 241, 227, .42); }
+.scene-catalog input[type="range"] { writing-mode: vertical-lr; direction: rtl; appearance: none; width: 2rem; height: 4.5rem; margin: 0; padding: 0; border: 0; background: transparent; cursor: ns-resize; }
+.scene-catalog input[type="range"]::-webkit-slider-runnable-track { width: 4px; border-radius: 999px; background: #8e5041; }
+.scene-catalog input[type="range"]::-moz-range-track { width: 4px; border-radius: 999px; background: #8e5041; }
+.scene-catalog input[type="range"]::-webkit-slider-thumb { appearance: none; width: var(--brush-thumb-size); height: var(--brush-thumb-size); border: 2px solid #ffe7d7; border-radius: 50%; background: var(--brush-color); box-shadow: 0 2px 8px rgba(9, 3, 4, .52); }
+.scene-catalog input[type="range"]::-moz-range-thumb { width: var(--brush-thumb-size); height: var(--brush-thumb-size); border: 2px solid #ffe7d7; border-radius: 50%; background: var(--brush-color); box-shadow: 0 2px 8px rgba(9, 3, 4, .52); }
+.scene-catalog__brush-size output { color: #f5d7c6; font-size: .63rem; font-variant-numeric: tabular-nums; }
+.scene-catalog__brush-color { cursor: pointer; }
+.scene-catalog__brush-swatch { width: 2.2rem; height: 2.2rem; margin: .45rem 0; border: 3px solid #281013; border-radius: 50%; box-shadow: 0 0 0 1px #c88763, inset 0 0 0 1px rgba(255, 241, 227, .35); }
+.scene-catalog input[type="color"] { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; opacity: 0; cursor: pointer; }
+.scene-catalog__brush-color:focus-within { outline: 2px solid #ffd4a4; outline-offset: 3px; }
+.scene-catalog__drawing-hint { color: #caa99a; font-size: .68rem; line-height: 1.4; text-align: center; }
 .scene-catalog__calibration-controls { grid-area: calibration; display: grid; grid-template-columns: 1fr; gap: .48rem; }
 .scene-catalog__calibration-controls label { display: grid; gap: .24rem; color: #d8ad99; font-size: .68rem; }
 .scene-catalog__calibration-controls input { padding: .4rem .45rem; font-variant-numeric: tabular-nums; }
@@ -1648,6 +1669,7 @@ button {
 
 .board-stage-wrap {
   position: absolute;
+  z-index: 1;
   overflow: hidden;
 }
 
@@ -1680,6 +1702,14 @@ button {
     linear-gradient(to right, rgba(255, 214, 186, 0.18) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 214, 186, 0.18) 1px, transparent 1px);
   background-size: 48px 48px;
+  pointer-events: none;
+}
+
+.board-drawing-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
   pointer-events: none;
 }
 

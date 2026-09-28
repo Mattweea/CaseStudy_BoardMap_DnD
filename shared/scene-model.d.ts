@@ -14,6 +14,8 @@ export const SCENE_LIMITS: Readonly<{
   maxReferenceTypeLength: number;
   maxLayerItems: number;
   maxDrawingPoints: number;
+  minDrawingWidthCells: number;
+  maxDrawingWidthCells: number;
   maxCoordinateMagnitude: number;
   maxLightRadiusCells: number;
   maxBoardDimensionCells: number;
@@ -56,8 +58,9 @@ export interface SceneBoardConfig {
 
 export interface SceneDrawing {
   id: string;
-  points: GridPosition[];
-  [key: string]: unknown;
+  points: Array<{ x: number; y: number }>;
+  color: string;
+  widthCells: number;
 }
 
 export interface SceneElement {
@@ -117,6 +120,7 @@ export function createDefaultSceneDocument(): SceneDocument;
 export function normalizeSceneMetadata(value: unknown): SceneMetadata;
 export function normalizeScene(value: unknown): Scene;
 export function normalizeSceneDocument(value: unknown): SceneDocument;
+export function normalizeSceneDrawings(value: unknown): SceneDrawing[];
 export function captureSceneConfiguration(scene: unknown): SceneConfigurationDocument;
 export function projectSceneRuntime(
   configuration: unknown,

@@ -1,5 +1,6 @@
-import { createDefaultSceneDocument } from '../shared/scene-model.mjs';
+import { SCENE_LIMITS, createDefaultSceneDocument, normalizeSceneDrawings } from '../shared/scene-model.mjs';
 import { MAX_SCENE_BACKGROUND_BYTES } from './scene-background-storage.mjs';
+import { ScenePersistenceConflictError } from './scene-service.mjs';
 
 function errorStatus(error) {
   if (Number.isInteger(error?.statusCode)) return error.statusCode;
@@ -188,6 +189,51 @@ export function registerSceneRoutes(app, {
       return sendError(reply, error, service.getActiveScene()?.id ?? null);
     }
   });
+
+  async function mutateDrawings(request, reply, mode) {
+    if (!masterOnly(request, reply)) return;
+    try {
+      const body = request.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || !Number.isSafeInteger(body.baseVersion) || body.baseVersion < 1) {
+        throw new TypeError('La versione base della scena e obbligatoria.');
+      }
+      const current = service.getScene(request.params.id);
+      if (!current) return reply.code(404).send({ message: 'Scena non trovata.' });
+      if (current.version !== body.baseVersion) throw new ScenePersistenceConflictError(current);
+      let drawings;
+      if (mode === 'add') {
+        const [drawing] = normalizeSceneDrawings([body.drawing]);
+        drawings = normalizeSceneDrawings([...current.document.drawings, drawing]);
+      } else {
+        if (!Array.isArray(body.ids) || body.ids.length === 0 || body.ids.length > SCENE_LIMITS.maxLayerItems
+          || body.ids.some((id) => typeof id !== 'string' || !id)
+          || new Set(body.ids).size !== body.ids.length) {
+          throw new TypeError('Specifica gli ID dei tratti da cancellare.');
+        }
+        const existingIds = new Set(current.document.drawings.map((drawing) => drawing.id));
+        if (body.ids.some((id) => !existingIds.has(id))) {
+          throw new ScenePersistenceConflictError(current);
+        }
+        const erasedIds = new Set(body.ids);
+        drawings = current.document.drawings.filter((drawing) => !erasedIds.has(drawing.id));
+      }
+      const scene = service.updateScene({
+        id: current.id,
+        expectedVersion: body.baseVersion,
+        name: current.name,
+        document: { ...current.document, drawings },
+        sortOrder: current.sortOrder,
+      });
+      if (scene.id === service.getActiveScene()?.id) onActiveSceneUpdated?.(scene);
+      return sceneDetail(scene, service.getActiveScene()?.id ?? null);
+    } catch (error) {
+      return sendError(reply, error, service.getActiveScene()?.id ?? null);
+    }
+  }
+
+  app.post('/api/scenes/:id/drawings', (request, reply) => mutateDrawings(request, reply, 'add'));
+  app.delete('/api/scenes/:id/drawings', (request, reply) => mutateDrawings(request, reply, 'erase'));
 
   if (backgroundStorage) {
     app.addContentTypeParser(

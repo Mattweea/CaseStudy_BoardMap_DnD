@@ -21,6 +21,8 @@ Define board-space interaction, visibility, and rendering invariants without dup
 - Scene-preparation dimensions are local draft state until the versioned scene update succeeds. Its preview draws the draft boundary over the calibrated image and dims the image outside a finite board; the preview scales both axes equally so every grid cell remains square. The `0 × 0` preview shows a representative viewport without a boundary.
 - Keyboard movement must ignore editable controls and respect the same server movement rules as pointer movement.
 - Fullscreen is UI state and must not enter shared snapshots.
+- La matita Master usa punti frazionari in coordinate di cella nella preview del dialog Preparazione scena. La bozza resta locale fino al rilascio del puntatore; un gesto invia un solo tratto versionato sulla scena selezionata. La gomma identifica solo tratti intersecati e invia un'unica cancellazione per gesto; `Esc` annulla la bozza. Colore e spessore sono controlli locali del Master. Le modifiche non salvate a nome, sfondo, calibrazione o dimensioni bloccano il disegno fino al salvataggio o annullamento.
+- Il layer di cattura è confinato alla preview e non copre i controlli del dialog. L'anteprima circolare della gomma usa lo stesso raggio logico del rilevamento. La board live, normale o fullscreen, rende i tratti proiettati con camera e zoom ma non offre strumenti per modificarli.
 
 Master multi-token and connected-obstacle movement may use a full shared-state commit. Adventurer movement must use the ownership-aware movement endpoint so server budgets and blockers remain authoritative.
 

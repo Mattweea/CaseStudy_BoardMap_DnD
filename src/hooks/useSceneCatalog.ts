@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { BoardDimensions } from '../types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { BoardDimensions, SceneDrawing } from '../types';
 import {
   sceneApi,
   SceneApiError,
@@ -36,6 +36,7 @@ export function useSceneCatalog(enabled: boolean) {
   const [isLoading, setIsLoading] = useState(enabled);
   const [isMutating, setIsMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const drawingWritePending = useRef(false);
 
   const loadCatalog = useCallback(async () => {
     if (!enabled) return;
@@ -149,6 +150,32 @@ export function useSceneCatalog(enabled: boolean) {
     }
   };
 
+  const writeDrawing = async (action: (scene: PersistedScene) => Promise<PersistedScene>) => {
+    if (!selectedScene || drawingWritePending.current) return false;
+    drawingWritePending.current = true;
+    setIsMutating(true);
+    setError(null);
+    try {
+      const updated = await action(selectedScene);
+      setCatalog((current) => replaceEntry(current, updated));
+      setSelectedScene(updated);
+      return true;
+    } catch (requestError) {
+      if (requestError instanceof SceneApiError && requestError.status === 409 && requestError.payload.currentScene) {
+        const current = requestError.payload.currentScene;
+        setCatalog((catalogState) => replaceEntry(catalogState, current));
+        setSelectedScene(current);
+        setError('La scena è cambiata nel frattempo. Ho caricato la versione più recente; ripeti il gesto.');
+      } else {
+        setError(readableError(requestError, 'Salvataggio del disegno non riuscito. Riprova.'));
+      }
+      return false;
+    } finally {
+      drawingWritePending.current = false;
+      setIsMutating(false);
+    }
+  };
+
   return {
     catalog,
     selectedScene,
@@ -159,5 +186,7 @@ export function useSceneCatalog(enabled: boolean) {
     selectScene,
     createScene,
     updateScene,
+    addDrawing: (drawing: SceneDrawing) => writeDrawing((scene) => sceneApi.addDrawing(scene.id, scene.version, drawing)),
+    eraseDrawings: (ids: string[]) => writeDrawing((scene) => sceneApi.eraseDrawings(scene.id, scene.version, ids)),
   };
 }

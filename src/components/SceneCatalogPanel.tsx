@@ -1,9 +1,38 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { BoardDimensions } from '../types';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import type { BoardDimensions, SceneDrawing } from '../types';
 import { useSceneCatalog } from '../hooks/useSceneCatalog';
 import { sceneBackgroundUrl } from '../utils/sceneApi';
 
 const DEFAULT_CALIBRATION = { scale: 1, offsetX: 0, offsetY: 0 };
+const CELL_SIZE = 48;
+const ERASER_RADIUS_CELLS = 0.35;
+type DrawingPoint = SceneDrawing['points'][number];
+type DrawingGesture = { mode: 'pencil'; pointerId: number; points: DrawingPoint[] }
+  | { mode: 'eraser'; pointerId: number; points: DrawingPoint[]; ids: string[] };
+
+function distanceToSegment(point: DrawingPoint, start: DrawingPoint, end: DrawingPoint) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  const factor = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+  return Math.hypot(point.x - start.x - factor * dx, point.y - start.y - factor * dy);
+}
+
+function touchedDrawingIds(point: DrawingPoint, drawings: SceneDrawing[]) {
+  return drawings.filter((drawing) => drawing.points.some((current, index) =>
+    distanceToSegment(point, drawing.points[Math.max(0, index - 1)], current)
+      <= ERASER_RADIUS_CELLS + drawing.widthCells / 2)).map((drawing) => drawing.id);
+}
+
+function touchedAlongGesture(start: DrawingPoint, end: DrawingPoint, drawings: SceneDrawing[]) {
+  const steps = Math.max(1, Math.ceil(Math.hypot(end.x - start.x, end.y - start.y) / 0.2));
+  const ids = new Set<string>();
+  for (let index = 1; index <= steps; index += 1) {
+    const point = { x: start.x + (end.x - start.x) * index / steps, y: start.y + (end.y - start.y) * index / steps };
+    touchedDrawingIds(point, drawings).forEach((id) => ids.add(id));
+  }
+  return [...ids];
+}
 
 function sceneCalibration(scene: ReturnType<typeof useSceneCatalog>['selectedScene']) {
   return scene?.document.background.kind === 'image'
@@ -34,6 +63,8 @@ export function SceneCatalogPanel({
     selectScene,
     createScene,
     updateScene,
+    addDrawing,
+    eraseDrawings,
   } = useSceneCatalog(true);
   const [newName, setNewName] = useState('');
   const [nameDraft, setNameDraft] = useState('');
@@ -46,6 +77,14 @@ export function SceneCatalogPanel({
   const [isChangingVisibility, setIsChangingVisibility] = useState(false);
   const [boardDimensionsDraft, setBoardDimensionsDraft] = useState({ columns: '', rows: '' });
   const [dimensionsError, setDimensionsError] = useState<string | null>(null);
+  const [drawingTool, setDrawingTool] = useState<'pencil' | 'eraser' | null>(null);
+  const [drawingColor, setDrawingColor] = useState('#f36f3d');
+  const [drawingWidth, setDrawingWidth] = useState(0.12);
+  const [drawingGesture, setDrawingGesture] = useState<DrawingGesture | null>(null);
+  const drawingGestureRef = useRef<DrawingGesture | null>(null);
+  const [pendingDrawing, setPendingDrawing] = useState<SceneDrawing | null>(null);
+  const [pendingEraseIds, setPendingEraseIds] = useState<string[]>([]);
+  const [eraserPreviewPoint, setEraserPreviewPoint] = useState<DrawingPoint | null>(null);
 
   useEffect(() => {
     setNameDraft(selectedScene?.name ?? '');
@@ -53,6 +92,27 @@ export function SceneCatalogPanel({
     setCalibrationDraft(sceneCalibration(selectedScene));
     setDimensionsError(null);
   }, [selectedScene]);
+
+  useEffect(() => {
+    drawingGestureRef.current = null;
+    setDrawingGesture(null);
+    setPendingDrawing(null);
+    setPendingEraseIds([]);
+    setEraserPreviewPoint(null);
+  }, [selectedScene?.id]);
+
+  useEffect(() => {
+    if (!drawingGesture) return undefined;
+    const cancelOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      drawingGestureRef.current = null;
+      setDrawingGesture(null);
+    };
+    window.addEventListener('keydown', cancelOnEscape, true);
+    return () => window.removeEventListener('keydown', cancelOnEscape, true);
+  }, [drawingGesture]);
 
   useEffect(() => {
     const dimensions = selectedScene?.document.board.dimensions;
@@ -132,6 +192,74 @@ export function SceneCatalogPanel({
     ? Math.min(previewSpace.width / previewWidth, previewSpace.height / previewHeight)
     : 0;
   const previewCellSize = 48 * previewScale;
+  const drawingEnabled = Boolean(selectedScene && drawingTool && previewScale > 0 && !hasDraftChanges && !isMutating && !isLoading);
+  const previewPointFromPointer = (event: ReactPointerEvent<HTMLDivElement>): DrawingPoint => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / previewScale + previewLeft) / CELL_SIZE;
+    const y = ((event.clientY - rect.top) / previewScale + previewTop) / CELL_SIZE;
+    return {
+      x: Math.round(Math.max(0, Math.min(previewColumns, x)) * 100) / 100,
+      y: Math.round(Math.max(0, Math.min(previewRows, y)) * 100) / 100,
+    };
+  };
+  const pointInsideBoard = (point: DrawingPoint) => point.x >= 0 && point.y >= 0
+    && point.x <= previewColumns && point.y <= previewRows;
+  const drawingPath = (points: DrawingPoint[]) => points.map((point, index) =>
+    `${index === 0 ? 'M' : 'L'} ${point.x * CELL_SIZE - previewLeft} ${point.y * CELL_SIZE - previewTop}`).join(' ')
+    + (points.length === 1 ? ' l 0.001 0' : '');
+  const setGesture = (gesture: DrawingGesture | null) => {
+    drawingGestureRef.current = gesture;
+    setDrawingGesture(gesture);
+  };
+  const handleDrawingPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drawingEnabled || !drawingTool || event.button !== 0 || drawingGestureRef.current) return;
+    const rawX = ((event.clientX - event.currentTarget.getBoundingClientRect().left) / previewScale + previewLeft) / CELL_SIZE;
+    const rawY = ((event.clientY - event.currentTarget.getBoundingClientRect().top) / previewScale + previewTop) / CELL_SIZE;
+    if (!pointInsideBoard({ x: rawX, y: rawY })) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const point = previewPointFromPointer(event);
+    setGesture(drawingTool === 'pencil'
+      ? { mode: 'pencil', pointerId: event.pointerId, points: [point] }
+      : { mode: 'eraser', pointerId: event.pointerId, points: [point], ids: touchedDrawingIds(point, selectedScene?.document.drawings ?? []) });
+  };
+  const handleDrawingPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drawingTool) return;
+    const point = previewPointFromPointer(event);
+    if (drawingTool === 'eraser') setEraserPreviewPoint(point);
+    const current = drawingGestureRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    const lastPoint = current.points[current.points.length - 1];
+    if (Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y) < 0.04) return;
+    if (current.points.length >= 20000) return;
+    if (current.mode === 'pencil') setGesture({ ...current, points: [...current.points, point] });
+    else {
+      const touched = touchedAlongGesture(lastPoint, point, selectedScene?.document.drawings ?? []);
+      setGesture({ ...current, points: [...current.points, point], ids: [...new Set([...current.ids, ...touched])] });
+    }
+  };
+  const handleDrawingPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const current = drawingGestureRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setGesture(null);
+    const finalPoint = previewPointFromPointer(event);
+    const lastPoint = current.points[current.points.length - 1];
+    const moved = Math.hypot(finalPoint.x - lastPoint.x, finalPoint.y - lastPoint.y) >= 0.04;
+    if (current.mode === 'pencil') {
+      const points = moved && current.points.length < 20000 ? [...current.points, finalPoint] : current.points;
+      const drawing: SceneDrawing = { id: crypto.randomUUID(), points, color: drawingColor, widthCells: drawingWidth };
+      setPendingDrawing(drawing);
+      void addDrawing(drawing).finally(() => setPendingDrawing(null));
+    } else {
+      const ids = moved
+        ? [...new Set([...current.ids, ...touchedAlongGesture(lastPoint, finalPoint, selectedScene?.document.drawings ?? [])])]
+        : current.ids;
+      if (ids.length === 0) return;
+      setPendingEraseIds(ids);
+      void eraseDrawings(ids).finally(() => setPendingEraseIds([]));
+    }
+  };
 
   const changeActiveBackgroundVisibility = async () => {
     if (!selectedScene?.isActive || hasDraftChanges) return;
@@ -207,7 +335,7 @@ export function SceneCatalogPanel({
                   className={selectedScene?.id === scene.id ? 'scene-catalog__item scene-catalog__item--selected' : 'scene-catalog__item'}
                   aria-pressed={selectedScene?.id === scene.id}
                   onClick={() => void selectScene(scene.id)}
-                  disabled={isLoading}
+                  disabled={isLoading || isMutating}
                 >
                   <span>{scene.name}</span>
                   <small>{scene.isActive ? 'Attiva' : `v${scene.version}`}</small>
@@ -288,8 +416,53 @@ export function SceneCatalogPanel({
                         }}
                       />
                     ) : null}
+                    <svg className="scene-catalog__drawing-layer" width={previewWidth * previewScale} height={previewHeight * previewScale}
+                      viewBox={`0 0 ${previewWidth} ${previewHeight}`} aria-hidden="true">
+                      {selectedScene.document.drawings.filter((drawing) => !pendingEraseIds.includes(drawing.id) && !(drawingGesture?.mode === 'eraser' && drawingGesture.ids.includes(drawing.id))).map((drawing) => (
+                        <path key={drawing.id} d={drawingPath(drawing.points)} fill="none" stroke={drawing.color}
+                          strokeWidth={drawing.widthCells * CELL_SIZE} strokeLinecap="round" strokeLinejoin="round" />
+                      ))}
+                      {pendingDrawing && !selectedScene.document.drawings.some((drawing) => drawing.id === pendingDrawing.id) ? <path d={drawingPath(pendingDrawing.points)} fill="none" stroke={pendingDrawing.color}
+                        strokeWidth={pendingDrawing.widthCells * CELL_SIZE} strokeLinecap="round" strokeLinejoin="round" /> : null}
+                      {drawingGesture?.mode === 'pencil' ? <path d={drawingPath(drawingGesture.points)} fill="none" stroke={drawingColor}
+                        strokeWidth={drawingWidth * CELL_SIZE} strokeLinecap="round" strokeLinejoin="round" opacity="0.8" /> : null}
+                      {drawingTool === 'eraser' && eraserPreviewPoint ? <circle
+                        cx={eraserPreviewPoint.x * CELL_SIZE - previewLeft} cy={eraserPreviewPoint.y * CELL_SIZE - previewTop}
+                        r={ERASER_RADIUS_CELLS * CELL_SIZE} fill="rgba(255,255,255,.23)" stroke="#9d3729"
+                        strokeWidth={2 / previewScale} strokeDasharray={`${4 / previewScale} ${3 / previewScale}`} /> : null}
+                    </svg>
+                    {drawingEnabled ? <div className="scene-catalog__drawing-capture" role="presentation"
+                      onPointerDown={handleDrawingPointerDown} onPointerMove={handleDrawingPointerMove}
+                      onPointerUp={handleDrawingPointerUp} onPointerCancel={() => { setGesture(null); setEraserPreviewPoint(null); }}
+                      onPointerLeave={() => { if (!drawingGestureRef.current) setEraserPreviewPoint(null); }} /> : null}
                   </div>
                 </div>
+                <div className="scene-catalog__drawing-tools" role="group" aria-label="Disegno della scena">
+                  <button type="button" className="scene-catalog__drawing-tool" aria-pressed={drawingTool === 'pencil'}
+                    disabled={isLoading || isMutating || hasDraftChanges} onClick={() => setDrawingTool(drawingTool === 'pencil' ? null : 'pencil')}>✎ <span>Matita</span></button>
+                  <button type="button" className="scene-catalog__drawing-tool" aria-pressed={drawingTool === 'eraser'}
+                    disabled={isLoading || isMutating || hasDraftChanges} onClick={() => setDrawingTool(drawingTool === 'eraser' ? null : 'eraser')}>⌫ <span>Gomma</span></button>
+                  {drawingTool === 'pencil' ? <div className="scene-catalog__brush-settings" role="group" aria-label="Impostazioni matita">
+                    <label className="scene-catalog__brush-size">Spessore
+                      <span className="scene-catalog__brush-preview" aria-hidden="true"><span style={{ width: Math.max(4, drawingWidth * CELL_SIZE), height: Math.max(4, drawingWidth * CELL_SIZE), backgroundColor: drawingColor }} /></span>
+                      <input type="range" min="0.05" max="0.5" step="0.01" value={drawingWidth}
+                        onChange={(event) => setDrawingWidth(Number(event.target.value))} disabled={isMutating || hasDraftChanges}
+                        aria-label="Spessore pennello" aria-valuetext={`${Math.round(drawingWidth * 100)}% di una casella`}
+                        style={{ '--brush-thumb-size': `${Math.max(14, drawingWidth * CELL_SIZE)}px`, '--brush-color': drawingColor } as CSSProperties} />
+                      <output>{Math.round(drawingWidth * 100)}%</output>
+                    </label>
+                    <label className="scene-catalog__brush-color">Colore
+                      <span className="scene-catalog__brush-swatch" style={{ backgroundColor: drawingColor }} aria-hidden="true" />
+                      <input type="color" value={drawingColor} onChange={(event) => setDrawingColor(event.target.value)}
+                        disabled={isMutating || hasDraftChanges} aria-label="Colore matita" />
+                    </label>
+                  </div> : null}
+                </div>
+                <small className="scene-catalog__drawing-hint" role="status">{hasDraftChanges
+                  ? 'Salva o annulla le modifiche alla scena prima di disegnare.'
+                  : drawingTool === 'pencil' ? 'Trascina sulla preview: il tratto si salva al rilascio. Esc annulla il gesto.'
+                    : drawingTool === 'eraser' ? 'Trascina sui tratti da cancellare. Esc annulla il gesto.'
+                      : 'Scegli matita o gomma per preparare la mappa. La board live non è modificabile.'}</small>
                 <small className="scene-catalog__preview-caption">
                   {isPreviewUnlimited ? '0 × 0 · griglia illimitata, anteprima parziale' : `${previewBoard.columns} × ${previewBoard.rows} · bordo della board evidenziato`}
                 </small>

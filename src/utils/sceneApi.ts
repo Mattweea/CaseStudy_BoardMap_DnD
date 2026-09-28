@@ -1,4 +1,4 @@
-import type { Scene } from '../types';
+import type { Scene, SceneDrawing } from '../types';
 import { API_BASE_URL } from './api';
 
 export interface SceneCatalogEntry {
@@ -75,6 +75,14 @@ export const sceneApi = {
   clearBackground: (id: string, baseVersion: number) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/background`, {
     method: 'DELETE',
     headers: { 'X-Scene-Base-Version': String(baseVersion) },
+  }),
+  addDrawing: (id: string, baseVersion: number, drawing: SceneDrawing) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/drawings`, {
+    method: 'POST',
+    body: JSON.stringify({ baseVersion, drawing }),
+  }),
+  eraseDrawings: (id: string, baseVersion: number, ids: string[]) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/drawings`, {
+    method: 'DELETE',
+    body: JSON.stringify({ baseVersion, ids }),
   }),
 };
 

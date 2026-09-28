@@ -86,6 +86,8 @@ test('scene scale switches atomically and image calibration does not alter cell 
 test('role views expose only summaries to the Master and only active identity to a Player', () => {
   const active = scene('scene-a', 'Sala A', 2, {}, 'active-asset');
   const inactive = scene('scene-b', 'Sala B', 7, {}, 'INACTIVE-ASSET-MARKER');
+  active.document.drawings = [{ id: 'visible-stroke', color: '#ffffff', widthCells: 0.12, points: [{ x: 1, y: 2 }] }];
+  inactive.document.drawings = [{ id: 'secret-stroke', color: '#ffffff', widthCells: 0.12, points: [{ x: 3, y: 4 }] }];
   const service = {
     getActiveScene: () => structuredClone(active),
     getCatalog: () => structuredClone([active, inactive]),
@@ -101,6 +103,8 @@ test('role views expose only summaries to the Master and only active identity to
   ]);
   assert.equal('sceneCatalog' in player, false);
   assert.equal(player.activeSceneId, 'scene-a');
+  assert.deepEqual(player.activeSceneDrawings, active.document.drawings);
   assert.equal(JSON.stringify(master).includes('INACTIVE-ASSET-MARKER'), false);
   assert.equal(JSON.stringify(player).includes('Sala B'), false);
+  assert.equal(JSON.stringify(player).includes('secret-stroke'), false);
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { collectDiceDeliveries } from '../../shared/dice-3d-presentation.mjs';
 import { normalizeDiceLogDetail } from '../../shared/dice-log-normalization.mjs';
+import { normalizeSceneDrawings } from '../../shared/scene-model.mjs';
 import { insertInitiativeEntry } from '../../shared/initiative-order.mjs';
 import { BOARD_CONFIG } from '../constants/board';
 import type {
@@ -137,6 +138,7 @@ const initialSharedState: BattleMapSharedState = {
   activeSceneVersion: null,
   activeSceneSummary: null,
   activeSceneBackground: { kind: 'blank' },
+  activeSceneDrawings: [],
   tokens: [],
   diceLogs: [],
   latestDicePreview: null,
@@ -390,6 +392,10 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
       parsed?.activeSceneBackground,
       typeof parsed?.activeSceneId === 'string' ? parsed.activeSceneId : null,
     ),
+    activeSceneDrawings: (() => {
+      try { return normalizeSceneDrawings(parsed?.activeSceneDrawings ?? []); }
+      catch { return []; }
+    })(),
     ...(Array.isArray(parsed?.sceneCatalog)
       ? { sceneCatalog: parsed.sceneCatalog.flatMap((scene) => {
           const summary = normalizeSceneSummary(scene);

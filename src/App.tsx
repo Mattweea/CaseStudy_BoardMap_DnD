@@ -1709,6 +1709,7 @@ function App() {
           focusRequest={focusRequest}
           isBackgroundHidden={state.isBoardBackgroundHidden}
           background={state.activeSceneBackground}
+          drawings={state.activeSceneDrawings}
           dimensions={state.boardDimensions}
           vision={playerVision}
           lightSources={state.lightSources}
@@ -1784,6 +1785,7 @@ function App() {
             isFullscreen
             isBackgroundHidden={state.isBoardBackgroundHidden}
             background={state.activeSceneBackground}
+            drawings={state.activeSceneDrawings}
             dimensions={state.boardDimensions}
             vision={playerVision}
             lightSources={state.lightSources}
