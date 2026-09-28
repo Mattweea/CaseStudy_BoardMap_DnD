@@ -118,6 +118,7 @@ SQLite is a separate persistence boundary:
 - Adding a mutation requires an explicit decision: master snapshot undo, adventurer inverse undo, both, or intentionally non-undoable.
 - Combat endpoints: entering/leaving combat, starting round one, the master's turn advance, and the `playersCanEndTurn` setting use master snapshot undo. Initiative rolls (single or roll-all) are intentionally non-undoable, since undoing would also remove the log entry; the master corrects with edit or removal. An adventurer's end of turn has no inverse; the master can move the turn back.
 - Active-scene grid dimensions, unit, and diagonal settings are versioned scene configuration and intentionally do not enter the live-state undo stack.
+- Scene drawing add/erase populate separate, process-local undo/redo command stacks keyed by scene ID, capped at 40 operations per scene. Undo/redo persists only the resulting drawing layer through the normal versioned scene write; the stacks never enter SQLite documents, battle-map snapshots, or the live-state undo stacks. A new accepted add/erase after undo clears that scene's redo stack; restart clears all drawing history but retains persisted strokes. Unrelated scene metadata and background edits do not create drawing-history entries. A drawing replacement outside the command path invalidates the affected scene's history.
 
 ## Verification
 

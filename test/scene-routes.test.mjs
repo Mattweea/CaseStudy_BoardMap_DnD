@@ -126,6 +126,76 @@ test('drawing an inactive scene changes only its document until activation', asy
   }
 });
 
+test('drawing undo and redo are Master-only, versioned and broadcast only for the active scene', async () => {
+  const refreshed = [];
+  const { app, service, close } = await createApp({ onActiveSceneUpdated: (scene) => refreshed.push(scene.version) });
+  const headers = { 'x-test-user': 'master' };
+  const url = '/api/scenes/scene-initial/drawings';
+  const drawing = { id: 'undo-stroke', color: '#ff8a3d', widthCells: 0.12, points: [{ x: 1, y: 1 }] };
+  try {
+    const initial = await app.inject({ method: 'GET', url: '/api/scenes/scene-initial', headers });
+    assert.deepEqual(initial.json().drawingHistory, { canUndo: false, canRedo: false });
+    const added = await app.inject({ method: 'POST', url, headers, payload: { baseVersion: 1, drawing } });
+    assert.equal(added.statusCode, 200);
+    assert.deepEqual(added.json().drawingHistory, { canUndo: true, canRedo: false });
+    assert.equal((await app.inject({ method: 'POST', url: `${url}/undo`, payload: { baseVersion: 2 } })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'POST', url: `${url}/undo`, headers: { 'x-test-user': 'player' }, payload: { baseVersion: 2 } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: `${url}/redo`, headers: { 'x-test-user': 'player' }, payload: { baseVersion: 2 } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: `${url}/undo`, headers, payload: {} })).statusCode, 400);
+    const stale = await app.inject({ method: 'POST', url: `${url}/undo`, headers, payload: { baseVersion: 1 } });
+    assert.equal(stale.statusCode, 409);
+    assert.deepEqual(stale.json().currentScene.drawingHistory, { canUndo: true, canRedo: false });
+    assert.equal(service.getScene('scene-initial').version, 2);
+
+    const undone = await app.inject({ method: 'POST', url: `${url}/undo`, headers, payload: { baseVersion: 2 } });
+    assert.equal(undone.statusCode, 200);
+    assert.deepEqual(undone.json().document.drawings, []);
+    assert.deepEqual(undone.json().drawingHistory, { canUndo: false, canRedo: true });
+    const redone = await app.inject({ method: 'POST', url: `${url}/redo`, headers, payload: { baseVersion: 3 } });
+    assert.equal(redone.statusCode, 200);
+    assert.deepEqual(redone.json().document.drawings, [drawing]);
+    assert.deepEqual(redone.json().drawingHistory, { canUndo: true, canRedo: false });
+    assert.deepEqual(refreshed, [2, 3, 4]);
+    const emptyRedo = await app.inject({ method: 'POST', url: `${url}/redo`, headers, payload: { baseVersion: 4 } });
+    assert.equal(emptyRedo.statusCode, 409);
+    assert.deepEqual(emptyRedo.json().currentScene.drawingHistory, { canUndo: true, canRedo: false });
+
+    const renamed = await app.inject({ method: 'PATCH', url: '/api/scenes/scene-initial', headers,
+      payload: { baseVersion: 4, name: 'Nuovo nome' } });
+    assert.equal(renamed.statusCode, 200);
+    assert.deepEqual(renamed.json().drawingHistory, { canUndo: true, canRedo: false });
+    const secondUndo = await app.inject({ method: 'POST', url: `${url}/undo`, headers, payload: { baseVersion: 5 } });
+    assert.equal(secondUndo.statusCode, 200);
+    assert.equal(secondUndo.json().name, 'Nuovo nome');
+    assert.deepEqual(secondUndo.json().document.drawings, []);
+    assert.deepEqual(refreshed, [2, 3, 4, 5, 6]);
+  } finally {
+    await close();
+  }
+});
+
+test('inactive-scene undo persists without revealing preparation through active-scene updates', async () => {
+  const refreshed = [];
+  const { app, service, close } = await createApp({ onActiveSceneUpdated: (scene) => refreshed.push(scene.id) });
+  const headers = { 'x-test-user': 'master' };
+  const drawing = { id: 'private-stroke', color: '#ff8a3d', widthCells: 0.12, points: [{ x: 1, y: 1 }] };
+  try {
+    const created = await app.inject({ method: 'POST', url: '/api/scenes', headers, payload: { name: 'Segreta' } });
+    const sceneId = created.json().id;
+    const added = await app.inject({ method: 'POST', url: `/api/scenes/${sceneId}/drawings`, headers,
+      payload: { baseVersion: created.json().version, drawing } });
+    assert.equal(added.statusCode, 200);
+    const undone = await app.inject({ method: 'POST', url: `/api/scenes/${sceneId}/drawings/undo`, headers,
+      payload: { baseVersion: added.json().version } });
+    assert.equal(undone.statusCode, 200);
+    assert.deepEqual(undone.json().document.drawings, []);
+    assert.deepEqual(refreshed, []);
+    assert.deepEqual(service.getActiveScene().document.drawings, []);
+  } finally {
+    await close();
+  }
+});
+
 test('master persists image calibration in one versioned scene update and stale writes conflict', async () => {
   const { app, service, close } = await createApp();
   const headers = { 'x-test-user': 'master' };

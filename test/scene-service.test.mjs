@@ -73,3 +73,108 @@ test('service projects a mutation only after persistence succeeds', () => withRe
   assert.equal(service.getScene('scene-a').document.board.isFullyLit, false);
   assert.equal(repository.findById('scene-a').version, 1);
 }));
+
+test('drawing history is per scene, command-only, and survives metadata edits without persisting itself', () => withRepository((repository) => {
+  const service = new SceneService({ repository, campaignId: 'campaign-test' });
+  service.load();
+  service.createScene({ id: 'scene-b', name: 'Seconda', sortOrder: 1, document: createDefaultSceneDocument() });
+  const stroke = (id) => ({ id, points: [{ x: 1, y: 2 }], color: '#ff8a3d', widthCells: 0.12 });
+
+  const first = service.addDrawing({ id: 'scene-a', expectedVersion: 1, drawing: stroke('a-1') });
+  const second = service.addDrawing({ id: 'scene-b', expectedVersion: 1, drawing: stroke('b-1') });
+  assert.deepEqual(service.getDrawingHistoryState('scene-a'), { canUndo: true, canRedo: false });
+  assert.deepEqual(service.getDrawingHistoryState('scene-b'), { canUndo: true, canRedo: false });
+
+  const renamed = service.updateScene({ id: 'scene-a', expectedVersion: first.version, name: 'Rinominata',
+    document: first.document, sortOrder: first.sortOrder });
+  assert.deepEqual(service.getDrawingHistoryState('scene-a'), { canUndo: true, canRedo: false });
+  const undone = service.replayDrawing({ id: 'scene-a', expectedVersion: renamed.version, direction: 'undo' });
+  assert.deepEqual(undone.document.drawings, []);
+  assert.equal(undone.name, 'Rinominata');
+  assert.deepEqual(service.getScene('scene-b').document.drawings, [stroke('b-1')]);
+  assert.deepEqual(service.getDrawingHistoryState('scene-a'), { canUndo: false, canRedo: true });
+  const redone = service.replayDrawing({ id: 'scene-a', expectedVersion: undone.version, direction: 'redo' });
+  assert.deepEqual(redone.document.drawings, [stroke('a-1')]);
+  assert.deepEqual(service.getDrawingHistoryState('scene-a'), { canUndo: true, canRedo: false });
+
+  const restarted = new SceneService({ repository, campaignId: 'campaign-test' });
+  restarted.load();
+  assert.deepEqual(restarted.getScene('scene-a').document.drawings, [stroke('a-1')]);
+  assert.deepEqual(restarted.getDrawingHistoryState('scene-a'), { canUndo: false, canRedo: false });
+  assert.deepEqual(restarted.getScene('scene-b').document.drawings, second.document.drawings);
+}));
+
+test('drawing history restores erased ordering, clears redo after a new gesture and caps undo at 40', () => withRepository((repository) => {
+  const service = new SceneService({ repository, campaignId: 'campaign-test' });
+  service.load();
+  const stroke = (index) => ({ id: `stroke-${index}`, points: [{ x: index, y: 1 }], color: '#ff8a3d', widthCells: 0.12 });
+  let version = 1;
+  for (let index = 0; index < 3; index += 1) {
+    version = service.addDrawing({ id: 'scene-a', expectedVersion: version, drawing: stroke(index) }).version;
+  }
+  version = service.eraseDrawings({ id: 'scene-a', expectedVersion: version, ids: ['stroke-0', 'stroke-2'] }).version;
+  const restored = service.replayDrawing({ id: 'scene-a', expectedVersion: version, direction: 'undo' });
+  assert.deepEqual(restored.document.drawings, [stroke(0), stroke(1), stroke(2)]);
+  version = restored.version;
+  version = service.replayDrawing({ id: 'scene-a', expectedVersion: version, direction: 'redo' }).version;
+  assert.deepEqual(service.getScene('scene-a').document.drawings, [stroke(1)]);
+  version = service.replayDrawing({ id: 'scene-a', expectedVersion: version, direction: 'undo' }).version;
+  version = service.addDrawing({ id: 'scene-a', expectedVersion: version, drawing: stroke(3) }).version;
+  assert.deepEqual(service.getDrawingHistoryState('scene-a'), { canUndo: true, canRedo: false });
+
+  for (let index = 4; index <= 44; index += 1) {
+    version = service.addDrawing({ id: 'scene-a', expectedVersion: version, drawing: stroke(index) }).version;
+  }
+  for (let index = 0; index < 40; index += 1) {
+    version = service.replayDrawing({ id: 'scene-a', expectedVersion: version, direction: 'undo' }).version;
+  }
+  assert.deepEqual(service.getDrawingHistoryState('scene-a'), { canUndo: false, canRedo: true });
+  assert.deepEqual(service.getScene('scene-a').document.drawings.map((drawing) => drawing.id), ['stroke-0', 'stroke-1', 'stroke-2', 'stroke-3', 'stroke-4']);
+  assert.throws(() => service.replayDrawing({ id: 'scene-a', expectedVersion: version, direction: 'undo' }),
+    (error) => error.statusCode === 409 && error.currentScene.version === version);
+}));
+
+test('drawing history rejects stale and failed writes without recording them, and clears on external drawing replacement', () => withRepository((repository) => {
+  const service = new SceneService({ repository, campaignId: 'campaign-test' });
+  service.load();
+  const drawing = { id: 'stroke', points: [{ x: 1, y: 1 }], color: '#ff8a3d', widthCells: 0.12 };
+  const added = service.addDrawing({ id: 'scene-a', expectedVersion: 1, drawing });
+  assert.throws(() => service.addDrawing({ id: 'scene-a', expectedVersion: 1, drawing: { ...drawing, id: 'stale' } }),
+    (error) => error instanceof ScenePersistenceConflictError && error.currentScene.version === added.version);
+  assert.deepEqual(service.getDrawingHistoryState('scene-a'), { canUndo: true, canRedo: false });
+
+  const replaced = service.updateScene({ id: 'scene-a', expectedVersion: added.version, name: added.name,
+    document: { ...added.document, drawings: [] }, sortOrder: added.sortOrder });
+  assert.deepEqual(replaced.document.drawings, []);
+  assert.deepEqual(service.getDrawingHistoryState('scene-a'), { canUndo: false, canRedo: false });
+
+  const failing = new SceneService({ repository: {
+    findByCampaign: (...args) => repository.findByCampaign(...args),
+    findActiveByCampaign: (...args) => repository.findActiveByCampaign(...args),
+    findById: (...args) => repository.findById(...args),
+    saveVersion: () => { throw new Error('disk full'); },
+  }, campaignId: 'campaign-test' });
+  failing.load();
+  assert.throws(() => failing.addDrawing({ id: 'scene-a', expectedVersion: replaced.version, drawing }), /disk full/);
+  assert.deepEqual(failing.getDrawingHistoryState('scene-a'), { canUndo: false, canRedo: false });
+  assert.equal(repository.findById('scene-a').version, replaced.version);
+}));
+
+test('a failed undo does not consume drawing history or change the persisted scene', () => withRepository((repository) => {
+  const service = new SceneService({ repository, campaignId: 'campaign-test' });
+  service.load();
+  const added = service.addDrawing({ id: 'scene-a', expectedVersion: 1,
+    drawing: { id: 'stroke', points: [{ x: 1, y: 1 }], color: '#ff8a3d', widthCells: 0.12 } });
+  const saveVersion = repository.saveVersion.bind(repository);
+  repository.saveVersion = () => { throw new Error('disk full'); };
+  try {
+    assert.throws(() => service.replayDrawing({ id: 'scene-a', expectedVersion: added.version, direction: 'undo' }), /disk full/);
+  } finally {
+    repository.saveVersion = saveVersion;
+  }
+  assert.deepEqual(service.getDrawingHistoryState('scene-a'), { canUndo: true, canRedo: false });
+  assert.deepEqual(service.getScene('scene-a').document.drawings, added.document.drawings);
+  assert.equal(repository.findById('scene-a').version, added.version);
+  const undone = service.replayDrawing({ id: 'scene-a', expectedVersion: added.version, direction: 'undo' });
+  assert.deepEqual(undone.document.drawings, []);
+}));

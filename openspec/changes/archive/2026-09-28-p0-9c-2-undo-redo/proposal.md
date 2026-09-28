@@ -12,13 +12,9 @@ Il Master deve correggere le operazioni di disegno senza ampliare la history glo
 
 ## Capabilities
 
-### New Capabilities
-
-- scene-authoring: strumenti Master di preparazione della scena.
-
 ### Modified Capabilities
 
-Nessuna.
+- scene-authoring: aggiunge undo/redo ai disegni preparati dal Master.
 
 ## Impact
 

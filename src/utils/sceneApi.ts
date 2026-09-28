@@ -17,6 +17,7 @@ export interface PersistedScene extends Scene {
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
+  drawingHistory?: { canUndo: boolean; canRedo: boolean };
 }
 
 export interface SceneBackgroundCalibration {
@@ -83,6 +84,14 @@ export const sceneApi = {
   eraseDrawings: (id: string, baseVersion: number, ids: string[]) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/drawings`, {
     method: 'DELETE',
     body: JSON.stringify({ baseVersion, ids }),
+  }),
+  undoDrawing: (id: string, baseVersion: number) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/drawings/undo`, {
+    method: 'POST',
+    body: JSON.stringify({ baseVersion }),
+  }),
+  redoDrawing: (id: string, baseVersion: number) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/drawings/redo`, {
+    method: 'POST',
+    body: JSON.stringify({ baseVersion }),
   }),
 };
 

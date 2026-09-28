@@ -65,6 +65,8 @@ export function SceneCatalogPanel({
     updateScene,
     addDrawing,
     eraseDrawings,
+    undoDrawing,
+    redoDrawing,
   } = useSceneCatalog(true);
   const [newName, setNewName] = useState('');
   const [nameDraft, setNameDraft] = useState('');
@@ -73,6 +75,7 @@ export function SceneCatalogPanel({
   const [calibrationDraft, setCalibrationDraft] = useState(DEFAULT_CALIBRATION);
   const [previewImageSize, setPreviewImageSize] = useState<{ width: number; height: number } | null>(null);
   const previewFrameRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
   const [previewSpace, setPreviewSpace] = useState({ width: 0, height: 0 });
   const [isChangingVisibility, setIsChangingVisibility] = useState(false);
   const [boardDimensionsDraft, setBoardDimensionsDraft] = useState({ columns: '', rows: '' });
@@ -193,6 +196,9 @@ export function SceneCatalogPanel({
     : 0;
   const previewCellSize = 48 * previewScale;
   const drawingEnabled = Boolean(selectedScene && drawingTool && previewScale > 0 && !hasDraftChanges && !isMutating && !isLoading);
+  const historyEnabled = Boolean(selectedScene && !hasDraftChanges && !isMutating && !isLoading && !drawingGesture);
+  const canUndoDrawing = historyEnabled && Boolean(selectedScene?.drawingHistory?.canUndo);
+  const canRedoDrawing = historyEnabled && Boolean(selectedScene?.drawingHistory?.canRedo);
   const previewPointFromPointer = (event: ReactPointerEvent<HTMLDivElement>): DrawingPoint => {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = ((event.clientX - rect.left) / previewScale + previewLeft) / CELL_SIZE;
@@ -291,8 +297,27 @@ export function SceneCatalogPanel({
     return () => observer.disconnect();
   }, [selectedScene?.id]);
 
+  useEffect(() => {
+    const handleHistoryShortcut = (event: KeyboardEvent) => {
+      if (!panelRef.current?.closest('.modal-card--scene-catalog[data-state="open"]')) return;
+      if ((!event.ctrlKey && !event.metaKey) || event.altKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'))) return;
+      const key = event.key.toLowerCase();
+      const isUndo = key === 'z' && !event.shiftKey;
+      const isRedo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey);
+      if (!isUndo && !isRedo) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (isUndo && canUndoDrawing) void undoDrawing();
+      if (isRedo && canRedoDrawing) void redoDrawing();
+    };
+    window.addEventListener('keydown', handleHistoryShortcut, true);
+    return () => window.removeEventListener('keydown', handleHistoryShortcut, true);
+  }, [canUndoDrawing, canRedoDrawing, undoDrawing, redoDrawing]);
+
   return (
-    <section className="scene-catalog" aria-label="Catalogo e preparazione delle scene">
+    <section className="scene-catalog" ref={panelRef} aria-label="Catalogo e preparazione delle scene">
       <aside className="scene-catalog__rail" aria-labelledby="scene-catalog-list-heading">
         <div className="scene-catalog__rail-heading">
           <div>
@@ -442,6 +467,14 @@ export function SceneCatalogPanel({
                     disabled={isLoading || isMutating || hasDraftChanges} onClick={() => setDrawingTool(drawingTool === 'pencil' ? null : 'pencil')}>✎ <span>Matita</span></button>
                   <button type="button" className="scene-catalog__drawing-tool" aria-pressed={drawingTool === 'eraser'}
                     disabled={isLoading || isMutating || hasDraftChanges} onClick={() => setDrawingTool(drawingTool === 'eraser' ? null : 'eraser')}>⌫ <span>Gomma</span></button>
+                  <div className="scene-catalog__history-tools" role="group" aria-label="Cronologia disegni della scena">
+                    <button type="button" className="scene-catalog__drawing-tool" disabled={!canUndoDrawing}
+                      title="Annulla l’ultima operazione di disegno (Ctrl+Z)" aria-label="Annulla disegno, Ctrl+Z"
+                      onClick={() => void undoDrawing()}>↶ <span>Annulla</span></button>
+                    <button type="button" className="scene-catalog__drawing-tool" disabled={!canRedoDrawing}
+                      title="Ripeti l’ultima operazione di disegno (Ctrl+Maiusc+Z)" aria-label="Ripeti disegno, Ctrl+Maiusc+Z"
+                      onClick={() => void redoDrawing()}>↷ <span>Ripeti</span></button>
+                  </div>
                   {drawingTool === 'pencil' ? <div className="scene-catalog__brush-settings" role="group" aria-label="Impostazioni matita">
                     <label className="scene-catalog__brush-size">Spessore
                       <span className="scene-catalog__brush-preview" aria-hidden="true"><span style={{ width: Math.max(4, drawingWidth * CELL_SIZE), height: Math.max(4, drawingWidth * CELL_SIZE), backgroundColor: drawingColor }} /></span>

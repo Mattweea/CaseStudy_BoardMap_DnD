@@ -188,6 +188,8 @@ button {
 .scene-catalog__drawing-tool { display: inline-flex; align-items: center; gap: .35rem; min-height: 2.35rem; padding: .35rem .65rem; border: 1px solid rgba(255, 185, 142, .28); border-radius: .42rem; background: rgba(46, 21, 23, .9); color: #f5d7c6; }
 .scene-catalog__drawing-tool[aria-pressed="true"] { border-color: #e58e63; background: rgba(132, 51, 36, .75); color: #fff1e4; }
 .scene-catalog__drawing-tool:disabled { opacity: .48; cursor: not-allowed; }
+.scene-catalog__drawing-tool:focus-visible { outline: 2px solid #ffd4a4; outline-offset: 2px; }
+.scene-catalog__history-tools { display: flex; flex-wrap: wrap; gap: .4rem; margin-left: auto; padding-left: .65rem; border-left: 1px solid rgba(255, 185, 142, .2); }
 .scene-catalog__brush-settings { display: flex; align-items: center; gap: .65rem; padding-left: .7rem; border-left: 1px solid rgba(255, 185, 142, .2); }
 .scene-catalog__brush-size, .scene-catalog__brush-color { position: relative; display: grid; justify-items: center; gap: .2rem; color: #d8ae97; font-size: .63rem; font-weight: 700; letter-spacing: .04em; }
 .scene-catalog__brush-preview { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #16090c; box-shadow: inset 0 0 0 1px rgba(255, 208, 177, .25); }

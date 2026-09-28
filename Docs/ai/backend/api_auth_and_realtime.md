@@ -27,6 +27,7 @@ Define the Fastify server boundary, authorization model, HTTP contracts, and SSE
 - Master-only scene catalog: list, create, read and versioned update under `/api/scenes`. Reading one scene is a management selection only; it never activates or broadcasts that scene. No delete or archive route exists until lifecycle semantics are approved.
 - Scene background delivery is authenticated. A Master may read any managed scene asset; an Adventurer may read only the active scene asset. Upload and reset-to-blank are Master-only, versioned scene mutations under `/api/scenes/:id/background`.
 - `POST` e `DELETE /api/scenes/:id/drawings` sono Master-only: aggiungono un tratto normalizzato o cancellano gli ID esistenti in una sola scrittura versionata; ID mancanti e versioni obsolete restituiscono `409` con la scena corrente. Un Player riceve i soli tratti della scena attiva tramite snapshot, senza accesso alle mutazioni.
+- `POST /api/scenes/:id/drawings/undo` e `/redo` sono Master-only e richiedono `baseVersion`. Ogni risposta di dettaglio scena include soltanto lo stato transitorio `drawingHistory.canUndo/canRedo`, non gli stack; un conflitto restituisce la scena corrente. Undo e redo persistono il nuovo layer drawing come una normale scrittura versionata.
 
 Ownership-aware endpoints must validate the current server token and user. New mutations must be assigned deliberately to public, authenticated, owner-scoped, or master-only access.
 

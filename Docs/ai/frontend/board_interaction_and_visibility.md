@@ -23,6 +23,7 @@ Define board-space interaction, visibility, and rendering invariants without dup
 - Fullscreen is UI state and must not enter shared snapshots.
 - La matita Master usa punti frazionari in coordinate di cella nella preview del dialog Preparazione scena. La bozza resta locale fino al rilascio del puntatore; un gesto invia un solo tratto versionato sulla scena selezionata. La gomma identifica solo tratti intersecati e invia un'unica cancellazione per gesto; `Esc` annulla la bozza. Colore e spessore sono controlli locali del Master. Le modifiche non salvate a nome, sfondo, calibrazione o dimensioni bloccano il disegno fino al salvataggio o annullamento.
 - Il layer di cattura è confinato alla preview e non copre i controlli del dialog. L'anteprima circolare della gomma usa lo stesso raggio logico del rilevamento. La board live, normale o fullscreen, rende i tratti proiettati con camera e zoom ma non offre strumenti per modificarli.
+- Undo e redo del drawing sono controlli del dialog per la sola scena selezionata: `Ctrl/Cmd+Z` e `Ctrl/Cmd+Shift+Z` (o `Ctrl+Y`) non invocano l'undo globale mentre il dialog è aperto. Quando il focus è in un campo editabile, le scorciatoie restano al campo; in assenza di operazioni disponibili i controlli sono disabilitati.
 
 Master multi-token and connected-obstacle movement may use a full shared-state commit. Adventurer movement must use the ownership-aware movement endpoint so server budgets and blockers remain authoritative.
 

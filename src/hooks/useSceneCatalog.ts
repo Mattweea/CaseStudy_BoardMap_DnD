@@ -150,7 +150,7 @@ export function useSceneCatalog(enabled: boolean) {
     }
   };
 
-  const writeDrawing = async (action: (scene: PersistedScene) => Promise<PersistedScene>) => {
+  const writeDrawing = async (action: (scene: PersistedScene) => Promise<PersistedScene>, fallback = 'Salvataggio del disegno non riuscito. Riprova.') => {
     if (!selectedScene || drawingWritePending.current) return false;
     drawingWritePending.current = true;
     setIsMutating(true);
@@ -167,7 +167,7 @@ export function useSceneCatalog(enabled: boolean) {
         setSelectedScene(current);
         setError('La scena è cambiata nel frattempo. Ho caricato la versione più recente; ripeti il gesto.');
       } else {
-        setError(readableError(requestError, 'Salvataggio del disegno non riuscito. Riprova.'));
+        setError(readableError(requestError, fallback));
       }
       return false;
     } finally {
@@ -188,5 +188,7 @@ export function useSceneCatalog(enabled: boolean) {
     updateScene,
     addDrawing: (drawing: SceneDrawing) => writeDrawing((scene) => sceneApi.addDrawing(scene.id, scene.version, drawing)),
     eraseDrawings: (ids: string[]) => writeDrawing((scene) => sceneApi.eraseDrawings(scene.id, scene.version, ids)),
+    undoDrawing: () => writeDrawing((scene) => sceneApi.undoDrawing(scene.id, scene.version), 'Impossibile annullare il disegno. Riprova.'),
+    redoDrawing: () => writeDrawing((scene) => sceneApi.redoDrawing(scene.id, scene.version), 'Impossibile ripetere il disegno. Riprova.'),
   };
 }
