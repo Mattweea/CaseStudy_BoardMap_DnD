@@ -59,7 +59,11 @@ export const sceneApi = {
     method: 'POST',
     body: JSON.stringify({ name }),
   }),
-  update: (id: string, baseVersion: number, patch: { name?: string; backgroundCalibration?: SceneBackgroundCalibration }) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}`, {
+  update: (id: string, baseVersion: number, patch: {
+    name?: string;
+    backgroundCalibration?: SceneBackgroundCalibration;
+    boardDimensions?: { columns: number; rows: number };
+  }) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify({ baseVersion, ...patch }),
   }),

@@ -30,7 +30,8 @@ import {
   viewportPointToWorldCell,
 } from '../utils/board';
 import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
-import { cellsToUnit, pathCost } from '../../shared/grid-movement';
+import { cellsToUnit, pathCost, pathStepCount, MAX_MOVEMENT_PATH_STEPS } from '../../shared/grid-movement';
+import { SCENE_LIMITS } from '../../shared/scene-model';
 import { sceneBackgroundViewportTransform } from '../../shared/scene-background-calibration';
 import { Token } from './Token';
 
@@ -146,6 +147,12 @@ function tokenCenter(token: UnitToken): { x: number; y: number } {
 }
 
 function clampCamera(position: GridPosition, dimensions: BoardDimensions, viewport: BoardDimensions): GridPosition {
+  if (dimensions.columns === 0 && dimensions.rows === 0) {
+    return {
+      x: Math.min(SCENE_LIMITS.maxCoordinateMagnitude - viewport.columns, Math.max(0, position.x)),
+      y: Math.min(SCENE_LIMITS.maxCoordinateMagnitude - viewport.rows, Math.max(0, position.y)),
+    };
+  }
   return {
     x: Math.min(Math.max(0, position.x), Math.max(0, dimensions.columns - viewport.columns)),
     y: Math.min(Math.max(0, position.y), Math.max(0, dimensions.rows - viewport.rows)),
@@ -562,6 +569,21 @@ export function Board({
     columns: BOARD_CONFIG.minVisibleColumns,
     rows: BOARD_CONFIG.minVisibleRows,
   });
+  const [viewportPixels, setViewportPixels] = useState({ width: 0, height: 0 });
+  const fullBoardPixelSize = boardPixelSize(dimensions.columns, dimensions.rows);
+  const isUnlimitedBoard = dimensions.columns === 0 && dimensions.rows === 0;
+  const minimumViewportZoom = isUnlimitedBoard
+    ? BOARD_CONFIG.minZoom
+    : viewportPixels.width > 0 && viewportPixels.height > 0
+    ? Math.max(
+        BOARD_CONFIG.minZoom,
+        Math.min(
+          1,
+          viewportPixels.width / fullBoardPixelSize.width,
+          viewportPixels.height / fullBoardPixelSize.height,
+        ),
+      )
+    : BOARD_CONFIG.minZoom;
   const movableTokenIdSet = useMemo(() => new Set(movableTokenIds), [movableTokenIds]);
   const editableTokenIdSet = useMemo(() => new Set(editableTokenIds), [editableTokenIds]);
   const obstacleClusters = useMemo(() => buildObstacleClusters(tokens), [tokens]);
@@ -646,9 +668,12 @@ export function Board({
       const height = entry.contentRect.height - BOARD_GUTTER;
       const screenCell = BOARD_CONFIG.cellSize * zoom;
 
+      setViewportPixels({ width, height });
       setViewportCells({
-        columns: Math.min(dimensions.columns, Math.max(1, Math.ceil(width / screenCell) + 2)),
-        rows: Math.min(dimensions.rows, Math.max(1, Math.ceil(height / screenCell) + 2)),
+        columns: dimensions.columns === 0 ? Math.max(1, Math.ceil(width / screenCell) + 2)
+          : Math.min(dimensions.columns, Math.max(1, Math.ceil(width / screenCell) + 2)),
+        rows: dimensions.rows === 0 ? Math.max(1, Math.ceil(height / screenCell) + 2)
+          : Math.min(dimensions.rows, Math.max(1, Math.ceil(height / screenCell) + 2)),
       });
     });
 
@@ -669,14 +694,19 @@ export function Board({
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
       const delta = event.deltaY < 0 ? BOARD_CONFIG.zoomStep : -BOARD_CONFIG.zoomStep;
-      onZoomChange(clampZoom(zoom + delta));
+      onZoomChange(clampZoom(zoom + delta, minimumViewportZoom));
     };
 
     node.addEventListener('wheel', handleWheel, { passive: false });
     return () => node.removeEventListener('wheel', handleWheel);
-  }, [onZoomChange, zoom]);
+  }, [minimumViewportZoom, onZoomChange, zoom]);
 
-  const { width, height } = boardPixelSize(viewportCells.columns, viewportCells.rows);
+  const viewportPixelSize = boardPixelSize(viewportCells.columns, viewportCells.rows);
+  // Ogni layer della viewport usa coordinate gia moltiplicate per lo zoom. Anche lo stage deve
+  // quindi crescere allo stesso modo: una superficie non scalata taglierebbe sfondo, griglia e
+  // SVG sul bordo destro/inferiore quando zoom > 1.
+  const width = viewportPixelSize.width * zoom;
+  const height = viewportPixelSize.height * zoom;
   const backgroundTransform = background.kind === 'image'
     ? sceneBackgroundViewportTransform(background, camera, zoom, BOARD_CONFIG.cellSize)
     : null;
@@ -803,7 +833,7 @@ export function Board({
     if (!rulerPath) {
       return null;
     }
-    return pathCost(rulerPath, { rule: diagonalRule, diagonalParity: 0 });
+    return pathCost(rulerPath, { rule: diagonalRule, diagonalParity: 0, includeSteps: false });
   }, [rulerPath, diagonalRule]);
 
   const planTargetToken = planInteraction ? tokens.find((token) => token.id === planInteraction.tokenId) ?? null : null;
@@ -819,12 +849,13 @@ export function Board({
     }
     return pathCost(planPath, { rule: diagonalRule, diagonalParity: planBudget?.diagonalParity ?? 0 });
   }, [planPath, diagonalRule, planBudget]);
+  const planExceedsStepLimit = planPath ? pathStepCount(planPath) > MAX_MOVEMENT_PATH_STEPS : false;
   const planIsBlocked = useMemo(() => {
-    if (!planPath || !planTargetToken) {
+    if (!planPath || !planTargetToken || (planPathCost?.exceedsLimit ?? false)) {
       return false;
     }
     return isPathBlocked(tokens, planTargetToken.id, getTokenFootprint(planTargetToken), planPath);
-  }, [planPath, planTargetToken, tokens]);
+  }, [planPath, planPathCost?.exceedsLimit, planTargetToken, tokens]);
   const planExceedsBudget =
     planBudget?.totalCells != null && planPathCost ? planBudget.usedCells + planPathCost.cells > planBudget.totalCells : false;
 
@@ -836,7 +867,9 @@ export function Board({
     : null;
   const planWarningText = !planInteraction
     ? null
-    : planIsBlocked
+    : planExceedsStepLimit
+      ? `Percorso troppo lungo: il limite è ${MAX_MOVEMENT_PATH_STEPS} caselle.`
+      : planIsBlocked
       ? 'Percorso bloccato: un segmento attraversa un ostacolo.'
       : planExceedsBudget
         ? 'Fuori budget: il percorso supera il movimento rimasto in questo turno.'
@@ -845,7 +878,9 @@ export function Board({
           : null;
   const planMeasureText =
     planPathCost && planPath && planPath.length > 1
-      ? `Percorso ${formatRulerMeasurement(planPathCost.cells, measurementUnit)}${
+      ? planPathCost.exceedsLimit
+        ? `Percorso oltre il limite di ${MAX_MOVEMENT_PATH_STEPS} caselle`
+        : `Percorso ${formatRulerMeasurement(planPathCost.cells, measurementUnit)}${
           planBudget?.totalCells != null
             ? `, residuo ${formatRulerMeasurement(
                 Math.max(0, planBudget.totalCells - planBudget.usedCells - planPathCost.cells),
@@ -1886,7 +1921,7 @@ export function Board({
           <button
             type="button"
             className="board-zoom-button"
-            onClick={() => onZoomChange(clampZoom(zoom - BOARD_CONFIG.zoomStep))}
+            onClick={() => onZoomChange(clampZoom(zoom - BOARD_CONFIG.zoomStep, minimumViewportZoom))}
             aria-label="Zoom out"
           >
             -
@@ -1894,7 +1929,7 @@ export function Board({
           <button
             type="button"
             className="board-zoom-button"
-            onClick={() => onZoomChange(clampZoom(zoom + BOARD_CONFIG.zoomStep))}
+            onClick={() => onZoomChange(clampZoom(zoom + BOARD_CONFIG.zoomStep, minimumViewportZoom))}
             aria-label="Zoom in"
           >
             +
@@ -2454,7 +2489,7 @@ export function Board({
                     x: (template.origin.x - camera.x + 0.5) * BOARD_CONFIG.cellSize * zoom,
                     y: (template.origin.y - camera.y + 0.5) * BOARD_CONFIG.cellSize * zoom,
                   };
-                  const sizeCells = pathCost([template.origin, template.target], { rule: diagonalRule }).cells;
+                  const sizeCells = pathCost([template.origin, template.target], { rule: diagonalRule, includeSteps: false }).cells;
                   const sizePx = Math.max(1, sizeCells) * BOARD_CONFIG.cellSize * zoom;
                   const angle = Math.atan2(template.target.y - template.origin.y, template.target.x - template.origin.x);
                   const labelPoint = {

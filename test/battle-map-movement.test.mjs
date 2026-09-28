@@ -91,6 +91,21 @@ test('movement cannot leave the active scene dimensions', async () => {
   assert.match(response.json().message, /confini/);
 });
 
+test('unlimited board accepts movement beyond the former finite boundary', async () => {
+  __testing.setBattleMapState({ tokens: [heroToken()], boardDimensions: { columns: 0, rows: 0 } });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 35, y: 0 }] });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().state.tokens[0].position, { x: 35, y: 0 });
+});
+
+test('movement on an unlimited board rejects paths beyond the processing limit atomically', async () => {
+  __testing.setBattleMapState({ tokens: [heroToken()], boardDimensions: { columns: 0, rows: 0 } });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 1001, y: 0 }] });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /limite/);
+  assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
+});
+
 test('an L-shaped path costs 6 cells under both diagonal rules', async () => {
   for (const diagonalRule of ['standard', 'alternating']) {
     __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()], diagonalRule }));

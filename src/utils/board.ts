@@ -5,8 +5,8 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-export function clampZoom(zoom: number): number {
-  return clamp(zoom, BOARD_CONFIG.minZoom, BOARD_CONFIG.maxZoom);
+export function clampZoom(zoom: number, minimum: number = BOARD_CONFIG.minZoom): number {
+  return clamp(zoom, Math.max(BOARD_CONFIG.minZoom, minimum), BOARD_CONFIG.maxZoom);
 }
 
 export function gridToPixels(position: GridPosition): GridPosition {

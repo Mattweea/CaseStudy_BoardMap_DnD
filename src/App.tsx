@@ -243,7 +243,6 @@ function App() {
   const [isLightPlacementActive, setIsLightPlacementActive] = useState(false);
   const [lightRadiusCells, setLightRadiusCells] = useState(12);
   const [measurementUnitDraft, setMeasurementUnitDraft] = useState({ label: state.measurementUnit.label, cellsValue: String(state.measurementUnit.cellsValue) });
-  const [boardDimensionsDraft, setBoardDimensionsDraft] = useState({ columns: String(state.boardDimensions.columns), rows: String(state.boardDimensions.rows) });
   const [measurementUnitError, setMeasurementUnitError] = useState<string | null>(null);
   const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null);
   const [combatAnnouncement, setCombatAnnouncement] = useState<CombatAnnouncement | null>(null);
@@ -295,9 +294,6 @@ function App() {
   useEffect(() => {
     setMeasurementUnitDraft({ label: state.measurementUnit.label, cellsValue: String(state.measurementUnit.cellsValue) });
   }, [state.measurementUnit.label, state.measurementUnit.cellsValue]);
-  useEffect(() => {
-    setBoardDimensionsDraft({ columns: String(state.boardDimensions.columns), rows: String(state.boardDimensions.rows) });
-  }, [state.boardDimensions.columns, state.boardDimensions.rows]);
   const canManageBattleMap = user?.role === 'master';
 
   useEffect(() => {
@@ -1432,26 +1428,6 @@ function App() {
                     onClick={() => void updateBattleMapSettings({ diagonalRule: 'alternating' })}
                   >
                     Variante 5-10-5
-                  </button>
-                </div>
-              </div>
-
-              <div className="action-card__block">
-                <p className="action-card__label">Dimensioni scena</p>
-                <label className="inline-field">
-                  Colonne
-                  <input type="number" min="1" max="500" step="1" value={boardDimensionsDraft.columns} onChange={(event) => setBoardDimensionsDraft((current) => ({ ...current, columns: event.target.value }))} />
-                </label>
-                <label className="inline-field">
-                  Righe
-                  <input type="number" min="1" max="500" step="1" value={boardDimensionsDraft.rows} onChange={(event) => setBoardDimensionsDraft((current) => ({ ...current, rows: event.target.value }))} />
-                </label>
-                <div className="action-card__buttons">
-                  <button type="button" className="secondary-button" onClick={async () => {
-                    const result = await updateBattleMapSettings({ boardDimensions: { columns: Number(boardDimensionsDraft.columns), rows: Number(boardDimensionsDraft.rows) } });
-                    setMeasurementUnitError(result.ok ? null : result.message ?? 'Dimensioni non valide.');
-                  }}>
-                    Applica dimensioni
                   </button>
                 </div>
               </div>

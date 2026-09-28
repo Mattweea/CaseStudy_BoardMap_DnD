@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import type { BoardDimensions } from '../types';
 import { useSceneCatalog } from '../hooks/useSceneCatalog';
 import { sceneBackgroundUrl } from '../utils/sceneApi';
 
@@ -40,12 +41,22 @@ export function SceneCatalogPanel({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [calibrationDraft, setCalibrationDraft] = useState(DEFAULT_CALIBRATION);
   const [previewImageSize, setPreviewImageSize] = useState<{ width: number; height: number } | null>(null);
+  const previewFrameRef = useRef<HTMLDivElement | null>(null);
+  const [previewSpace, setPreviewSpace] = useState({ width: 0, height: 0 });
   const [isChangingVisibility, setIsChangingVisibility] = useState(false);
+  const [boardDimensionsDraft, setBoardDimensionsDraft] = useState({ columns: '', rows: '' });
+  const [dimensionsError, setDimensionsError] = useState<string | null>(null);
 
   useEffect(() => {
     setNameDraft(selectedScene?.name ?? '');
     setBackgroundDraft(null);
     setCalibrationDraft(sceneCalibration(selectedScene));
+    setDimensionsError(null);
+  }, [selectedScene]);
+
+  useEffect(() => {
+    const dimensions = selectedScene?.document.board.dimensions;
+    if (dimensions) setBoardDimensionsDraft({ columns: String(dimensions.columns), rows: String(dimensions.rows) });
   }, [selectedScene]);
 
   useEffect(() => {
@@ -65,9 +76,15 @@ export function SceneCatalogPanel({
 
   const submitUpdate = async (event: FormEvent) => {
     event.preventDefault();
+    const dimensions = parseBoardDimensions(boardDimensionsDraft);
+    if (!dimensions) {
+      setDimensionsError('Inserisci dimensioni intere positive oppure 0 × 0 per una board illimitata.');
+      return;
+    }
+    setDimensionsError(null);
     const hasImage = backgroundDraft instanceof File
       || (backgroundDraft !== 'blank' && selectedScene?.document.background.kind === 'image');
-    if (await updateScene(nameDraft, backgroundDraft, hasImage ? calibrationDraft : null)) {
+    if (await updateScene(nameDraft, backgroundDraft, hasImage ? calibrationDraft : null, dimensions)) {
       setBackgroundDraft(null);
     }
   };
@@ -85,9 +102,36 @@ export function SceneCatalogPanel({
     nameDraft.trim() !== selectedScene.name
     || backgroundDraft !== null
     || (hasImage && calibrationChanged)
+    || boardDimensionsDraft.columns !== String(selectedScene.document.board.dimensions.columns)
+    || boardDimensionsDraft.rows !== String(selectedScene.document.board.dimensions.rows)
   );
-  const previewBoard = selectedScene?.document.board.dimensions ?? { columns: 30, rows: 30 };
-  const previewBoardWidth = previewBoard.columns * 48;
+  const requestedDimensions = parseBoardDimensions(boardDimensionsDraft);
+  const previewBoard = requestedDimensions ?? selectedScene?.document.board.dimensions ?? { columns: 30, rows: 30 };
+  const isPreviewUnlimited = previewBoard.columns === 0 && previewBoard.rows === 0;
+  const previewColumns = isPreviewUnlimited ? 30 : previewBoard.columns;
+  const previewRows = isPreviewUnlimited ? 20 : previewBoard.rows;
+  const boardLeft = 0;
+  const boardTop = 0;
+  const boardRight = previewColumns * 48;
+  const boardBottom = previewRows * 48;
+  const imageLeft = previewImageSize ? calibrationDraft.offsetX : 0;
+  const imageTop = previewImageSize ? calibrationDraft.offsetY : 0;
+  const imageRight = previewImageSize
+    ? calibrationDraft.offsetX + previewImageSize.width * calibrationDraft.scale
+    : boardRight;
+  const imageBottom = previewImageSize
+    ? calibrationDraft.offsetY + previewImageSize.height * calibrationDraft.scale
+    : boardBottom;
+  const previewLeft = Math.min(boardLeft, imageLeft);
+  const previewTop = Math.min(boardTop, imageTop);
+  const previewRight = Math.max(boardRight, imageRight);
+  const previewBottom = Math.max(boardBottom, imageBottom);
+  const previewWidth = Math.max(48, previewRight - previewLeft);
+  const previewHeight = Math.max(48, previewBottom - previewTop);
+  const previewScale = previewSpace.width > 0 && previewSpace.height > 0
+    ? Math.min(previewSpace.width / previewWidth, previewSpace.height / previewHeight)
+    : 0;
+  const previewCellSize = 48 * previewScale;
 
   const changeActiveBackgroundVisibility = async () => {
     if (!selectedScene?.isActive || hasDraftChanges) return;
@@ -104,6 +148,20 @@ export function SceneCatalogPanel({
   useEffect(() => {
     setPreviewImageSize(null);
   }, [imageSource]);
+
+  useEffect(() => {
+    const node = previewFrameRef.current;
+    if (!node) return undefined;
+    const measure = () => {
+      const rect = node.getBoundingClientRect();
+      setPreviewSpace({ width: rect.width, height: rect.height });
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <section className="scene-catalog" aria-label="Catalogo e preparazione delle scene">
@@ -180,37 +238,62 @@ export function SceneCatalogPanel({
             />
             <fieldset className="scene-catalog__background">
               <legend>Sfondo e allineamento</legend>
-              {imageSource ? (
-                <div
-                  className="scene-catalog__calibration-preview"
-                  style={{ aspectRatio: `${previewBoard.columns} / ${previewBoard.rows}` }}
-                >
-                  <img
-                    src={imageSource}
-                    alt="Anteprima dello sfondo calibrato rispetto alla griglia"
-                    onLoad={(event) => setPreviewImageSize({
-                      width: event.currentTarget.naturalWidth,
-                      height: event.currentTarget.naturalHeight,
-                    })}
+              <div className="scene-catalog__calibration-preview-frame">
+                <div className="scene-catalog__calibration-preview-viewport" ref={previewFrameRef}>
+                  <div
+                    className="scene-catalog__calibration-preview"
                     style={{
-                      left: `${calibrationDraft.offsetX / previewBoardWidth * 100}%`,
-                      top: `${calibrationDraft.offsetY / (previewBoard.rows * 48) * 100}%`,
-                      width: previewImageSize
-                        ? `${previewImageSize.width * calibrationDraft.scale / previewBoardWidth * 100}%`
-                        : 'auto',
-                      height: previewImageSize
-                        ? `${previewImageSize.height * calibrationDraft.scale / (previewBoard.rows * 48) * 100}%`
-                        : 'auto',
+                      width: previewWidth * previewScale,
+                      height: previewHeight * previewScale,
+                      visibility: previewScale > 0 ? 'visible' : 'hidden',
                     }}
-                  />
-                  <span
-                    aria-hidden="true"
-                    style={{ backgroundSize: `${100 / previewBoard.columns}% ${100 / previewBoard.rows}%` }}
-                  />
+                  >
+                    {imageSource ? (
+                      <img
+                        src={imageSource}
+                        alt="Anteprima dello sfondo calibrato rispetto alla griglia"
+                        onLoad={(event) => setPreviewImageSize({
+                          width: event.currentTarget.naturalWidth,
+                          height: event.currentTarget.naturalHeight,
+                        })}
+                        style={{
+                          left: `${(imageLeft - previewLeft) / previewWidth * 100}%`,
+                          top: `${(imageTop - previewTop) / previewHeight * 100}%`,
+                          width: previewImageSize
+                            ? `${previewImageSize.width * calibrationDraft.scale / previewWidth * 100}%`
+                            : 'auto',
+                          height: previewImageSize
+                            ? `${previewImageSize.height * calibrationDraft.scale / previewHeight * 100}%`
+                            : 'auto',
+                        }}
+                      />
+                    ) : <span className="scene-catalog__blank-preview-label">Board bianca</span>}
+                    <span
+                      className="scene-catalog__grid-overlay"
+                      aria-hidden="true"
+                      style={{
+                        backgroundSize: `${previewCellSize}px ${previewCellSize}px`,
+                        backgroundPosition: `${-previewLeft * previewScale}px ${-previewTop * previewScale}px`,
+                      }}
+                    />
+                    {!isPreviewUnlimited ? (
+                      <span
+                        className="scene-catalog__board-boundary"
+                        aria-hidden="true"
+                        style={{
+                          left: `${(boardLeft - previewLeft) / previewWidth * 100}%`,
+                          top: `${(boardTop - previewTop) / previewHeight * 100}%`,
+                          width: `${(boardRight - boardLeft) / previewWidth * 100}%`,
+                          height: `${(boardBottom - boardTop) / previewHeight * 100}%`,
+                        }}
+                      />
+                    ) : null}
+                  </div>
                 </div>
-              ) : (
-                <div className="scene-catalog__blank-preview">Board bianca con griglia</div>
-              )}
+                <small className="scene-catalog__preview-caption">
+                  {isPreviewUnlimited ? '0 × 0 · griglia illimitata, anteprima parziale' : `${previewBoard.columns} × ${previewBoard.rows} · bordo della board evidenziato`}
+                </small>
+              </div>
               <div className="scene-catalog__background-actions">
                 <label className="secondary-button">
                   Scegli immagine
@@ -245,6 +328,23 @@ export function SceneCatalogPanel({
               </div>
               <small>JPEG, PNG o WebP · massimo 10 MB. La scelta resta in bozza fino al salvataggio.</small>
             </fieldset>
+            <div className="scene-catalog__dimensions">
+              <div>
+                <span className="scene-catalog__visibility-label">Dimensioni della board</span>
+                <p>{isPreviewUnlimited
+                  ? 'Illimitata: la griglia continua oltre i bordi della mappa.'
+                  : 'Il bordo evidenziato mostra l’area della board; la zona ombreggiata resta fuori.'}</p>
+              </div>
+              <div className="scene-catalog__dimensions-controls">
+                <label>Colonne
+                  <input type="number" min="0" max="500" step="1" value={boardDimensionsDraft.columns} disabled={isMutating} onChange={(event) => { setBoardDimensionsDraft((current) => ({ ...current, columns: event.target.value })); setDimensionsError(null); }} />
+                </label>
+                <label>Righe
+                  <input type="number" min="0" max="500" step="1" value={boardDimensionsDraft.rows} disabled={isMutating} onChange={(event) => { setBoardDimensionsDraft((current) => ({ ...current, rows: event.target.value })); setDimensionsError(null); }} />
+                </label>
+                {dimensionsError ? <p role="alert" className="scene-catalog__error">{dimensionsError}</p> : null}
+              </div>
+            </div>
             <div className={`scene-catalog__visibility ${selectedScene.isActive ? 'scene-catalog__visibility--active' : ''}`}>
               <div>
                 <span className="scene-catalog__visibility-label">Visibilità sulla board</span>
@@ -280,9 +380,9 @@ export function SceneCatalogPanel({
                 </button>
               ) : null}
             </div>
-            <p className="scene-catalog__hint">Stai modificando la preparazione: la scena mostrata ai Player non cambia finché non viene attivata.</p>
+            <p className="scene-catalog__hint">Le modifiche alla scena attiva si applicano alla board al salvataggio; le altre restano preparazione finché non vengono attivate.</p>
             <div className="scene-catalog__draft-actions">
-              <button type="button" className="secondary-button" disabled={isMutating || !hasDraftChanges} onClick={() => { setNameDraft(selectedScene.name); setBackgroundDraft(null); setCalibrationDraft(sceneCalibration(selectedScene)); }}>
+              <button type="button" className="secondary-button" disabled={isMutating || !hasDraftChanges} onClick={() => { setNameDraft(selectedScene.name); setBackgroundDraft(null); setCalibrationDraft(sceneCalibration(selectedScene)); setBoardDimensionsDraft({ columns: String(selectedScene.document.board.dimensions.columns), rows: String(selectedScene.document.board.dimensions.rows) }); setDimensionsError(null); }}>
                 Annulla
               </button>
               <button type="submit" className="primary-button" disabled={isMutating || nameDraft.trim().length === 0 || !hasDraftChanges}>
@@ -300,4 +400,14 @@ export function SceneCatalogPanel({
       </div>
     </section>
   );
+}
+
+function parseBoardDimensions(value: { columns: string; rows: string }): BoardDimensions | null {
+  if (value.columns.trim() === '' || value.rows.trim() === '') return null;
+  const columns = Number(value.columns);
+  const rows = Number(value.rows);
+  if (!Number.isSafeInteger(columns) || !Number.isSafeInteger(rows)
+    || columns < 0 || columns > 500 || rows < 0 || rows > 500
+    || ((columns === 0) !== (rows === 0))) return null;
+  return { columns, rows };
 }

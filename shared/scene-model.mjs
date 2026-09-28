@@ -187,10 +187,13 @@ function normalizeBoardConfig(value, path) {
   const dimensions = {};
   for (const axis of ['columns', 'rows']) {
     const dimension = rawDimensions[axis];
-    if (!Number.isSafeInteger(dimension) || dimension < 1 || dimension > SCENE_LIMITS.maxBoardDimensionCells) {
-      fail(path + `.dimensions.${axis}`, `must be an integer between 1 and ${SCENE_LIMITS.maxBoardDimensionCells}`);
+    if (!Number.isSafeInteger(dimension) || dimension < 0 || dimension > SCENE_LIMITS.maxBoardDimensionCells) {
+      fail(path + `.dimensions.${axis}`, `must be an integer between 0 and ${SCENE_LIMITS.maxBoardDimensionCells}`);
     }
     dimensions[axis] = dimension;
+  }
+  if ((dimensions.columns === 0) !== (dimensions.rows === 0)) {
+    fail(path + '.dimensions', 'columns and rows must both be zero or both be positive');
   }
 
   return {

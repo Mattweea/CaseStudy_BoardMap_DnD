@@ -14,7 +14,7 @@ import { SceneService } from '../server/scene-service.mjs';
 const MASTER = { id: 'master-user', role: 'master' };
 const PLAYER = { id: 'player-ilthar', role: 'adventurer' };
 
-async function createApp({ onActiveSceneUpdated = null } = {}) {
+async function createApp({ onActiveSceneUpdated = null, getRuntimeTokens = () => [] } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'vtt-scene-routes-'));
   const db = openDatabase({ path: join(directory, 'test.sqlite') });
   await migrate(db);
@@ -32,6 +32,7 @@ async function createApp({ onActiveSceneUpdated = null } = {}) {
     service,
     getUser: (request) => ({ master: MASTER, player: PLAYER })[request.headers['x-test-user']] ?? null,
     onActiveSceneUpdated,
+    getRuntimeTokens,
   });
   return {
     app,
@@ -204,6 +205,43 @@ test('only an update to the active scene requests a shared projection refresh', 
     });
     assert.equal(activeUpdate.statusCode, 200);
     assert.deepEqual(refreshed, ['scene-initial']);
+  } finally {
+    await close();
+  }
+});
+
+test('master saves unlimited dimensions in a versioned update and rejects mixed or excluding dimensions', async () => {
+  const runtimeTokens = [{ id: 'hero', type: 'player', size: 'medium', position: { x: 6, y: 4 } }];
+  const { app, service, close } = await createApp({ getRuntimeTokens: () => runtimeTokens });
+  const headers = { 'x-test-user': 'master' };
+  try {
+    const invalid = await app.inject({
+      method: 'PATCH', url: '/api/scenes/scene-initial', headers,
+      payload: { baseVersion: 1, boardDimensions: { columns: 0, rows: 30 } },
+    });
+    assert.equal(invalid.statusCode, 400);
+    assert.deepEqual(service.getActiveScene().document.board.dimensions, { columns: 30, rows: 30 });
+
+    const finiteShrink = await app.inject({
+      method: 'PATCH', url: '/api/scenes/scene-initial', headers,
+      payload: { baseVersion: 1, boardDimensions: { columns: 6, rows: 30 } },
+    });
+    assert.equal(finiteShrink.statusCode, 400);
+
+    const unlimited = await app.inject({
+      method: 'PATCH', url: '/api/scenes/scene-initial', headers,
+      payload: { baseVersion: 1, boardDimensions: { columns: 0, rows: 0 } },
+    });
+    assert.equal(unlimited.statusCode, 200);
+    assert.deepEqual(unlimited.json().document.board.dimensions, { columns: 0, rows: 0 });
+    assert.equal(unlimited.json().version, 2);
+
+    const stale = await app.inject({
+      method: 'PATCH', url: '/api/scenes/scene-initial', headers,
+      payload: { baseVersion: 1, boardDimensions: { columns: 40, rows: 30 } },
+    });
+    assert.equal(stale.statusCode, 409);
+    assert.deepEqual(service.getActiveScene().document.board.dimensions, { columns: 0, rows: 0 });
   } finally {
     await close();
   }

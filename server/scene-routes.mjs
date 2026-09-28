@@ -47,7 +47,7 @@ function validateUpdateBody(body) {
     || Array.isArray(body)
     || !Number.isSafeInteger(body.baseVersion)
     || body.baseVersion < 1
-    || (body.name === undefined && body.backgroundCalibration === undefined)
+    || (body.name === undefined && body.backgroundCalibration === undefined && body.boardDimensions === undefined)
     || (body.name !== undefined && typeof body.name !== 'string')
     || (
       body.backgroundCalibration !== undefined
@@ -60,6 +60,21 @@ function validateUpdateBody(body) {
         || typeof body.backgroundCalibration.offsetY !== 'number'
       )
     )
+    || (
+      body.boardDimensions !== undefined
+      && (
+        !body.boardDimensions
+        || typeof body.boardDimensions !== 'object'
+        || Array.isArray(body.boardDimensions)
+        || !Number.isSafeInteger(body.boardDimensions.columns)
+        || body.boardDimensions.columns < 0
+        || body.boardDimensions.columns > 500
+        || !Number.isSafeInteger(body.boardDimensions.rows)
+        || body.boardDimensions.rows < 0
+        || body.boardDimensions.rows > 500
+        || ((body.boardDimensions.columns === 0) !== (body.boardDimensions.rows === 0))
+      )
+    )
   ) {
     throw new TypeError('Modifica e versione base della scena sono obbligatorie.');
   }
@@ -67,6 +82,7 @@ function validateUpdateBody(body) {
     baseVersion: body.baseVersion,
     name: body.name,
     backgroundCalibration: body.backgroundCalibration,
+    boardDimensions: body.boardDimensions,
   };
 }
 
@@ -75,6 +91,7 @@ export function registerSceneRoutes(app, {
   getUser,
   backgroundStorage = null,
   onActiveSceneUpdated = null,
+  getRuntimeTokens = () => [],
 }) {
   function authenticated(request, reply) {
     const user = getUser(request);
@@ -126,18 +143,36 @@ export function registerSceneRoutes(app, {
   app.patch('/api/scenes/:id', async (request, reply) => {
     if (!masterOnly(request, reply)) return;
     try {
-      const { baseVersion, name, backgroundCalibration } = validateUpdateBody(request.body);
+      const { baseVersion, name, backgroundCalibration, boardDimensions } = validateUpdateBody(request.body);
       const current = service.getScene(request.params.id);
       if (!current) return reply.code(404).send({ message: 'Scena non trovata.' });
       if (backgroundCalibration !== undefined && current.document.background.kind !== 'image') {
         throw new TypeError('La calibrazione richiede uno sfondo immagine.');
       }
-      const document = backgroundCalibration === undefined
-        ? current.document
-        : {
-            ...current.document,
-            background: { ...current.document.background, ...backgroundCalibration },
-          };
+      if (boardDimensions !== undefined && current.id === service.getActiveScene()?.id
+        && boardDimensions.columns > 0) {
+        const excludesToken = getRuntimeTokens().some((token) => {
+          const width = typeof token.widthCells === 'number' && token.widthCells > 0
+            ? Math.max(1, Math.floor(token.widthCells))
+            : ({ tiny: 1, small: 1, medium: 1, large: 2, huge: 3, gargantuan: 4 }[token.size] ?? 1);
+          const height = typeof token.heightCells === 'number' && token.heightCells > 0
+            ? Math.max(1, Math.floor(token.heightCells))
+            : ({ tiny: 1, small: 1, medium: 1, large: 2, huge: 3, gargantuan: 4 }[token.size] ?? 1);
+          return token.position.x < 0 || token.position.y < 0
+            || token.position.x + width > boardDimensions.columns
+            || token.position.y + height > boardDimensions.rows;
+        });
+        if (excludesToken) throw new TypeError('La griglia non può escludere token già presenti.');
+      }
+      const document = {
+        ...current.document,
+        ...(backgroundCalibration === undefined ? {} : {
+          background: { ...current.document.background, ...backgroundCalibration },
+        }),
+        ...(boardDimensions === undefined ? {} : {
+          board: { ...current.document.board, dimensions: boardDimensions },
+        }),
+      };
       const scene = service.updateScene({
         id: current.id,
         expectedVersion: baseVersion,

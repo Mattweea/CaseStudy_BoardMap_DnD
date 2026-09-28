@@ -34,7 +34,8 @@ import { PortraitStorage } from './portrait-storage.mjs';
 import { SceneBackgroundStorage } from './scene-background-storage.mjs';
 import { findCharacterTokenForOwner, rollInitiative } from './initiative-roll.mjs';
 import { insertInitiativeEntry } from '../shared/initiative-order.mjs';
-import { isValidCellsValue, pathCost } from '../shared/grid-movement.mjs';
+import { isValidCellsValue, pathCost, pathStepCount, MAX_MOVEMENT_PATH_STEPS } from '../shared/grid-movement.mjs';
+import { SCENE_LIMITS } from '../shared/scene-model.mjs';
 import { abilityModifier } from '../shared/dnd-rules.mjs';
 
 const app = Fastify({
@@ -373,11 +374,12 @@ function normalizeSharedState(parsed) {
       : { label: 'm', cellsValue: 1.5 };
   const boardDimensions =
     Number.isSafeInteger(parsed?.boardDimensions?.columns)
-    && parsed.boardDimensions.columns > 0
+    && parsed.boardDimensions.columns >= 0
     && parsed.boardDimensions.columns <= 500
     && Number.isSafeInteger(parsed?.boardDimensions?.rows)
-    && parsed.boardDimensions.rows > 0
+    && parsed.boardDimensions.rows >= 0
     && parsed.boardDimensions.rows <= 500
+    && ((parsed.boardDimensions.columns === 0) === (parsed.boardDimensions.rows === 0))
       ? { columns: parsed.boardDimensions.columns, rows: parsed.boardDimensions.rows }
       : { columns: 30, rows: 30 };
 
@@ -706,7 +708,9 @@ function isValidWaypoint(point) {
     Number.isInteger(point.x) &&
     Number.isInteger(point.y) &&
     point.x >= 0 &&
-    point.y >= 0
+    point.y >= 0 &&
+    point.x <= SCENE_LIMITS.maxCoordinateMagnitude &&
+    point.y <= SCENE_LIMITS.maxCoordinateMagnitude
   );
 }
 
@@ -1307,14 +1311,15 @@ function updateBattleMapSettings(updates) {
     const columns = updates.boardDimensions?.columns;
     const rows = updates.boardDimensions?.rows;
     if (
-      !Number.isSafeInteger(columns) || columns < 1 || columns > 500
-      || !Number.isSafeInteger(rows) || rows < 1 || rows > 500
-    ) return { status: 400, message: 'Dimensioni della griglia non valide.' };
+      !Number.isSafeInteger(columns) || columns < 0 || columns > 500
+      || !Number.isSafeInteger(rows) || rows < 0 || rows > 500
+      || ((columns === 0) !== (rows === 0))
+    ) return { status: 400, message: 'Inserisci dimensioni positive oppure 0 × 0 per una board illimitata.' };
     const outsideToken = battleMapState.tokens.some((token) => {
       const footprint = getTokenFootprint(token);
       return token.position.x < 0 || token.position.y < 0
-        || token.position.x + footprint.width > columns
-        || token.position.y + footprint.height > rows;
+        || (columns > 0 && token.position.x + footprint.width > columns)
+        || (rows > 0 && token.position.y + footprint.height > rows);
     });
     if (outsideToken) return { status: 400, message: 'La griglia non può escludere token già presenti.' };
     nextBoardDimensions = { columns, rows };
@@ -1409,11 +1414,16 @@ function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
   if (waypoints[0].x !== token.position.x || waypoints[0].y !== token.position.y) {
     return { status: 400, message: 'Il percorso deve partire dalla posizione corrente del token.' };
   }
+  if (pathStepCount(waypoints) > MAX_MOVEMENT_PATH_STEPS) {
+    return { status: 400, message: `Il percorso supera il limite di ${MAX_MOVEMENT_PATH_STEPS} caselle.` };
+  }
 
   const movingFootprint = getTokenFootprint(token);
   if (waypoints.some((point) =>
-    point.x + movingFootprint.width > battleMapState.boardDimensions.columns
-    || point.y + movingFootprint.height > battleMapState.boardDimensions.rows)) {
+    (battleMapState.boardDimensions.columns > 0
+      && point.x + movingFootprint.width > battleMapState.boardDimensions.columns)
+    || (battleMapState.boardDimensions.rows > 0
+      && point.y + movingFootprint.height > battleMapState.boardDimensions.rows))) {
     return { status: 400, message: 'Il percorso esce dai confini della scena.' };
   }
 
@@ -2601,6 +2611,7 @@ async function start() {
     getUser: getSessionUser,
     backgroundStorage: sceneBackgroundStorage,
     onActiveSceneUpdated: refreshActiveSceneProjection,
+    getRuntimeTokens: () => battleMapState.tokens,
   });
   app.addHook('onClose', async () => {
     characterSheetService.flushAll();

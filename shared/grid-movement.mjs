@@ -6,6 +6,21 @@ function normalizeParity(diagonalParity) {
   return diagonalParity === 1 ? 1 : 0;
 }
 
+export const MAX_MOVEMENT_PATH_STEPS = 1000;
+
+export function pathStepCount(waypoints) {
+  if (!Array.isArray(waypoints) || waypoints.length < 2) return 0;
+  let steps = 0;
+  for (let index = 0; index < waypoints.length - 1; index += 1) {
+    steps += Math.max(
+      Math.abs(waypoints[index + 1].x - waypoints[index].x),
+      Math.abs(waypoints[index + 1].y - waypoints[index].y),
+    );
+    if (steps > MAX_MOVEMENT_PATH_STEPS) return steps;
+  }
+  return steps;
+}
+
 // Decompone un segmento in passi di una casella nelle otto direzioni adiacenti: prima i passi
 // diagonali necessari a coprire la differenza minore fra i due assi, poi i passi ortogonali
 // residui lungo l'asse più lungo. Restituisce le posizioni intermedie, dalla prima dopo `from`
@@ -44,11 +59,31 @@ export function decomposeSegment(from, to) {
 // ogni passo, diagonale o meno; `alternating` (variante 5-10-5) addebita una casella al primo
 // passo diagonale del turno, due al secondo, e così via, riprendendo da `diagonalParity` invece
 // di ricominciare da zero. Un percorso vuoto o di un solo punto costa zero.
-export function pathCost(waypoints, { rule = 'standard', diagonalParity = 0 } = {}) {
+export function pathCost(waypoints, { rule = 'standard', diagonalParity = 0, includeSteps = true } = {}) {
   let parity = normalizeParity(diagonalParity);
 
   if (!Array.isArray(waypoints) || waypoints.length < 2) {
-    return { cells: 0, steps: [], nextDiagonalParity: parity };
+    return { cells: 0, steps: [], nextDiagonalParity: parity, exceedsLimit: false };
+  }
+  if (!includeSteps) {
+    let cells = 0;
+    for (let index = 0; index < waypoints.length - 1; index += 1) {
+      const dx = Math.abs(waypoints[index + 1].x - waypoints[index].x);
+      const dy = Math.abs(waypoints[index + 1].y - waypoints[index].y);
+      const diagonalCount = Math.min(dx, dy);
+      const orthogonalCount = Math.max(dx, dy) - diagonalCount;
+      if (rule === 'alternating') {
+        cells += diagonalCount + Math.floor((diagonalCount + parity) / 2);
+        parity = (parity + diagonalCount) % 2;
+      } else {
+        cells += diagonalCount;
+      }
+      cells += orthogonalCount;
+    }
+    return { cells, steps: [], nextDiagonalParity: parity, exceedsLimit: false };
+  }
+  if (pathStepCount(waypoints) > MAX_MOVEMENT_PATH_STEPS) {
+    return { cells: Number.POSITIVE_INFINITY, steps: [], nextDiagonalParity: parity, exceedsLimit: true };
   }
 
   let cells = 0;
@@ -69,7 +104,7 @@ export function pathCost(waypoints, { rule = 'standard', diagonalParity = 0 } = 
     }
   }
 
-  return { cells, steps, nextDiagonalParity: parity };
+  return { cells, steps, nextDiagonalParity: parity, exceedsLimit: false };
 }
 
 export function isValidCellsValue(value) {

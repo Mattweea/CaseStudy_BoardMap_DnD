@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { BoardDimensions } from '../types';
 import {
   sceneApi,
   SceneApiError,
@@ -93,6 +94,7 @@ export function useSceneCatalog(enabled: boolean) {
     name: string,
     backgroundDraft: File | 'blank' | null = null,
     backgroundCalibration: SceneBackgroundCalibration | null = null,
+    boardDimensions: BoardDimensions | null = null,
   ) => {
     if (!selectedScene) return false;
     setIsMutating(true);
@@ -104,7 +106,11 @@ export function useSceneCatalog(enabled: boolean) {
       } else if (backgroundDraft === 'blank' && updated.document.background.kind !== 'blank') {
         updated = await sceneApi.clearBackground(selectedScene.id, updated.version);
       }
-      const patch: { name?: string; backgroundCalibration?: SceneBackgroundCalibration } = {};
+      const patch: {
+        name?: string;
+        backgroundCalibration?: SceneBackgroundCalibration;
+        boardDimensions?: BoardDimensions;
+      } = {};
       if (name.trim() !== updated.name) patch.name = name;
       if (backgroundCalibration && updated.document.background.kind === 'image') {
         const current = updated.document.background;
@@ -114,6 +120,12 @@ export function useSceneCatalog(enabled: boolean) {
           || current.offsetY !== backgroundCalibration.offsetY
         ) {
           patch.backgroundCalibration = backgroundCalibration;
+        }
+      }
+      if (boardDimensions) {
+        const current = updated.document.board.dimensions;
+        if (current.columns !== boardDimensions.columns || current.rows !== boardDimensions.rows) {
+          patch.boardDimensions = boardDimensions;
         }
       }
       if (Object.keys(patch).length > 0) {

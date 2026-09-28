@@ -135,14 +135,16 @@ test('legacy partial scene receives canonical defaults without merging layers', 
   assert.deepEqual(normalized.board.dimensions, { columns: 30, rows: 30 });
 });
 
-test('board dimensions are bounded and image calibration cannot redefine measurement', () => {
+test('board dimensions accept zero-by-zero unlimited and reject mixed zero', () => {
   const scene = validScene();
   scene.background = { ...scene.background, scale: 8, offsetX: 400, offsetY: -200 };
   const normalized = normalizeSceneDocument(scene);
   assert.deepEqual(normalized.background, { kind: 'blank' });
   assert.deepEqual(normalized.board.measurementUnit, { label: 'ft', cellsValue: 5 });
-  scene.board.dimensions.columns = 0;
-  assert.throws(() => normalizeSceneDocument(scene), /dimensions.columns/);
+  scene.board.dimensions = { columns: 0, rows: 0 };
+  assert.deepEqual(normalizeSceneDocument(scene).board.dimensions, { columns: 0, rows: 0 });
+  scene.board.dimensions = { columns: 0, rows: 36 };
+  assert.throws(() => normalizeSceneDocument(scene), /both be zero or both be positive/);
 });
 
 test('image calibration accepts bounded scale and signed pixel offsets', () => {

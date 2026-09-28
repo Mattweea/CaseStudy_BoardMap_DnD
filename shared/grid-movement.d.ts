@@ -14,13 +14,19 @@ export interface PathStep extends GridPosition {
 export interface PathCostOptions {
   rule?: DiagonalRule;
   diagonalParity?: DiagonalParity;
+  includeSteps?: boolean;
 }
 
 export interface PathCostResult {
   cells: number;
   steps: PathStep[];
   nextDiagonalParity: DiagonalParity;
+  exceedsLimit: boolean;
 }
+
+export const MAX_MOVEMENT_PATH_STEPS: number;
+
+export function pathStepCount(waypoints: GridPosition[]): number;
 
 export function decomposeSegment(
   from: GridPosition,

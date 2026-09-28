@@ -473,11 +473,12 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
         : { label: 'm', cellsValue: 1.5 },
     boardDimensions:
       Number.isSafeInteger(parsed?.boardDimensions?.columns)
-      && (parsed?.boardDimensions?.columns ?? 0) > 0
+      && (parsed?.boardDimensions?.columns ?? -1) >= 0
       && (parsed?.boardDimensions?.columns ?? 0) <= 500
       && Number.isSafeInteger(parsed?.boardDimensions?.rows)
-      && (parsed?.boardDimensions?.rows ?? 0) > 0
+      && (parsed?.boardDimensions?.rows ?? -1) >= 0
       && (parsed?.boardDimensions?.rows ?? 0) <= 500
+      && ((parsed?.boardDimensions?.columns === 0) === (parsed?.boardDimensions?.rows === 0))
         ? parsed!.boardDimensions as BoardDimensions
         : { columns: 30, rows: 30 },
     dashUsedByTokenId:

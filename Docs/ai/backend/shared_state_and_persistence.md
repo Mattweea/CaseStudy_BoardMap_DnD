@@ -22,7 +22,7 @@ Both client and server normalize incoming state because data can come from older
 
 - Supply defaults for missing fields.
 - Drop or repair invalid references, such as initiatives for missing tokens.
-- Clamp grid dimensions, light radii, and other bounded numbers.
+- Clamp grid dimensions, light radii, and other bounded numbers. Board dimensions accept positive finite counts or exactly `0 × 0`; a mixed zero pair is invalid.
 - Rebuild bidirectional vehicle/occupant relationships from canonical vehicle occupant lists.
 - Preserve backward compatibility intentionally when a legacy field is still supported.
 - `DiceRollLog.dice` is additive. A legacy log without it remains valid; when present, the list is retained only if every die has a unique non-empty id, supported sides, in-range integer value, non-empty group id, and valid disposition. One malformed entry removes the whole detail list without discarding or reconstructing the compatible aggregate log.
@@ -99,7 +99,7 @@ SQLite is a separate persistence boundary:
   configuration into the legacy top-level fields consumed by current board code while retaining
   live runtime tokens in memory. A legacy snapshot without active-scene metadata receives the
   persisted active identity and configuration during installation.
-- `boardDimensions`, `measurementUnit`, and `diagonalRule` remain top-level compatibility fields for current consumers, but their authority is the active scene document. Master settings validate and persist a versioned scene update before refreshing and broadcasting all three together. Legacy documents default to 30 × 30 cells, `1.5 m`, and the standard diagonal rule.
+- `boardDimensions`, `measurementUnit`, and `diagonalRule` remain top-level compatibility fields for current consumers, but their authority is the active scene document. Master settings validate and persist a versioned scene update before refreshing and broadcasting these values. Board dimensions accept positive finite counts or `0 × 0`; legacy documents default to 30 × 30 cells, `1.5 m`, and the standard diagonal rule.
 - Image scale and offsets remain nested in the managed scene background and are projected only with the active background. Preview edits are client-local; confirmation is one optimistic scene write, is intentionally outside live-state undo, and refreshes the shared projection only when that scene is active.
 - Snapshot construction is role-specific: the Master receives metadata-only `sceneCatalog`
   summaries plus the active projection; an Adventurer receives only the active identity and
