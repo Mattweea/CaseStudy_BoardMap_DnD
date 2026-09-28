@@ -12,6 +12,7 @@ Define current combat sequencing, movement accounting, dice behavior, and role b
 - The round starts only when the master starts round one (`/combat/round/start`), which is rejected with an empty order; the active turn becomes the first entry.
 - Turn advance (`/turn/advance`) is rejected outside a started round. Advancing past the last entry increments the round; moving back from the first entry decrements it without going below one. A round wrap clears movement use, diagonal-alternation parity, dash use, and extra movement for all tokens.
 - The shared `playersCanEndTurn` setting (default off, master-only) lets an adventurer advance `next` only while the active token is their own character.
+- Only the Master may activate another scene. Activation is rejected while `isRoundStarted` is true. During Combat roll phase it keeps Combat mode but clears initiative, active turn, round number, movement usage, diagonal parity, dash and extra movement before the new projection is broadcast; in Dungeon it preserves compatible runtime. The activation itself does not transfer the party.
 
 ## Initiative
 

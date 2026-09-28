@@ -23,6 +23,7 @@ import {
   attachActiveSceneMetadata,
   buildSceneStateView,
   installActiveSceneProjection,
+  prepareSceneTransitionState,
 } from './active-scene-projection.mjs';
 import { CharacterSheetPolicy } from './character-sheet-policy.mjs';
 import { broadcastCharacterSheetEvent as broadcastSheetEvent } from './character-sheet-events.mjs';
@@ -926,6 +927,30 @@ function refreshActiveSceneProjection() {
   broadcastSnapshot();
 }
 
+function prepareActiveSceneTransition(targetScene) {
+  if (battleMapState.isRoundStarted) {
+    return { status: 409, message: 'Non puoi cambiare scena mentre un round e attivo.' };
+  }
+  try {
+    return {
+      status: 200,
+      state: normalizeSharedState(prepareSceneTransitionState(battleMapState, targetScene)),
+    };
+  } catch (error) {
+    return { status: 400, message: error?.message ?? 'La scena di destinazione non e valida.' };
+  }
+}
+
+function installPreparedSceneTransition(_scene, prepared) {
+  if (!prepared?.state) throw new Error('Transizione scena non preparata.');
+  battleMapState = prepared.state;
+  masterUndoStack.length = 0;
+  playerUndoStackByUserId.clear();
+  turnTransitionId += 1;
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+}
+
 function broadcastCharacterSheetEvent(event, sheet) {
   broadcastSheetEvent(streamClients, event, sheet, characterSheetPolicy);
 }
@@ -937,7 +962,7 @@ const TEMPLATE_SHAPES = new Set(['circle', 'cone', 'line']);
 // riconnessione dopo la loro scomparsa non ne trova traccia perché non esistono al di fuori di
 // questa trasmissione una tantum.
 function broadcastEphemeralEvent(type, payload, { filterByOriginToken = null } = {}) {
-  const event = { type, ...payload };
+  const event = { type, sceneId: battleMapState.activeSceneId, ...payload };
   streamClients.forEach((client) => {
     if (filterByOriginToken && !isTokenVisibleToUser(filterByOriginToken, client.user)) {
       return;
@@ -2612,6 +2637,8 @@ async function start() {
     getUser: getSessionUser,
     backgroundStorage: sceneBackgroundStorage,
     onActiveSceneUpdated: refreshActiveSceneProjection,
+    prepareSceneActivation: prepareActiveSceneTransition,
+    onSceneActivated: installPreparedSceneTransition,
     getRuntimeTokens: () => battleMapState.tokens,
   });
   app.addHook('onClose', async () => {
@@ -2679,5 +2706,7 @@ export const __testing = {
   normalizeSharedState,
   getBattleMapVersion: () => battleMapVersion,
   applyRoundWrapState,
+  prepareActiveSceneTransition,
+  installPreparedSceneTransition,
   streamClients,
 };

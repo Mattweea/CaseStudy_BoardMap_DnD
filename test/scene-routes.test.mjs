@@ -14,7 +14,12 @@ import { SceneService } from '../server/scene-service.mjs';
 const MASTER = { id: 'master-user', role: 'master' };
 const PLAYER = { id: 'player-ilthar', role: 'adventurer' };
 
-async function createApp({ onActiveSceneUpdated = null, getRuntimeTokens = () => [] } = {}) {
+async function createApp({
+  onActiveSceneUpdated = null,
+  prepareSceneActivation = null,
+  onSceneActivated = null,
+  getRuntimeTokens = () => [],
+} = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'vtt-scene-routes-'));
   const db = openDatabase({ path: join(directory, 'test.sqlite') });
   await migrate(db);
@@ -32,6 +37,8 @@ async function createApp({ onActiveSceneUpdated = null, getRuntimeTokens = () =>
     service,
     getUser: (request) => ({ master: MASTER, player: PLAYER })[request.headers['x-test-user']] ?? null,
     onActiveSceneUpdated,
+    prepareSceneActivation,
+    onSceneActivated,
     getRuntimeTokens,
   });
   return {
@@ -54,6 +61,55 @@ test('scene catalog routes enforce authentication and master authorization', asy
     assert.equal((await app.inject({ method: 'GET', url: '/api/scenes/scene-initial', headers: { 'x-test-user': 'player' } })).statusCode, 403);
     assert.equal((await app.inject({ method: 'POST', url: '/api/scenes', headers: { 'x-test-user': 'player' }, payload: { name: 'Vietata' } })).statusCode, 403);
     assert.equal((await app.inject({ method: 'PATCH', url: '/api/scenes/scene-initial', headers: { 'x-test-user': 'player' }, payload: { baseVersion: 1, name: 'Vietata' } })).statusCode, 403);
+  } finally {
+    await close();
+  }
+});
+
+test('scene activation is Master-only, versioned, blocked during a round and committed once', async () => {
+  let roundStarted = true;
+  const activated = [];
+  const { app, service, close } = await createApp({
+    prepareSceneActivation: (scene) => roundStarted
+      ? { status: 409, message: 'Round attivo.' }
+      : { status: 200, state: { activeSceneId: scene.id } },
+    onSceneActivated: (scene, prepared) => activated.push({ id: scene.id, prepared }),
+  });
+  const master = { 'x-test-user': 'master' };
+  try {
+    const created = await app.inject({ method: 'POST', url: '/api/scenes', headers: master, payload: { name: 'Seconda' } });
+    const target = created.json();
+    const url = `/api/scenes/${target.id}/activate`;
+    assert.equal((await app.inject({ method: 'POST', url, payload: { baseVersion: target.version } })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'POST', url, headers: { 'x-test-user': 'player' }, payload: { baseVersion: target.version } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url, headers: master, payload: { baseVersion: target.version + 1 } })).statusCode, 409);
+    assert.equal((await app.inject({ method: 'POST', url, headers: master, payload: { baseVersion: target.version } })).statusCode, 409);
+    assert.equal(service.getActiveScene().id, 'scene-initial');
+    assert.deepEqual(activated, []);
+
+    roundStarted = false;
+    const response = await app.inject({ method: 'POST', url, headers: master, payload: { baseVersion: target.version } });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().isActive, true);
+    assert.equal(service.getActiveScene().id, target.id);
+    assert.deepEqual(activated, [{ id: target.id, prepared: { status: 200, state: { activeSceneId: target.id } } }]);
+  } finally {
+    await close();
+  }
+});
+
+test('scene activation storage failure leaves the active scene unchanged', async () => {
+  const { app, repository, service, close } = await createApp({
+    prepareSceneActivation: (scene) => ({ status: 200, state: { activeSceneId: scene.id } }),
+  });
+  const headers = { 'x-test-user': 'master' };
+  try {
+    const created = await app.inject({ method: 'POST', url: '/api/scenes', headers, payload: { name: 'Guasta' } });
+    repository.setActiveScene = () => { throw new Error('storage failure'); };
+    const response = await app.inject({ method: 'POST', url: `/api/scenes/${created.json().id}/activate`, headers,
+      payload: { baseVersion: created.json().version } });
+    assert.equal(response.statusCode, 500);
+    assert.equal(service.getActiveScene().id, 'scene-initial');
   } finally {
     await close();
   }

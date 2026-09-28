@@ -63,6 +63,7 @@ export function SceneCatalogPanel({
     reload,
     selectScene,
     createScene,
+    activateScene,
     updateScene,
     addDrawing,
     eraseDrawings,
@@ -645,7 +646,17 @@ export function SceneCatalogPanel({
                     ? 'Aggiornamento...'
                     : isActiveSceneBackgroundHidden ? 'Mostra sfondo' : 'Nascondi sfondo'}
                 </button>
-              ) : null}
+              ) : (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={isMutating || hasDraftChanges}
+                  title={hasDraftChanges ? 'Salva o annulla le modifiche prima di attivare la scena' : undefined}
+                  onClick={() => void activateScene()}
+                >
+                  {isMutating ? 'Attivazione...' : 'Attiva scena'}
+                </button>
+              )}
             </div>
             <p className="scene-catalog__hint">Le modifiche alla scena attiva si applicano alla board al salvataggio; le altre restano preparazione finché non vengono attivate.</p>
             <div className="scene-catalog__draft-actions">

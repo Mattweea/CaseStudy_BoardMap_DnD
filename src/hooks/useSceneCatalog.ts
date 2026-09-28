@@ -91,6 +91,33 @@ export function useSceneCatalog(enabled: boolean) {
     }
   };
 
+  const activateScene = async () => {
+    if (!selectedScene || selectedScene.isActive) return false;
+    setIsMutating(true);
+    setError(null);
+    try {
+      const activated = await sceneApi.activate(selectedScene.id, selectedScene.version);
+      setCatalog((current) => replaceEntry(
+        current.map((entry) => ({ ...entry, isActive: entry.id === activated.id })),
+        activated,
+      ));
+      setSelectedScene(activated);
+      return true;
+    } catch (requestError) {
+      if (requestError instanceof SceneApiError && requestError.status === 409 && requestError.payload.currentScene) {
+        const current = requestError.payload.currentScene;
+        setCatalog((catalogState) => replaceEntry(catalogState, current));
+        setSelectedScene(current);
+        setError('La scena è cambiata nel frattempo. Ho caricato la versione più recente; ripeti l’attivazione.');
+      } else {
+        setError(readableError(requestError, 'Attivazione della scena non riuscita.'));
+      }
+      return false;
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
   const updateScene = async (
     name: string,
     backgroundDraft: File | 'blank' | null = null,
@@ -185,6 +212,7 @@ export function useSceneCatalog(enabled: boolean) {
     reload: loadCatalog,
     selectScene,
     createScene,
+    activateScene,
     updateScene,
     addDrawing: (drawing: SceneDrawing) => writeLayer((scene) => sceneApi.addDrawing(scene.id, scene.version, drawing), 'Salvataggio del disegno non riuscito. Riprova.'),
     eraseDrawings: (ids: string[]) => writeLayer((scene) => sceneApi.eraseDrawings(scene.id, scene.version, ids), 'Cancellazione del disegno non riuscita. Riprova.'),

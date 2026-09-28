@@ -70,6 +70,7 @@ Ping, template-drawing, and token-walk events (`ephemeral-ping`, `ephemeral-temp
 - are never written to `battleMapState`, never bump `battleMapVersion`, and never appear in a snapshot, a suspend, or a resumed session;
 - derive their author from the authenticated session, never from a client-declared field;
 - for a template or a token-walk, are filtered per recipient using the same token-visibility predicate (`isTokenVisibleToUser`) that sanitizes the shared state for that user — keyed on whichever token (if any) occupies the template's origin cell, or on the moved token itself for `token-walk`; a ping has no such filter and reaches every connected client.
+- carry the current `sceneId`; clients discard a named event that arrives after its scene has ceased to be active.
 
 `token-walk` carries the exact waypoints of a move that `moveOwnedToken` just accepted, purely so every connected client can play the same walking animation instead of only seeing the token's final cell once the snapshot arrives; it is broadcast in addition to, never instead of, the normal snapshot broadcast for that move. `showTrack` is `false` for an `x`/`y` single-step request (keyboard or movement pad), so clients animate it without the path track.
 
@@ -94,6 +95,7 @@ SQLite is a separate persistence boundary:
 - Scene background binaries live under ignored `server/data/scene-backgrounds/`. Storage validates size and magic bytes, stages with a unique temporary name, atomically renames inside the confined root, and removes abandoned staging files during startup. A failed versioned SQLite write removes the new asset and leaves the previous scene reference intact; old assets are removed only after a successful commit.
 - The scene catalog, normalized scene configuration, optimistic version and active-scene reference are persisted in SQLite. Scene services persist before replacing their in-memory projection.
 - The Master catalog reads and mutates this persistence boundary through dedicated authorized routes. Its selected detail is local management state: reading or editing an inactive scene does not alter the persisted active-scene reference and does not broadcast it to Player clients.
+- Scene activation is a dedicated Master-only optimistic operation. The server validates the target and its version and rejects an active combat round before writing the active-scene reference. A storage failure leaves the in-memory identity and live projection unchanged. After persistence, it installs one prepared projection, advances the shared version once, clears cross-scene undo history, and broadcasts one role-specific snapshot.
 - `activeSceneId`, `activeSceneVersion`, `activeSceneSummary`, and `activeSceneBackground` identify the one persisted active
   scene in shared snapshots. `activeSceneDrawings` contains only that scene's normalized strokes and defaults to `[]` for older snapshots.
   `activeSceneElements` contiene solo gli arredi normalizzati della scena attiva e defaulta a `[]` per snapshot precedenti. Gli elementi hanno kind chiuso, posizione e ingombro interi in caselle, rotazione limitata; la normalizzazione elimina qualsiasi campo da token. Le scritture elementi passano dal documento scena versionato, non dal live-state undo o dalla history drawing.
@@ -111,6 +113,7 @@ SQLite is a separate persistence boundary:
   the shared version, and broadcasts; changes to an inactive scene remain catalog-local.
 - When the scene catalog is empty, startup creates one initial scene and imports only supported board configuration from the legacy suspend snapshot. Existing scenes prevent every later reimport; absent or malformed legacy data produces safe defaults.
 - Battle-map suspend/resume remains responsible for the current live snapshot. Scene persistence does not recover runtime tokens, round, hit points, movement, initiative or logs; complete automatic live recovery remains a separate capability.
+- In Dungeon, activation preserves compatible live runtime while replacing the scene configuration. In Combat roll phase it preserves Combat mode but clears initiative, active turn, round counter, movement, diagonal parity, dash and extra-movement references. Activation is forbidden once the round has started; party transfer and per-scene runtime isolation remain separate capabilities.
 
 ## Undo
 

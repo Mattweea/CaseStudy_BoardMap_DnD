@@ -76,6 +76,8 @@ export function registerSceneRoutes(app, {
   getUser,
   backgroundStorage = null,
   onActiveSceneUpdated = null,
+  prepareSceneActivation = null,
+  onSceneActivated = null,
   getRuntimeTokens = () => [],
 }) {
   function sceneDetail(scene) {
@@ -129,6 +131,28 @@ export function registerSceneRoutes(app, {
       const sortOrder = catalog.reduce((maximum, scene) => Math.max(maximum, scene.sortOrder), -1) + 1;
       const scene = service.createScene({ name, sortOrder, document: createDefaultSceneDocument() });
       reply.code(201);
+      return sceneDetail(scene);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  app.post('/api/scenes/:id/activate', async (request, reply) => {
+    if (!masterOnly(request, reply)) return;
+    try {
+      const body = request.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || !Number.isSafeInteger(body.baseVersion) || body.baseVersion < 1) {
+        throw new TypeError('La versione base della scena e obbligatoria.');
+      }
+      const target = service.versionedScene(request.params.id, body.baseVersion);
+      const prepared = prepareSceneActivation?.(target) ?? null;
+      if (prepared?.status && prepared.status !== 200) {
+        reply.code(prepared.status);
+        return { message: prepared.message };
+      }
+      const scene = service.activateScene({ id: target.id, expectedVersion: body.baseVersion });
+      onSceneActivated?.(scene, prepared);
       return sceneDetail(scene);
     } catch (error) {
       return sendError(reply, error);

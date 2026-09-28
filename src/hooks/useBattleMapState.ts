@@ -36,6 +36,7 @@ import {
   isCreature,
 } from '../utils/tokens';
 import { API_BASE_URL, EVENTS_URL } from '../utils/api';
+import { eventBelongsToActiveScene } from '../utils/sceneEvents';
 const ZOOM_STORAGE_KEY = 'dnd-battle-map-zoom';
 // Il ping ha una durata fissa; la sagoma termina quando il suo autore invia l'evento di fine,
 // più una durata massima di sicurezza per chi si disconnette senza inviarlo.
@@ -695,6 +696,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     const handlePing = (event: MessageEvent) => {
       try {
         const ping = JSON.parse(event.data) as EphemeralPing;
+        if (!eventBelongsToActiveScene(ping, sharedStateRef.current.activeSceneId)) return;
         setEphemeralPings((current) => [...current.filter((entry) => entry.id !== ping.id), ping]);
         const previousTimeout = pingTimeoutsRef.current.get(ping.id);
         if (previousTimeout !== undefined) {
@@ -724,6 +726,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     const handleTemplateUpdate = (event: MessageEvent) => {
       try {
         const template = JSON.parse(event.data) as EphemeralTemplate;
+        if (!eventBelongsToActiveScene(template, sharedStateRef.current.activeSceneId)) return;
         setEphemeralTemplates((current) => [...current.filter((entry) => entry.id !== template.id), template]);
         const previousTimeout = templateTimeoutsRef.current.get(template.id);
         if (previousTimeout !== undefined) {
@@ -740,7 +743,8 @@ export function useBattleMapState(isAuthenticated: boolean) {
 
     const handleTemplateEnd = (event: MessageEvent) => {
       try {
-        const { id } = JSON.parse(event.data) as { id: string };
+        const { id, sceneId } = JSON.parse(event.data) as { id: string; sceneId: string };
+        if (!eventBelongsToActiveScene({ sceneId }, sharedStateRef.current.activeSceneId)) return;
         removeTemplate(id);
       } catch (error) {
         console.error(error);
@@ -750,9 +754,10 @@ export function useBattleMapState(isAuthenticated: boolean) {
     const tokenWalkTimeoutsRef = new Set<ReturnType<typeof window.setTimeout>>();
     const handleTokenWalk = (event: MessageEvent) => {
       try {
-        const payload = JSON.parse(event.data) as { tokenId: string; waypoints: GridPosition[]; showTrack?: boolean };
+        const payload = JSON.parse(event.data) as { sceneId: string; tokenId: string; waypoints: GridPosition[]; showTrack?: boolean };
+        if (!eventBelongsToActiveScene(payload, sharedStateRef.current.activeSceneId)) return;
         const id = `${payload.tokenId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        setTokenWalkEvents((current) => [...current, { id, tokenId: payload.tokenId, waypoints: payload.waypoints, showTrack: payload.showTrack !== false }]);
+        setTokenWalkEvents((current) => [...current, { id, sceneId: payload.sceneId, tokenId: payload.tokenId, waypoints: payload.waypoints, showTrack: payload.showTrack !== false }]);
         const timeout = window.setTimeout(() => {
           setTokenWalkEvents((current) => current.filter((entry) => entry.id !== id));
           tokenWalkTimeoutsRef.delete(timeout);

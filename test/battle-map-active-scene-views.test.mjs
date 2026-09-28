@@ -92,3 +92,40 @@ test('HTTP and SSE provide Master catalog summaries while two Players receive on
     __testing.setSceneService(null);
   }
 });
+
+test('an installed scene transition broadcasts the new projection to Master and two Players without reconnecting', () => {
+  const previous = makeScene('scene-old', 'Vecchia', 1, 'OLD');
+  const target = makeScene('scene-new', 'Nuova', 2, 'NEW');
+  let active = previous;
+  const service = {
+    getActiveScene: () => structuredClone(active),
+    getCatalog: () => structuredClone([previous, target]),
+  };
+  __testing.setSceneService(service);
+  __testing.setBattleMapState({
+    sessionMode: 'combat', isRoundStarted: false,
+    initiatives: [{ tokenId: 'old-token', value: 10 }], activeTurnTokenId: 'old-token',
+    movementUsedByTokenId: { 'old-token': 2 }, tokens: [],
+  });
+  const prepared = __testing.prepareActiveSceneTransition(target);
+  assert.equal(prepared.status, 200);
+
+  const clients = [fakeClient(MASTER), fakeClient(PLAYER_ONE), fakeClient(PLAYER_TWO)];
+  clients.forEach((client) => __testing.streamClients.add(client));
+  try {
+    active = target;
+    __testing.installPreparedSceneTransition(target, prepared);
+    for (const client of clients) {
+      const snapshots = client.snapshots();
+      assert.equal(snapshots.length, 1);
+      assert.equal(snapshots[0].state.activeSceneId, target.id);
+      assert.equal(snapshots[0].state.activeSceneVersion, target.version);
+      assert.deepEqual(snapshots[0].state.activeSceneElements, target.document.elements);
+      assert.deepEqual(snapshots[0].state.initiatives, []);
+      assert.equal(snapshots[0].state.activeTurnTokenId, null);
+    }
+  } finally {
+    clients.forEach((client) => __testing.streamClients.delete(client));
+    __testing.setSceneService(null);
+  }
+});

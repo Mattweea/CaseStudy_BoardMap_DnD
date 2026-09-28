@@ -82,6 +82,7 @@ export type TemplateShape = 'circle' | 'cone' | 'line';
 
 export interface EphemeralPing {
   id: string;
+  sceneId: string;
   position: GridPosition;
   authorUserId: string;
   authorName: string;
@@ -89,6 +90,7 @@ export interface EphemeralPing {
 
 export interface EphemeralTemplate {
   id: string;
+  sceneId: string;
   shape: TemplateShape;
   origin: GridPosition;
   target: GridPosition;
@@ -99,6 +101,7 @@ export interface EphemeralTemplate {
 
 export interface TokenWalkEvent {
   id: string;
+  sceneId: string;
   tokenId: string;
   waypoints: GridPosition[];
   // Falso per un passo singolo da tastiera: animazione senza binario del percorso.

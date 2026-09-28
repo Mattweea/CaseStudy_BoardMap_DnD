@@ -4,6 +4,7 @@ import { createDefaultSceneDocument } from '../shared/scene-model.mjs';
 import {
   buildSceneStateView,
   installActiveSceneProjection,
+  prepareSceneTransitionState,
 } from '../server/active-scene-projection.mjs';
 import { pathCost } from '../shared/grid-movement.mjs';
 
@@ -83,6 +84,35 @@ test('scene scale switches atomically and image calibration does not alter cell 
   assert.deepEqual(imperialProjection.measurementUnit, { label: 'ft', cellsValue: 5 });
   assert.deepEqual(imperialProjection.boardDimensions, { columns: 48, rows: 36 });
   assert.equal(pathCost([{ x: 0, y: 0 }, { x: 3, y: 3 }], { rule: imperialProjection.diagonalRule }).cells, 3);
+});
+
+test('Dungeon scene transition preserves compatible runtime while replacing the scene projection', () => {
+  const target = scene('dungeon-target', 'Cripta', 3, { dimensions: { columns: 42, rows: 24 } });
+  const state = { sessionMode: 'exploration', isRoundStarted: false, tokens: [{ id: 'party' }], sharedNotes: 'live' };
+  const transitioned = prepareSceneTransitionState(state, target);
+  assert.equal(transitioned.activeSceneId, target.id);
+  assert.deepEqual(transitioned.boardDimensions, { columns: 42, rows: 24 });
+  assert.equal(transitioned.tokens, state.tokens);
+  assert.equal(transitioned.sharedNotes, 'live');
+});
+
+test('roll-phase scene transition clears combat references and movement accounting', () => {
+  const target = scene('combat-target', 'Arena nuova', 2);
+  const transitioned = prepareSceneTransitionState({
+    sessionMode: 'combat', isRoundStarted: false,
+    initiatives: [{ tokenId: 'old', value: 12 }], activeTurnTokenId: 'old', roundNumber: 4,
+    movementUsedByTokenId: { old: 3 }, diagonalParityByTokenId: { old: 1 },
+    dashUsedByTokenId: { old: true }, extraMovementByTokenId: { old: 2 },
+  }, target);
+  assert.equal(transitioned.sessionMode, 'combat');
+  assert.equal(transitioned.isRoundStarted, false);
+  assert.deepEqual(transitioned.initiatives, []);
+  assert.equal(transitioned.activeTurnTokenId, null);
+  assert.equal(transitioned.roundNumber, 1);
+  assert.deepEqual(transitioned.movementUsedByTokenId, {});
+  assert.deepEqual(transitioned.diagonalParityByTokenId, {});
+  assert.deepEqual(transitioned.dashUsedByTokenId, {});
+  assert.deepEqual(transitioned.extraMovementByTokenId, {});
 });
 
 test('role views expose only summaries to the Master and only active identity to a Player', () => {

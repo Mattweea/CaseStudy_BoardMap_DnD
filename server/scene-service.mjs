@@ -279,10 +279,10 @@ export class SceneService {
     return updated;
   }
 
-  setActiveScene(sceneId) {
-    if (!this.scenes.has(sceneId)) throw new SceneNotFoundError(sceneId);
-    const persisted = this.repository.setActiveScene(this.campaignId, sceneId);
-    if (!persisted) throw new SceneNotFoundError(sceneId);
+  activateScene({ id, expectedVersion }) {
+    const current = this.versionedScene(id, expectedVersion);
+    const persisted = this.repository.setActiveScene(this.campaignId, current.id);
+    if (!persisted) throw new SceneNotFoundError(id);
     this.activeSceneId = persisted.id;
     return clone(persisted);
   }

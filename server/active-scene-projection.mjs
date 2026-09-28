@@ -52,6 +52,23 @@ export function installActiveSceneProjection(state, activeScene) {
   }, activeScene);
 }
 
+export function prepareSceneTransitionState(state, targetScene) {
+  const runtime = state?.sessionMode === 'combat'
+    ? {
+        ...state,
+        isRoundStarted: false,
+        initiatives: [],
+        activeTurnTokenId: null,
+        roundNumber: 1,
+        movementUsedByTokenId: {},
+        diagonalParityByTokenId: {},
+        dashUsedByTokenId: {},
+        extraMovementByTokenId: {},
+      }
+    : state;
+  return installActiveSceneProjection(runtime, targetScene);
+}
+
 export function buildSceneStateView(state, user, sceneService) {
   const activeScene = sceneService?.getActiveScene?.() ?? null;
   const withActiveScene = attachActiveSceneMetadata(state, activeScene);
