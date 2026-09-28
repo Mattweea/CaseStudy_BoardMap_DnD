@@ -62,15 +62,15 @@ export const COMMAND_MODULES: readonly CommandModule[] = [
   {
     id: 'map',
     title: 'Mappa e visuale',
-    summary: 'Zoom, spostamento della visuale, selezione e strumenti sempre disponibili.',
+    summary: 'Zoom e spostamento della visuale con mouse, trackpad e pulsanti; selezione e strumenti sempre disponibili.',
     sections: [
       {
         entries: [
           { keys: ['Rotella'], text: 'Zoom della mappa, ancorato al cursore.', audience: 'all' },
           { keys: ['Ctrl', 'Rotella'], text: 'Sposta la visuale in verticale.', audience: 'all' },
           { keys: ['Alt', 'Rotella'], text: 'Sposta la visuale in orizzontale.', audience: 'all' },
-          { keys: ['Pinch trackpad'], text: 'Zoom della mappa, ancorato alle dita.', audience: 'all' },
-          { keys: ['Scorrimento a due dita'], text: 'Sposta la visuale (pan) sul trackpad, in ogni direzione.', audience: 'all' },
+          { keys: ['Trackpad', 'due dita'], text: 'Scorri per spostare la visuale in ogni direzione.', audience: 'all' },
+          { keys: ['Trackpad', 'pinch'], text: 'Zoom della mappa, ancorato alle dita.', audience: 'all' },
           { keys: ['+', '−'], text: 'Pulsanti di zoom a lato della mappa.', audience: 'all' },
           { keys: ['Ctrl', 'trascina'], text: 'Sposta la visuale (pan).', audience: 'all' },
           { keys: ['Tasto centrale', 'trascina'], text: 'Sposta la visuale (pan).', audience: 'all' },
