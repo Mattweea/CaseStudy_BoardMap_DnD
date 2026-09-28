@@ -1281,7 +1281,7 @@ function App() {
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => setBoardBackgroundHidden(!state.isBoardBackgroundHidden)}
+                onClick={() => void setBoardBackgroundHidden(!state.isBoardBackgroundHidden)}
               >
                 {state.isBoardBackgroundHidden ? <><MapIcon /> Mostra sfondo board</> : <><MoonIcon /> Nascondi sfondo board</>}
               </button>
@@ -1982,7 +1982,10 @@ function App() {
         onClose={() => setIsSceneCatalogModalOpen(false)}
         className="modal-card--scene-catalog"
       >
-        <SceneCatalogPanel />
+        <SceneCatalogPanel
+          isActiveSceneBackgroundHidden={state.isBoardBackgroundHidden}
+          onActiveSceneBackgroundVisibilityChange={setBoardBackgroundHidden}
+        />
       </Modal>
 
       <Modal

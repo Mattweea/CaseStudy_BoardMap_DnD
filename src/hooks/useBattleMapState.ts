@@ -1415,7 +1415,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
   };
 
   const setBoardBackgroundHidden = (hidden: boolean) => {
-    void commitSharedState((current) => ({
+    return commitSharedState((current) => ({
       ...current,
       isBoardBackgroundHidden: hidden,
     }));

@@ -14,7 +14,15 @@ function sceneCalibration(scene: ReturnType<typeof useSceneCatalog>['selectedSce
     : DEFAULT_CALIBRATION;
 }
 
-export function SceneCatalogPanel() {
+interface SceneCatalogPanelProps {
+  isActiveSceneBackgroundHidden: boolean;
+  onActiveSceneBackgroundVisibilityChange: (hidden: boolean) => Promise<void>;
+}
+
+export function SceneCatalogPanel({
+  isActiveSceneBackgroundHidden,
+  onActiveSceneBackgroundVisibilityChange,
+}: SceneCatalogPanelProps) {
   const {
     catalog,
     selectedScene,
@@ -32,6 +40,7 @@ export function SceneCatalogPanel() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [calibrationDraft, setCalibrationDraft] = useState(DEFAULT_CALIBRATION);
   const [previewImageSize, setPreviewImageSize] = useState<{ width: number; height: number } | null>(null);
+  const [isChangingVisibility, setIsChangingVisibility] = useState(false);
 
   useEffect(() => {
     setNameDraft(selectedScene?.name ?? '');
@@ -79,6 +88,18 @@ export function SceneCatalogPanel() {
   );
   const previewBoard = selectedScene?.document.board.dimensions ?? { columns: 30, rows: 30 };
   const previewBoardWidth = previewBoard.columns * 48;
+
+  const changeActiveBackgroundVisibility = async () => {
+    if (!selectedScene?.isActive || hasDraftChanges) return;
+    const sceneId = selectedScene.id;
+    setIsChangingVisibility(true);
+    try {
+      await onActiveSceneBackgroundVisibilityChange(!isActiveSceneBackgroundHidden);
+      await selectScene(sceneId);
+    } finally {
+      setIsChangingVisibility(false);
+    }
+  };
 
   useEffect(() => {
     setPreviewImageSize(null);
@@ -224,6 +245,41 @@ export function SceneCatalogPanel() {
               </div>
               <small>JPEG, PNG o WebP · massimo 10 MB. La scelta resta in bozza fino al salvataggio.</small>
             </fieldset>
+            <div className={`scene-catalog__visibility ${selectedScene.isActive ? 'scene-catalog__visibility--active' : ''}`}>
+              <div>
+                <span className="scene-catalog__visibility-label">Visibilità sulla board</span>
+                <strong>
+                  {selectedScene.isActive
+                    ? isActiveSceneBackgroundHidden ? 'Sfondo nascosto' : 'Sfondo visibile'
+                    : 'Scena non attiva'}
+                </strong>
+                <p>
+                  {selectedScene.isActive
+                    ? isActiveSceneBackgroundHidden
+                      ? 'La griglia resta disponibile, ma l’immagine non è mostrata ai partecipanti.'
+                      : 'L’immagine salvata è mostrata sulla board del Master e dei Player.'
+                    : 'La visibilità può essere cambiata soltanto per la scena attualmente attiva.'}
+                </p>
+              </div>
+              {selectedScene.isActive ? (
+                <button
+                  type="button"
+                  className={isActiveSceneBackgroundHidden ? 'primary-button' : 'secondary-button'}
+                  aria-pressed={!isActiveSceneBackgroundHidden}
+                  disabled={isMutating || isChangingVisibility || hasDraftChanges || selectedScene.document.background.kind !== 'image'}
+                  title={selectedScene.document.background.kind !== 'image'
+                    ? 'Salva prima un’immagine di sfondo'
+                    : hasDraftChanges
+                      ? 'Salva o annulla le modifiche prima di cambiare la visibilità'
+                      : undefined}
+                  onClick={() => void changeActiveBackgroundVisibility()}
+                >
+                  {isChangingVisibility
+                    ? 'Aggiornamento...'
+                    : isActiveSceneBackgroundHidden ? 'Mostra sfondo' : 'Nascondi sfondo'}
+                </button>
+              ) : null}
+            </div>
             <p className="scene-catalog__hint">Stai modificando la preparazione: la scena mostrata ai Player non cambia finché non viene attivata.</p>
             <div className="scene-catalog__draft-actions">
               <button type="button" className="secondary-button" disabled={isMutating || !hasDraftChanges} onClick={() => { setNameDraft(selectedScene.name); setBackgroundDraft(null); setCalibrationDraft(sceneCalibration(selectedScene)); }}>
