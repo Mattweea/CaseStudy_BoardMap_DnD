@@ -6,7 +6,7 @@ Define current combat sequencing, movement accounting, dice behavior, and role b
 
 ## Session mode and encounter lifecycle
 
-- The session is always in one shared mode: `exploration` (default) or `combat`. Only the master switches it (`POST /api/battle-map/combat/start`, `/combat/end`).
+- The session is always in one shared mode: `exploration` (default) or `combat`. The UI presents these modes as **Dungeon** and **Combattimento** respectively; Dungeon is only the user-facing name for the existing exploration behavior, not a third state or an additional ruleset. Only the master switches it (`POST /api/battle-map/combat/start`, `/combat/end`).
 - `exploration` has no initiative entries, no active turn, and no round in progress; initiative rolls are rejected there.
 - Entering `combat` empties the tracker, resets active turn, round (to one), movement used, diagonal parity, dash, and extra movement, and opens the **roll phase** (`isRoundStarted: false`, no active turn). Leaving `combat` applies the same resets.
 - The round starts only when the master starts round one (`/combat/round/start`), which is rejected with an empty order; the active turn becomes the first entry.

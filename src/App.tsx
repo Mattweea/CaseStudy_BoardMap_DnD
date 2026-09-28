@@ -970,7 +970,7 @@ function App() {
                     <span>Stato</span>
                     <strong>
                       {state.sessionMode === 'exploration'
-                        ? 'Esplorazione'
+                        ? 'Dungeon'
                         : !state.isRoundStarted
                           ? 'Attesa Iniziativa'
                         : isPlayersTurn
