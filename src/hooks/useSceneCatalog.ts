@@ -123,6 +123,7 @@ export function useSceneCatalog(enabled: boolean) {
     backgroundDraft: File | 'blank' | null = null,
     backgroundCalibration: SceneBackgroundCalibration | null = null,
     boardDimensions: BoardDimensions | null = null,
+    isFullyLit: boolean | null = null,
   ) => {
     if (!selectedScene) return false;
     setIsMutating(true);
@@ -138,6 +139,7 @@ export function useSceneCatalog(enabled: boolean) {
         name?: string;
         backgroundCalibration?: SceneBackgroundCalibration;
         boardDimensions?: BoardDimensions;
+        isFullyLit?: boolean;
       } = {};
       if (name.trim() !== updated.name) patch.name = name;
       if (backgroundCalibration && updated.document.background.kind === 'image') {
@@ -155,6 +157,9 @@ export function useSceneCatalog(enabled: boolean) {
         if (current.columns !== boardDimensions.columns || current.rows !== boardDimensions.rows) {
           patch.boardDimensions = boardDimensions;
         }
+      }
+      if (isFullyLit !== null && updated.document.board.isFullyLit !== isFullyLit) {
+        patch.isFullyLit = isFullyLit;
       }
       if (Object.keys(patch).length > 0) {
         updated = await sceneApi.update(selectedScene.id, updated.version, patch);

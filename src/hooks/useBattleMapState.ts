@@ -1438,13 +1438,6 @@ export function useBattleMapState(isAuthenticated: boolean) {
     }));
   };
 
-  const setBoardFullyLit = (fullyLit: boolean) => {
-    void commitSharedState((current) => ({
-      ...current,
-      isBoardFullyLit: fullyLit,
-    }));
-  };
-
   const addLightSource = (position: GridPosition, radiusCells: number) => {
     void commitSharedState((current) => ({
       ...current,
@@ -1620,7 +1613,6 @@ export function useBattleMapState(isAuthenticated: boolean) {
     setPlayersCanEndTurn,
     setActiveTurnToken,
     setBoardBackgroundHidden,
-    setBoardFullyLit,
     addLightSource,
     removeLightSource,
     setSharedNotes,

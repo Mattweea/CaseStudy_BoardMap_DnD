@@ -117,6 +117,7 @@ test('roll-phase scene transition clears combat references and movement accounti
 
 test('role views expose only summaries to the Master and only active identity to a Player', () => {
   const active = scene('scene-a', 'Sala A', 2, {}, 'active-asset');
+  active.document.board.isFullyLit = true;
   const inactive = scene('scene-b', 'Sala B', 7, {}, 'INACTIVE-ASSET-MARKER');
   active.document.drawings = [{ id: 'visible-stroke', color: '#ffffff', widthCells: 0.12, points: [{ x: 1, y: 2 }] }];
   inactive.document.drawings = [{ id: 'secret-stroke', color: '#ffffff', widthCells: 0.12, points: [{ x: 3, y: 4 }] }];
@@ -128,6 +129,8 @@ test('role views expose only summaries to the Master and only active identity to
 
   const master = buildSceneStateView(state, { role: 'master' }, service);
   const player = buildSceneStateView(state, { role: 'adventurer' }, service);
+  assert.equal(master.isBoardFullyLit, true);
+  assert.equal(player.isBoardFullyLit, true);
 
   assert.deepEqual(master.sceneCatalog, [
     { id: 'scene-a', name: 'Sala A', version: 2, isActive: true },

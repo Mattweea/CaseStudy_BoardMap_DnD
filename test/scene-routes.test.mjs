@@ -439,6 +439,70 @@ test('scene catalog rejects malformed payloads and exposes no delete or archive 
   }
 });
 
+test('scene darkness is Master-only, boolean, versioned and projected only from the active scene', async () => {
+  const refreshed = [];
+  const { app, repository, service, close } = await createApp({
+    onActiveSceneUpdated: (scene) => refreshed.push({ id: scene.id, version: scene.version }),
+  });
+  const master = { 'x-test-user': 'master' };
+  const activeUrl = '/api/scenes/scene-initial';
+  try {
+    assert.equal((await app.inject({ method: 'PATCH', url: activeUrl,
+      payload: { baseVersion: 1, isFullyLit: true } })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'PATCH', url: activeUrl, headers: { 'x-test-user': 'player' },
+      payload: { baseVersion: 1, isFullyLit: true } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'PATCH', url: activeUrl, headers: master,
+      payload: { baseVersion: 1, isFullyLit: 'yes' } })).statusCode, 400);
+
+    const active = await app.inject({ method: 'PATCH', url: activeUrl, headers: master,
+      payload: { baseVersion: 1, isFullyLit: true, boardDimensions: { columns: 40, rows: 35 } } });
+    assert.equal(active.statusCode, 200);
+    assert.equal(active.json().document.board.isFullyLit, true);
+    assert.deepEqual(active.json().document.board.dimensions, { columns: 40, rows: 35 });
+    assert.equal(repository.findById('scene-initial').document.board.isFullyLit, true);
+    assert.deepEqual(refreshed, [{ id: 'scene-initial', version: 2 }]);
+
+    const stale = await app.inject({ method: 'PATCH', url: activeUrl, headers: master,
+      payload: { baseVersion: 1, isFullyLit: false } });
+    assert.equal(stale.statusCode, 409);
+    assert.equal(stale.json().currentScene.document.board.isFullyLit, true);
+
+    const created = await app.inject({ method: 'POST', url: '/api/scenes', headers: master,
+      payload: { name: 'Sala illuminata' } });
+    const inactive = created.json();
+    const prepared = await app.inject({ method: 'PATCH', url: `/api/scenes/${inactive.id}`, headers: master,
+      payload: { baseVersion: inactive.version, isFullyLit: true } });
+    assert.equal(prepared.statusCode, 200);
+    assert.equal(prepared.json().document.board.isFullyLit, true);
+    assert.deepEqual(refreshed, [{ id: 'scene-initial', version: 2 }]);
+    assert.equal(service.getActiveScene().id, 'scene-initial');
+
+    const activated = await app.inject({ method: 'POST', url: `/api/scenes/${inactive.id}/activate`, headers: master,
+      payload: { baseVersion: prepared.json().version } });
+    assert.equal(activated.statusCode, 200);
+    assert.equal(service.getActiveScene().document.board.isFullyLit, true);
+  } finally {
+    await close();
+  }
+});
+
+test('scene darkness storage failure leaves document and active projection unchanged', async () => {
+  const refreshed = [];
+  const { app, repository, service, close } = await createApp({
+    onActiveSceneUpdated: (scene) => refreshed.push(scene.version),
+  });
+  try {
+    repository.saveVersion = () => { throw new Error('storage failure'); };
+    const response = await app.inject({ method: 'PATCH', url: '/api/scenes/scene-initial',
+      headers: { 'x-test-user': 'master' }, payload: { baseVersion: 1, isFullyLit: true } });
+    assert.equal(response.statusCode, 500);
+    assert.equal(service.getActiveScene().document.board.isFullyLit, false);
+    assert.deepEqual(refreshed, []);
+  } finally {
+    await close();
+  }
+});
+
 test('only an update to the active scene requests a shared projection refresh', async () => {
   const refreshed = [];
   const { app, close } = await createApp({ onActiveSceneUpdated: (scene) => refreshed.push(scene.id) });

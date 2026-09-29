@@ -7,7 +7,7 @@
 - [x] 1.3 Revisionare e approvare P0.9c.1–c.4.
 - [ ] 1.4 Revisionare e approvare P0.9d.1–d.4.
 - [ ] 1.5 Revisionare e approvare P0.9e.1–e.5.
-- [ ] 1.6 Revisionare e approvare P0.9b.5.
+- [x] 1.6 Revisionare e approvare P0.9b.5.
 
 ## 2. Validazione e applicazione
 

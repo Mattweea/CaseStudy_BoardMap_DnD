@@ -136,6 +136,7 @@ test('legacy partial scene receives canonical defaults without merging layers', 
   assert.notEqual(normalized.elements, normalized.preparedPlacements);
   assert.notEqual(normalized.preparedPlacements, normalized.runtime.tokens);
   assert.deepEqual(normalized.board.dimensions, { columns: 30, rows: 30 });
+  assert.equal(normalized.board.isFullyLit, false);
 });
 
 test('board dimensions accept zero-by-zero unlimited and reject mixed zero', () => {

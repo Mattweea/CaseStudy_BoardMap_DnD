@@ -68,6 +68,7 @@ export const sceneApi = {
     name?: string;
     backgroundCalibration?: SceneBackgroundCalibration;
     boardDimensions?: { columns: number; rows: number };
+    isFullyLit?: boolean;
   }) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify({ baseVersion, ...patch }),

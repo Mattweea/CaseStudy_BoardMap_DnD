@@ -32,8 +32,10 @@ function validateUpdateBody(body) {
     || Array.isArray(body)
     || !Number.isSafeInteger(body.baseVersion)
     || body.baseVersion < 1
-    || (body.name === undefined && body.backgroundCalibration === undefined && body.boardDimensions === undefined)
+    || (body.name === undefined && body.backgroundCalibration === undefined && body.boardDimensions === undefined
+      && body.isFullyLit === undefined)
     || (body.name !== undefined && typeof body.name !== 'string')
+    || (body.isFullyLit !== undefined && typeof body.isFullyLit !== 'boolean')
     || (
       body.backgroundCalibration !== undefined
       && (
@@ -68,6 +70,7 @@ function validateUpdateBody(body) {
     name: body.name,
     backgroundCalibration: body.backgroundCalibration,
     boardDimensions: body.boardDimensions,
+    isFullyLit: body.isFullyLit,
   };
 }
 
@@ -170,7 +173,7 @@ export function registerSceneRoutes(app, {
   app.patch('/api/scenes/:id', async (request, reply) => {
     if (!masterOnly(request, reply)) return;
     try {
-      const { baseVersion, name, backgroundCalibration, boardDimensions } = validateUpdateBody(request.body);
+      const { baseVersion, name, backgroundCalibration, boardDimensions, isFullyLit } = validateUpdateBody(request.body);
       const current = service.getScene(request.params.id);
       if (!current) return reply.code(404).send({ message: 'Scena non trovata.' });
       if (backgroundCalibration !== undefined && current.document.background.kind !== 'image') {
@@ -196,8 +199,12 @@ export function registerSceneRoutes(app, {
         ...(backgroundCalibration === undefined ? {} : {
           background: { ...current.document.background, ...backgroundCalibration },
         }),
-        ...(boardDimensions === undefined ? {} : {
-          board: { ...current.document.board, dimensions: boardDimensions },
+        ...(boardDimensions === undefined && isFullyLit === undefined ? {} : {
+          board: {
+            ...current.document.board,
+            ...(boardDimensions === undefined ? {} : { dimensions: boardDimensions }),
+            ...(isFullyLit === undefined ? {} : { isFullyLit }),
+          },
         }),
       };
       const scene = service.updateScene({

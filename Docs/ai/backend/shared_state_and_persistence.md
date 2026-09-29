@@ -105,6 +105,7 @@ SQLite is a separate persistence boundary:
   live runtime tokens in memory. A legacy snapshot without active-scene metadata receives the
   persisted active identity and configuration during installation.
 - `boardDimensions`, `measurementUnit`, and `diagonalRule` remain top-level compatibility fields for current consumers, but their authority is the active scene document. Master settings validate and persist a versioned scene update before refreshing and broadcasting these values. Board dimensions accept positive finite counts or `0 × 0`; legacy documents default to 30 × 30 cells, `1.5 m`, and the standard diagonal rule.
+- `isBoardFullyLit` is likewise a compatible top-level projection of the active scene's `board.isFullyLit`. The Master edits it through the selected scene's versioned preparation draft; inactive edits do not alter or broadcast the live board. A missing scene value defaults to `false` (darkness enabled).
 - Image scale and offsets remain nested in the managed scene background and are projected only with the active background. Preview edits are client-local; confirmation is one optimistic scene write, is intentionally outside live-state undo, and refreshes the shared projection only when that scene is active.
 - Snapshot construction is role-specific: the Master receives metadata-only `sceneCatalog`
   summaries plus the active projection; an Adventurer receives only the active identity and

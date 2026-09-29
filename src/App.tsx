@@ -197,7 +197,6 @@ function App() {
     removeLightSource,
     setActiveTurnToken,
     setBoardBackgroundHidden,
-    setBoardFullyLit,
     setSharedNotes,
     updateBattleMapSettings,
     startCombat,
@@ -1347,23 +1346,6 @@ function App() {
               </div>
             </div>
             <div className="action-card">
-              <div className="action-card__block">
-                <p className="action-card__label">Buio della mappa</p>
-                <p className="action-card__meta">
-                  {state.isBoardFullyLit
-                    ? 'La mappa e completamente illuminata per i player.'
-                    : 'I player vedono solo scurovisione e luci attive.'}
-                </p>
-                <button
-                  type="button"
-                  className={state.isBoardFullyLit ? 'primary-button' : 'secondary-button'}
-                  onClick={() => setBoardFullyLit(!state.isBoardFullyLit)}
-                  aria-pressed={state.isBoardFullyLit}
-                >
-                  {state.isBoardFullyLit ? 'Riattiva buio' : 'Illumina tutto'}
-                </button>
-              </div>
-
               <div className="action-card__block">
                 <p className="action-card__label">Luci puntuali</p>
                 <p className="action-card__meta">

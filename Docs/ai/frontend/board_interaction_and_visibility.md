@@ -52,6 +52,7 @@ Master multi-token and connected-obstacle movement may use a full shared-state c
 - The master receives the unsanitized state and may render invisible tokens as preparation/ghost elements.
 - Fog and lighting are separate from server-side hidden-token sanitization. They determine what received content is visually revealed, not whether secret content was delivered.
 - A fully lit board bypasses darkness presentation but does not bypass `isInvisible` sanitization.
+- The Master configures that fully-lit/dark choice per scene in the preparation dialog. `Buio attivo` is a local draft until explicit save; cancel leaves rendering unchanged, and activating a prepared scene applies its saved choice to every connected client.
 - Blocking tokens participate in line-of-sight calculations. Source and target cells are excluded where needed to prevent self-occlusion.
 
 ## Vision and light

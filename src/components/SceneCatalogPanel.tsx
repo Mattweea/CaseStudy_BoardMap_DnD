@@ -89,6 +89,7 @@ export function SceneCatalogPanel({
   const panGestureRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const [isChangingVisibility, setIsChangingVisibility] = useState(false);
   const [boardDimensionsDraft, setBoardDimensionsDraft] = useState({ columns: '', rows: '' });
+  const [isDarknessEnabledDraft, setIsDarknessEnabledDraft] = useState(true);
   const [dimensionsError, setDimensionsError] = useState<string | null>(null);
   const [drawingTool, setDrawingTool] = useState<'pencil' | 'eraser' | null>(null);
   const [drawingColor, setDrawingColor] = useState('#f36f3d');
@@ -103,6 +104,7 @@ export function SceneCatalogPanel({
     setNameDraft(selectedScene?.name ?? '');
     setBackgroundDraft(null);
     setCalibrationDraft(sceneCalibration(selectedScene));
+    setIsDarknessEnabledDraft(!(selectedScene?.document.board.isFullyLit ?? false));
     setDimensionsError(null);
   }, [selectedScene]);
 
@@ -174,7 +176,7 @@ export function SceneCatalogPanel({
     setDimensionsError(null);
     const hasImage = backgroundDraft instanceof File
       || (backgroundDraft !== 'blank' && selectedScene?.document.background.kind === 'image');
-    if (await updateScene(nameDraft, backgroundDraft, hasImage ? calibrationDraft : null, dimensions)) {
+    if (await updateScene(nameDraft, backgroundDraft, hasImage ? calibrationDraft : null, dimensions, !isDarknessEnabledDraft)) {
       setBackgroundDraft(null);
     }
   };
@@ -194,6 +196,7 @@ export function SceneCatalogPanel({
     || (hasImage && calibrationChanged)
     || boardDimensionsDraft.columns !== String(selectedScene.document.board.dimensions.columns)
     || boardDimensionsDraft.rows !== String(selectedScene.document.board.dimensions.rows)
+    || isDarknessEnabledDraft !== !selectedScene.document.board.isFullyLit
   );
   const requestedDimensions = parseBoardDimensions(boardDimensionsDraft);
   const previewBoard = requestedDimensions ?? selectedScene?.document.board.dimensions ?? { columns: 30, rows: 30 };
@@ -613,6 +616,19 @@ export function SceneCatalogPanel({
                 {dimensionsError ? <p role="alert" className="scene-catalog__error">{dimensionsError}</p> : null}
               </div>
             </div>
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={isDarknessEnabledDraft}
+                disabled={isMutating}
+                onChange={(event) => setIsDarknessEnabledDraft(event.target.checked)}
+              />
+              <span>
+                <strong>Buio attivo</strong>
+                <small>I Player vedono soltanto le aree illuminate o coperte dalla loro scurovisione.</small>
+              </span>
+            </label>
             <div className={`scene-catalog__visibility ${selectedScene.isActive ? 'scene-catalog__visibility--active' : ''}`}>
               <div>
                 <span className="scene-catalog__visibility-label">Visibilità sulla board</span>
@@ -660,7 +676,7 @@ export function SceneCatalogPanel({
             </div>
             <p className="scene-catalog__hint">Le modifiche alla scena attiva si applicano alla board al salvataggio; le altre restano preparazione finché non vengono attivate.</p>
             <div className="scene-catalog__draft-actions">
-              <button type="button" className="secondary-button" disabled={isMutating || !hasDraftChanges} onClick={() => { setNameDraft(selectedScene.name); setBackgroundDraft(null); setCalibrationDraft(sceneCalibration(selectedScene)); setBoardDimensionsDraft({ columns: String(selectedScene.document.board.dimensions.columns), rows: String(selectedScene.document.board.dimensions.rows) }); setDimensionsError(null); }}>
+              <button type="button" className="secondary-button" disabled={isMutating || !hasDraftChanges} onClick={() => { setNameDraft(selectedScene.name); setBackgroundDraft(null); setCalibrationDraft(sceneCalibration(selectedScene)); setBoardDimensionsDraft({ columns: String(selectedScene.document.board.dimensions.columns), rows: String(selectedScene.document.board.dimensions.rows) }); setIsDarknessEnabledDraft(!selectedScene.document.board.isFullyLit); setDimensionsError(null); }}>
                 Annulla
               </button>
               <button type="submit" className="primary-button" disabled={isMutating || nameDraft.trim().length === 0 || !hasDraftChanges}>
