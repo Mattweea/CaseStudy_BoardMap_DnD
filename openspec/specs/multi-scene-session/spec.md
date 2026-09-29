@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Multi-Scene Session Specification
+
+## Purpose
+
+Definire il comportamento autorevole, realtime e coerente delle sessioni che attraversano più scene, incluse attivazione, isolamento e transizioni condivise.
+
+## Requirements
 
 ### Requirement: P0.9d.1 Transizione realtime della scena attiva
 Il sistema SHALL consentire soltanto al Master di attivare una scena e SHALL distribuire atomicamente la nuova proiezione a tutti i client connessi. Il server SHALL rifiutare il cambio mentre un round di combattimento è attivo.
