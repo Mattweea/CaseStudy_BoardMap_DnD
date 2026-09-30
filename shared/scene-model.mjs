@@ -1,3 +1,5 @@
+import { normalizeEncounterTokenProperties } from './encounter-token-properties.mjs';
+
 export const SCENE_DOCUMENT_VERSION = 1;
 
 export const SCENE_LIMITS = Object.freeze({
@@ -369,6 +371,14 @@ function normalizeEntityReferences(value, path, encounterIds) {
     if (encounterId !== undefined && !SCENE_ENTITY_KINDS.includes(cloned.entityType)) {
       fail(itemPath + '.entityType', 'must be monster or npc for an encounter entity');
     }
+    let tokenProperties;
+    if (encounterId !== undefined && cloned.tokenProperties !== undefined) {
+      try {
+        tokenProperties = normalizeEncounterTokenProperties(cloned.tokenProperties);
+      } catch (error) {
+        fail(itemPath + '.tokenProperties', error.message);
+      }
+    }
     return {
       id: normalizeId(cloned.id, itemPath + '.id'),
       entityType: normalizeShortString(
@@ -380,6 +390,7 @@ function normalizeEntityReferences(value, path, encounterIds) {
       ...(encounterId === undefined ? {} : {
         encounterId,
         name: normalizeShortString(cloned.name, itemPath + '.name', SCENE_LIMITS.maxNameLength),
+        ...(tokenProperties === undefined ? {} : { tokenProperties }),
       }),
     };
   });

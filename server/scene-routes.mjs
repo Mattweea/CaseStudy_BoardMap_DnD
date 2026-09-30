@@ -359,7 +359,9 @@ export function registerSceneRoutes(app, {
       };
       const scene = mode === 'create'
         ? service.createEncounterEntity({ ...args, entity: body.entity })
-        : service.removeEncounterEntity({ ...args, referenceId: request.params.referenceId });
+        : mode === 'update'
+          ? service.updateEncounterEntity({ ...args, referenceId: request.params.referenceId, entity: body.entity })
+          : service.removeEncounterEntity({ ...args, referenceId: request.params.referenceId });
       if (scene.id === service.getActiveScene()?.id) onActiveSceneUpdated?.(scene);
       if (mode === 'create') reply.code(201);
       return sceneDetail(scene);
@@ -370,6 +372,8 @@ export function registerSceneRoutes(app, {
 
   app.post('/api/scenes/:id/encounters/:encounterId/entities',
     (request, reply) => mutateEncounterEntity(request, reply, 'create'));
+  app.patch('/api/scenes/:id/encounters/:encounterId/entities/:referenceId',
+    (request, reply) => mutateEncounterEntity(request, reply, 'update'));
   app.delete('/api/scenes/:id/encounters/:encounterId/entities/:referenceId',
     (request, reply) => mutateEncounterEntity(request, reply, 'remove'));
 

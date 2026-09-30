@@ -82,6 +82,8 @@ export function SceneCatalogPanel({
     createEncounter,
     updateEncounter,
     removeEncounter,
+    createEncounterEntity,
+    updateEncounterEntity,
   } = useSceneCatalog(true);
   const [newName, setNewName] = useState('');
   const [nameDraft, setNameDraft] = useState('');
@@ -745,7 +747,8 @@ export function SceneCatalogPanel({
             </div>
           </form>
           <SceneEncounterSection scene={selectedScene} disabled={isMutating || isLoading || hasDraftChanges} error={error}
-            onCreate={createEncounter} onUpdate={updateEncounter} onRemove={removeEncounter} />
+            onCreate={createEncounter} onUpdate={updateEncounter} onRemove={removeEncounter}
+            onCreateEntity={createEncounterEntity} onUpdateEntity={updateEncounterEntity} />
           </>
         ) : (
           <div className="scene-catalog__empty-workspace">

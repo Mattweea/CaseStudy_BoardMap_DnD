@@ -12,6 +12,8 @@ Every token has a stable ID, name, grid position, color, initiative modifier, an
 
 Le definizioni monster/npc associate agli encounter sono configurazione, non una nuova categoria runtime. Un adapter puro produce un `UnitToken` di tipo `enemy` con ID dell'istanza/placement, geometria e proprietà canoniche; non assegna `ownerUserId` né `characterKey` e non crea schede PC. E.2 non colloca token sulla board: E.4 userà l'adapter per materializzare placement confermati.
 
+E.3 conserva manualmente solo nome, kind e le proprietà opzionali già lette dall'adapter: taglia, ingombro, colore, modificatore iniziativa, movimento, HP, invisibilità ed esclusione dall'iniziativa. Il placement fornirà posizione e ID dell'istanza; l'adapter deriva tipo `enemy`, affiliazione e default. Non esiste ancora una sorgente canonica monster/npc da collegare né una collocazione implicita.
+
 ## Visibility and ownership
 
 - `isInvisible` means hidden from non-owner adventurer snapshots, not merely transparent CSS.

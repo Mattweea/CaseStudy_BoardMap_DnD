@@ -278,6 +278,26 @@ test('monster and npc references keep stable encounter links without breaking le
   assert.throws(() => normalizeSceneDocument(scene), /must match the entity encounter/);
 });
 
+test('manual encounter data preserves only supported token fields and legacy E.2 references', () => {
+  const scene = validScene();
+  scene.entityReferences.push({ id: 'monster-ref', entityType: 'monster', entityId: 'local-1',
+    encounterId: 'encounter-1', name: 'Goblin', tokenProperties: {
+      size: 'small', initiativeModifier: -1, movementCells: 6, hitPoints: 7, maxHitPoints: 7,
+      isInvisible: false,
+    } });
+  scene.entityReferences.push({ id: 'npc-ref', entityType: 'npc', entityId: 'local-2',
+    encounterId: 'encounter-1', name: 'Custode' });
+  const normalized = normalizeSceneDocument(scene);
+  assert.deepEqual(normalized.entityReferences.slice(-2), scene.entityReferences.slice(-2));
+  assert.equal(normalized.entityReferences.at(-1).tokenProperties, undefined);
+  for (const tokenProperties of [{ movementCells: -1 }, { widthCells: 1.5 }, { color: 'red' },
+    { ownerUserId: 'player' }, { imageUrl: 'https://example.test/creature' }, null]) {
+    scene.entityReferences.at(-2).tokenProperties = tokenProperties;
+    assert.throws(() => normalizeSceneDocument(scene), (error) => error instanceof SceneValidationError
+      && error.path.endsWith('.tokenProperties'));
+  }
+});
+
 test('coordinates must be safe integers inside the configured guardrail', () => {
   const fractional = validScene();
   fractional.runtime.tokens[0].position.x = 1.5;

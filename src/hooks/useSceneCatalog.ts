@@ -7,6 +7,7 @@ import {
   type SceneBackgroundCalibration,
   type SceneCatalogEntry,
   type PartyTransferPreview,
+  type EncounterEntityInput,
 } from '../utils/sceneApi';
 
 function entryFromScene(scene: PersistedScene): SceneCatalogEntry {
@@ -292,5 +293,11 @@ export function useSceneCatalog(enabled: boolean) {
       (scene) => sceneApi.updateEncounter(scene.id, encounterId, scene.version, patch), 'Modifica dell’encounter non riuscita.'),
     removeEncounter: (encounterId: string) => writeLayer(
       (scene) => sceneApi.removeEncounter(scene.id, encounterId, scene.version), 'Rimozione dell’encounter non riuscita.'),
+    createEncounterEntity: (encounterId: string, entity: EncounterEntityInput) => writeLayer(
+      (scene) => sceneApi.createEncounterEntity(scene.id, encounterId, scene.version, entity),
+      'Creazione della figura non riuscita.'),
+    updateEncounterEntity: (encounterId: string, referenceId: string, entity: EncounterEntityInput) => writeLayer(
+      (scene) => sceneApi.updateEncounterEntity(scene.id, encounterId, referenceId, scene.version, entity),
+      'Modifica della figura non riuscita.'),
   };
 }

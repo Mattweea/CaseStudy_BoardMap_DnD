@@ -1,9 +1,7 @@
 import type { UnitToken } from '../src/types';
-import type { SceneEncounterEntityReference, ScenePreparedPlacement } from './scene-model';
+import type { EncounterTokenProperties, SceneEncounterEntityReference, ScenePreparedPlacement } from './scene-model';
 
-export type EncounterTokenProperties = Partial<Pick<UnitToken,
-  'size' | 'widthCells' | 'heightCells' | 'color' | 'initiativeModifier' |
-  'movementCells' | 'hitPoints' | 'maxHitPoints' | 'isInvisible' | 'excludeFromInitiative'>>;
+export type { EncounterTokenProperties } from './scene-model';
 
 export function projectEncounterEntityToken(input: {
   entity: SceneEncounterEntityReference;

@@ -251,6 +251,65 @@ test('failed encounter entity persistence leaves memory and runtime unchanged', 
   }
 });
 
+test('manual monster and npc data are versioned, private and editable without token materialization', async () => {
+  const { app, service, repository, close } = await createApp();
+  const master = { 'x-test-user': 'master' };
+  const player = { 'x-test-user': 'player' };
+  try {
+    const encounter = await app.inject({ method: 'POST', url: '/api/scenes/scene-initial/encounters',
+      headers: master, payload: { baseVersion: 1, encounter: { name: 'Guardia', kind: 'combat' } } });
+    const encounterId = encounter.json().document.encounters[0].id;
+    const base = `/api/scenes/scene-initial/encounters/${encounterId}/entities`;
+    const invalid = await app.inject({ method: 'POST', url: base, headers: master,
+      payload: { baseVersion: 2, entity: { kind: 'monster', name: 'Goblin',
+        tokenProperties: { ownerUserId: PLAYER.id } } } });
+    assert.equal(invalid.statusCode, 400);
+    assert.equal(service.getScene('scene-initial').version, 2);
+    assert.equal((await app.inject({ method: 'POST', url: base, headers: master,
+      payload: { baseVersion: 2, entity: { kind: 'monster', name: 'Da URL',
+        sourceUrl: 'https://example.test/monster' } } })).statusCode, 400);
+    const created = await app.inject({ method: 'POST', url: base, headers: master,
+      payload: { baseVersion: 2, entity: { kind: 'monster', name: 'Goblin',
+        tokenProperties: { size: 'small', hitPoints: 7, maxHitPoints: 7, movementCells: 6 } } } });
+    assert.equal(created.statusCode, 201);
+    const original = created.json().document.entityReferences[0];
+    assert.equal(original.tokenProperties.hitPoints, 7);
+    const item = `${base}/${original.id}`;
+    assert.equal((await app.inject({ method: 'PATCH', url: item,
+      payload: { baseVersion: 3, entity: { kind: 'npc', name: 'Custode' } } })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'PATCH', url: item, headers: player,
+      payload: { baseVersion: 3, entity: { kind: 'npc', name: 'Custode' } } })).statusCode, 403);
+    const updated = await app.inject({ method: 'PATCH', url: item, headers: master,
+      payload: { baseVersion: 3, entity: { kind: 'npc', name: 'Custode',
+        tokenProperties: { size: 'medium', initiativeModifier: 2, isInvisible: false } } } });
+    assert.equal(updated.statusCode, 200);
+    const changed = updated.json().document.entityReferences[0];
+    assert.deepEqual([changed.id, changed.entityId, changed.encounterId],
+      [original.id, original.entityId, original.encounterId]);
+    assert.equal(changed.entityType, 'npc');
+    assert.deepEqual(changed.tokenProperties, { size: 'medium', initiativeModifier: 2, isInvisible: false });
+    assert.deepEqual(updated.json().document.runtime.tokens, []);
+    assert.deepEqual(repository.findById('scene-initial').document.entityReferences[0], changed);
+    service.load();
+    assert.deepEqual(service.getScene('scene-initial').document.entityReferences[0], changed);
+    const stale = await app.inject({ method: 'PATCH', url: item, headers: master,
+      payload: { baseVersion: 3, entity: { kind: 'monster', name: 'Stale' } } });
+    assert.equal(stale.statusCode, 409);
+    assert.equal(stale.json().currentScene.version, 4);
+    assert.equal((await app.inject({ method: 'PATCH', url: item, headers: master,
+      payload: { baseVersion: 4, entity: { kind: 'npc', name: 'Errato',
+        tokenProperties: { maxHitPoints: -1 } } } })).statusCode, 400);
+    assert.deepEqual(service.getScene('scene-initial').document.entityReferences[0], changed);
+    repository.saveVersion = () => { throw new Error('storage failure'); };
+    assert.equal((await app.inject({ method: 'PATCH', url: item, headers: master,
+      payload: { baseVersion: 4, entity: { kind: 'npc', name: 'Non salvato' } } })).statusCode, 500);
+    assert.equal(service.getScene('scene-initial').version, 4);
+    assert.deepEqual(service.getScene('scene-initial').document.entityReferences[0], changed);
+  } finally {
+    await close();
+  }
+});
+
 test('scene activation is Master-only, versioned, blocked during a round and committed once', async () => {
   let roundStarted = true;
   const activated = [];

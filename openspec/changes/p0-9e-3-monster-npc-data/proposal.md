@@ -7,18 +7,15 @@ Mostri e PNG richiedono dati minimi per la preparazione, ma non va assunta l'ide
 ## What Changes
 
 - Definisce soltanto i dati necessari al mapping sul modello corrente.
-- Consente riferimenti canonici opzionali senza duplicare entità esistenti.
+- Permette al Master di creare e modificare manualmente i dati minimi di mostri e PNG già associati a un encounter.
+- Mantiene gli identificatori locali stabili introdotti in E.2; il collegamento a un catalogo canonico è rinviato a un change successivo, quando esisterà una sorgente verificabile.
 - Esclude 5e.tools e qualunque import esterno finché non viene approvato separatamente.
 
 ## Capabilities
 
-### New Capabilities
-
-- encounter-management: configurazione e preparazione degli encounter associati alle scene.
-
 ### Modified Capabilities
 
-Nessuna.
+- encounter-management: dati manuali minimi delle entità associate agli encounter.
 
 ## Impact
 

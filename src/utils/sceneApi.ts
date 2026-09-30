@@ -1,4 +1,4 @@
-import type { Scene, SceneDrawing, SceneElement, SceneEncounter } from '../types';
+import type { Scene, SceneDrawing, SceneElement, SceneEncounter, EncounterTokenProperties } from '../types';
 import { API_BASE_URL } from './api';
 
 export interface SceneCatalogEntry {
@@ -24,6 +24,12 @@ export interface SceneBackgroundCalibration {
   scale: number;
   offsetX: number;
   offsetY: number;
+}
+
+export interface EncounterEntityInput {
+  kind: 'monster' | 'npc';
+  name: string;
+  tokenProperties?: EncounterTokenProperties;
 }
 
 export interface PartyTransferPreview {
@@ -154,6 +160,15 @@ export const sceneApi = {
   removeEncounter: (id: string, encounterId: string, baseVersion: number) => request<PersistedScene>(
     `/scenes/${encodeURIComponent(id)}/encounters/${encodeURIComponent(encounterId)}`, {
       method: 'DELETE', body: JSON.stringify({ baseVersion }),
+    }),
+  createEncounterEntity: (id: string, encounterId: string, baseVersion: number, entity: EncounterEntityInput) =>
+    request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/encounters/${encodeURIComponent(encounterId)}/entities`, {
+      method: 'POST', body: JSON.stringify({ baseVersion, entity }),
+    }),
+  updateEncounterEntity: (id: string, encounterId: string, referenceId: string, baseVersion: number,
+    entity: EncounterEntityInput) => request<PersistedScene>(
+    `/scenes/${encodeURIComponent(id)}/encounters/${encodeURIComponent(encounterId)}/entities/${encodeURIComponent(referenceId)}`, {
+      method: 'PATCH', body: JSON.stringify({ baseVersion, entity }),
     }),
 };
 

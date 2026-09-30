@@ -39,7 +39,8 @@ test('HTTP and SSE provide Master catalog summaries while two Players receive on
   active.document.drawings = [{ id: 'visible-stroke', color: '#ffffff', widthCells: 0.12, points: [{ x: 1.25, y: 2.5 }] }];
   active.document.encounters = [{ id: 'encounter-active', name: 'PRIVATE-ACTIVE-ENCOUNTER', kind: 'narrative', description: '' }];
   active.document.entityReferences = [{ id: 'entity-ref-active', entityId: 'entity-active',
-    entityType: 'npc', encounterId: 'encounter-active', name: 'PRIVATE-ACTIVE-NPC' }];
+    entityType: 'npc', encounterId: 'encounter-active', name: 'PRIVATE-ACTIVE-NPC',
+    tokenProperties: { initiativeModifier: 87, color: '#ab319f' } }];
   inactive.document.drawings = [{ id: 'secret-stroke', color: '#ffffff', widthCells: 0.12, points: [{ x: 4, y: 5 }] }];
   __testing.setSceneService({
     getActiveScene: () => structuredClone(active),
@@ -67,6 +68,7 @@ test('HTTP and SSE provide Master catalog summaries while two Players receive on
     assert.equal(JSON.stringify(response.json()).includes('secret-stroke'), false);
     assert.equal(JSON.stringify(response.json()).includes('PRIVATE-ACTIVE-ENCOUNTER'), false);
     assert.equal(JSON.stringify(response.json()).includes('PRIVATE-ACTIVE-NPC'), false);
+    assert.equal(JSON.stringify(response.json()).includes('tokenProperties'), false);
   }
   assert.equal(JSON.stringify(masterResponse.json()).includes('INACTIVE-ASSET-MARKER'), false);
 
@@ -93,6 +95,7 @@ test('HTTP and SSE provide Master catalog summaries while two Players receive on
       assert.equal(JSON.stringify(snapshot).includes('secret-stroke'), false);
       assert.equal(JSON.stringify(snapshot).includes('PRIVATE-ACTIVE-ENCOUNTER'), false);
       assert.equal(JSON.stringify(snapshot).includes('PRIVATE-ACTIVE-NPC'), false);
+      assert.equal(JSON.stringify(snapshot).includes('tokenProperties'), false);
     }
   } finally {
     clients.forEach((client) => __testing.streamClients.delete(client));

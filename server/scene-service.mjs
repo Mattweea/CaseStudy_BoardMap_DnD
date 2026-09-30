@@ -328,7 +328,8 @@ export class SceneService {
       throw new ScenePersistenceConflictError(current);
     }
     if (!entity || typeof entity !== 'object' || Array.isArray(entity)
-      || !SCENE_ENTITY_KINDS.includes(entity.kind)) {
+      || !SCENE_ENTITY_KINDS.includes(entity.kind)
+      || Object.keys(entity).some((key) => !['kind', 'name', 'tokenProperties'].includes(key))) {
       throw new TypeError('Specifica nome e tipo monster o npc dell’entità.');
     }
     const reference = {
@@ -337,10 +338,37 @@ export class SceneService {
       entityType: entity.kind,
       encounterId,
       name: entity.name,
+      ...(entity.tokenProperties === undefined ? {} : { tokenProperties: entity.tokenProperties }),
     };
     const document = normalizeSceneDocument({
       ...current.document,
       entityReferences: [...current.document.entityReferences, reference],
+    });
+    return this.updateScene({
+      id: current.id, expectedVersion, name: current.name, document, sortOrder: current.sortOrder,
+    });
+  }
+
+  updateEncounterEntity({ id, encounterId, referenceId, expectedVersion, entity }) {
+    const current = this.versionedScene(id, expectedVersion);
+    const existing = current.document.entityReferences.find((reference) => reference.id === referenceId
+      && reference.encounterId === encounterId);
+    if (!existing) throw new ScenePersistenceConflictError(current);
+    if (!entity || typeof entity !== 'object' || Array.isArray(entity)
+      || !SCENE_ENTITY_KINDS.includes(entity.kind)
+      || Object.keys(entity).some((key) => !['kind', 'name', 'tokenProperties'].includes(key))) {
+      throw new TypeError('Specifica nome e tipo monster o npc dell’entità.');
+    }
+    const replacement = {
+      ...existing,
+      entityType: entity.kind,
+      name: entity.name,
+      ...(entity.tokenProperties === undefined ? {} : { tokenProperties: entity.tokenProperties }),
+    };
+    const document = normalizeSceneDocument({
+      ...current.document,
+      entityReferences: current.document.entityReferences.map((reference) => reference.id === referenceId
+        ? replacement : reference),
     });
     return this.updateScene({
       id: current.id, expectedVersion, name: current.name, document, sortOrder: current.sortOrder,

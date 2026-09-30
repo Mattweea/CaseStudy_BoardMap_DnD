@@ -3,6 +3,7 @@ import type {
   GridPosition,
   LightSource,
   MeasurementUnit,
+  UnitToken,
 } from '../src/types';
 
 export const SCENE_DOCUMENT_VERSION: 1;
@@ -92,7 +93,12 @@ export interface SceneEntityReference {
   entityId: string;
   encounterId?: string;
   name?: string;
+  tokenProperties?: EncounterTokenProperties;
 }
+
+export type EncounterTokenProperties = Partial<Pick<UnitToken,
+  'size' | 'widthCells' | 'heightCells' | 'color' | 'initiativeModifier' |
+  'movementCells' | 'hitPoints' | 'maxHitPoints' | 'isInvisible' | 'excludeFromInitiative'>>;
 
 export interface SceneEncounterEntityReference extends SceneEntityReference {
   entityType: (typeof SCENE_ENTITY_KINDS)[number];

@@ -58,6 +58,24 @@ test('adapter rejects mismatched references and privileged token fields', () => 
     placement: { ...input.placement, position: { x: -1, y: 2 } } }), /coordinate/);
 });
 
+test('adapter consumes persisted manual data without a PC sheet or duplicate runtime model', () => {
+  const prepared = { ...entity('monster-ref', 'monster', 'Goblin'), tokenProperties: {
+    size: 'small', movementCells: 6, initiativeModifier: -1, hitPoints: 7, maxHitPoints: 7,
+  } };
+  const token = projectEncounterEntityToken({ entity: prepared,
+    placement: placement('placement-1', prepared.id, { x: 2, y: 3 }) });
+  assert.equal(token.id, 'placement-1');
+  assert.equal(token.size, 'small');
+  assert.equal(token.movementCells, 6);
+  assert.equal(token.initiativeModifier, -1);
+  assert.equal(token.hitPoints, 7);
+  assert.equal(token.ownerUserId, null);
+  assert.equal(token.characterKey, null);
+  assert.throws(() => projectEncounterEntityToken({ entity: { ...prepared,
+    tokenProperties: { sourceUrl: 'https://example.test' } },
+    placement: placement('placement-1', prepared.id, { x: 2, y: 3 }) }), /non supportate/);
+});
+
 test('derived sheet-less token uses the existing initiative lifecycle only after explicit combat', () => {
   const token = projectEncounterEntityToken({
     entity: entity('monster-ref', 'monster', 'Goblin'),
