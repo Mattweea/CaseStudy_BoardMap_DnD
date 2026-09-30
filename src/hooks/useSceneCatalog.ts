@@ -6,6 +6,7 @@ import {
   type PersistedScene,
   type SceneBackgroundCalibration,
   type SceneCatalogEntry,
+  type PartyTransferPreview,
 } from '../utils/sceneApi';
 
 function entryFromScene(scene: PersistedScene): SceneCatalogEntry {
@@ -36,6 +37,9 @@ export function useSceneCatalog(enabled: boolean) {
   const [isLoading, setIsLoading] = useState(enabled);
   const [isMutating, setIsMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transferPreview, setTransferPreview] = useState<PartyTransferPreview | null>(null);
+  const [transferNotice, setTransferNotice] = useState<string | null>(null);
+  const [transferError, setTransferError] = useState<string | null>(null);
   const layerWritePending = useRef(false);
 
   const loadCatalog = useCallback(async () => {
@@ -57,6 +61,9 @@ export function useSceneCatalog(enabled: boolean) {
       setCatalog([]);
       setSelectedScene(null);
       setError(null);
+      setTransferPreview(null);
+      setTransferNotice(null);
+      setTransferError(null);
       setIsLoading(false);
       return;
     }
@@ -66,6 +73,9 @@ export function useSceneCatalog(enabled: boolean) {
   const selectScene = async (sceneId: string) => {
     setIsLoading(true);
     setError(null);
+    setTransferPreview(null);
+    setTransferNotice(null);
+    setTransferError(null);
     try {
       setSelectedScene(await sceneApi.get(sceneId));
     } catch (requestError) {
@@ -112,6 +122,50 @@ export function useSceneCatalog(enabled: boolean) {
       } else {
         setError(readableError(requestError, 'Attivazione della scena non riuscita.'));
       }
+      return false;
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const previewPartyTransfer = async (anchor: { x: number; y: number }) => {
+    const source = catalog.find((scene) => scene.isActive);
+    if (!selectedScene || selectedScene.isActive || !source) {
+      setTransferError('Non trovo una scena attiva diversa dalla destinazione. Ricarica il catalogo scene e riprova.');
+      return false;
+    }
+    setIsMutating(true);
+    setError(null);
+    setTransferError(null);
+    setTransferNotice(null);
+    setTransferPreview(null);
+    try {
+      setTransferPreview(await sceneApi.previewPartySceneTransition(selectedScene.id, source.version,
+        selectedScene.version, anchor));
+      return true;
+    } catch (requestError) {
+      setTransferError(readableError(requestError, 'Preview del party non disponibile.'));
+      return false;
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const commitPartyTransfer = async () => {
+    if (!transferPreview) return false;
+    setIsMutating(true);
+    setError(null);
+    setTransferError(null);
+    try {
+      await sceneApi.commitPartySceneTransition(transferPreview);
+      setCatalog((current) => current.map((scene) => ({ ...scene, isActive: scene.id === transferPreview.targetSceneId })));
+      setSelectedScene((current) => current?.id === transferPreview.targetSceneId ? { ...current, isActive: true } : current);
+      setTransferPreview(null);
+      setTransferNotice('Scena attivata e party trasferito.');
+      return true;
+    } catch (requestError) {
+      setTransferPreview(null);
+      setTransferError(readableError(requestError, 'Trasferimento non riuscito. Aggiorna la preview.'));
       return false;
     } finally {
       setIsMutating(false);
@@ -214,10 +268,16 @@ export function useSceneCatalog(enabled: boolean) {
     isLoading,
     isMutating,
     error,
+    transferPreview,
+    transferNotice,
+    transferError,
     reload: loadCatalog,
     selectScene,
     createScene,
     activateScene,
+    previewPartyTransfer,
+    commitPartyTransfer,
+    clearTransferPreview: () => { setTransferPreview(null); setTransferError(null); },
     updateScene,
     addDrawing: (drawing: SceneDrawing) => writeLayer((scene) => sceneApi.addDrawing(scene.id, scene.version, drawing), 'Salvataggio del disegno non riuscito. Riprova.'),
     eraseDrawings: (ids: string[]) => writeLayer((scene) => sceneApi.eraseDrawings(scene.id, scene.version, ids), 'Cancellazione del disegno non riuscita. Riprova.'),

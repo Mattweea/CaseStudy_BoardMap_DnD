@@ -69,6 +69,25 @@ export function prepareSceneTransitionState(state, targetScene) {
   return installActiveSceneProjection(runtime, targetScene);
 }
 
+export function prepareResumedSceneState(snapshotState, currentState, activeScene) {
+  const matchesActive = !snapshotState.activeSceneId || snapshotState.activeSceneId === (activeScene?.id ?? null);
+  return installActiveSceneProjection({
+    ...snapshotState,
+    ...(matchesActive ? {} : {
+      tokens: [],
+      initiatives: [],
+      activeTurnTokenId: null,
+      isRoundStarted: false,
+      movementUsedByTokenId: {},
+      diagonalParityByTokenId: {},
+      dashUsedByTokenId: {},
+      extraMovementByTokenId: {},
+    }),
+    diceLogs: currentState.diceLogs,
+    latestDicePreview: currentState.latestDicePreview,
+  }, activeScene);
+}
+
 export function buildSceneStateView(state, user, sceneService) {
   const activeScene = sceneService?.getActiveScene?.() ?? null;
   const withActiveScene = attachActiveSceneMetadata(state, activeScene);

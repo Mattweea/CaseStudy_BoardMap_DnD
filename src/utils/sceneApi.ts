@@ -26,6 +26,16 @@ export interface SceneBackgroundCalibration {
   offsetY: number;
 }
 
+export interface PartyTransferPreview {
+  sourceSceneId: string;
+  sourceVersion: number;
+  targetSceneId: string;
+  targetVersion: number;
+  stateVersion: number;
+  anchor: { x: number; y: number };
+  placements: { tokenId: string; name: string; position: { x: number; y: number } }[];
+}
+
 export class SceneApiError extends Error {
   status: number;
   payload: { message?: string; currentScene?: PersistedScene | null };
@@ -64,6 +74,24 @@ export const sceneApi = {
     method: 'POST',
     body: JSON.stringify({ baseVersion }),
   }),
+  previewPartyTransfer: (sourceSceneId: string, sourceVersion: number, targetVersion: number, anchor: { x: number; y: number }) =>
+    request<PartyTransferPreview>('/scenes/party-transfer/preview', {
+      method: 'POST', body: JSON.stringify({ sourceSceneId, sourceVersion, targetVersion, anchor }),
+    }),
+  commitPartyTransfer: (preview: PartyTransferPreview) => request<{ state: unknown; version: number }>('/scenes/party-transfer/commit', {
+    method: 'POST', body: JSON.stringify({ sourceSceneId: preview.sourceSceneId, sourceVersion: preview.sourceVersion,
+      targetVersion: preview.targetVersion, stateVersion: preview.stateVersion, anchor: preview.anchor }),
+  }),
+  previewPartySceneTransition: (targetSceneId: string, sourceVersion: number, targetVersion: number,
+    anchor: { x: number; y: number }) => request<PartyTransferPreview>('/scenes/party-transition/preview', {
+    method: 'POST', body: JSON.stringify({ targetSceneId, sourceVersion, targetVersion, anchor }),
+  }),
+  commitPartySceneTransition: (preview: PartyTransferPreview) => request<{ state: unknown; version: number }>(
+    '/scenes/party-transition/commit', {
+      method: 'POST', body: JSON.stringify({ targetSceneId: preview.targetSceneId,
+        sourceVersion: preview.sourceVersion, targetVersion: preview.targetVersion,
+        stateVersion: preview.stateVersion, anchor: preview.anchor }),
+    }),
   update: (id: string, baseVersion: number, patch: {
     name?: string;
     backgroundCalibration?: SceneBackgroundCalibration;

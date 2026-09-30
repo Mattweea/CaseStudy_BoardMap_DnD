@@ -5,6 +5,7 @@ import {
   buildSceneStateView,
   installActiveSceneProjection,
   prepareSceneTransitionState,
+  prepareResumedSceneState,
 } from '../server/active-scene-projection.mjs';
 import { pathCost } from '../shared/grid-movement.mjs';
 
@@ -53,6 +54,21 @@ test('legacy state without activeSceneId receives the persisted active identity 
   assert.equal(projected.activeSceneVersion, 1);
   assert.deepEqual(projected.measurementUnit, { label: 'm', cellsValue: 1.5 });
   assert.deepEqual(projected.lightSources, []);
+});
+
+test('resume discards foreign-scene tokens and their combat references', () => {
+  const active = scene('scene-new', 'Nuova', 1);
+  const snapshot = { activeSceneId: 'scene-old', tokens: [{ id: 'old' }], sessionMode: 'combat',
+    isRoundStarted: true, initiatives: [{ tokenId: 'old', value: 12 }], activeTurnTokenId: 'old',
+    movementUsedByTokenId: { old: 2 }, diceLogs: [{ id: 'saved' }] };
+  const resumed = prepareResumedSceneState(snapshot, { diceLogs: [{ id: 'current' }], latestDicePreview: null }, active);
+  assert.equal(resumed.activeSceneId, active.id);
+  assert.deepEqual(resumed.tokens, []);
+  assert.deepEqual(resumed.initiatives, []);
+  assert.equal(resumed.activeTurnTokenId, null);
+  assert.equal(resumed.isRoundStarted, false);
+  assert.deepEqual(resumed.movementUsedByTokenId, {});
+  assert.deepEqual(resumed.diceLogs, [{ id: 'current' }]);
 });
 
 test('active image background exposes only its authenticated scene URL', () => {

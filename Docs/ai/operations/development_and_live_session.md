@@ -46,6 +46,7 @@ Share the frontend HTTPS URL, not the backend port. The default allowed-host lis
 ## Runtime durability
 
 - Authentication sessions, undo stacks, SSE clients, and battle-map live state are process memory.
+- Anche i token delle scene inattive restano soltanto nella memoria del processo; cambiare scena li conserva fino al riavvio, mentre lo snapshot di sospensione corrente contiene soltanto il runtime della scena attiva.
 - Saved game state is written only when the master suspends the session.
 - The saved file lives under ignored `server/data/`.
 - Users, roles, campaigns, and character sheets are SQLite-backed; character-sheet writes are debounced and flushed on controlled lifecycle boundaries.

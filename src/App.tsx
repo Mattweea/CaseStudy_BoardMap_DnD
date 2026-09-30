@@ -1065,13 +1065,6 @@ function App() {
                   <ResumeIcon />
                 </button>
               ) : null}
-              <button
-                type="button"
-                className="secondary-button secondary-button--small"
-                onClick={() => void logout()}
-              >
-                Logout
-              </button>
             </div>
             {sessionFeedback ? (
               <p
@@ -1647,6 +1640,11 @@ function App() {
             className="sidebar__content"
             data-state={expandedSidebarPresence.isVisible ? 'open' : 'closed'}
           >
+            <div className="workspace-account">
+              <span className="workspace-account__name" title={user.displayName}>{user.displayName}</span>
+              <button type="button" className="secondary-button secondary-button--small"
+                onClick={() => void logout()} disabled={isSubmitting}>Logout</button>
+            </div>
             <div className="workspace-tools">
               {renderSidebarSection('session')}
               {canManageBattleMap ? renderSidebarSection('actions') : null}

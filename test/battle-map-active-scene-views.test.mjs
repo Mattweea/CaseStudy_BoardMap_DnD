@@ -129,3 +129,43 @@ test('an installed scene transition broadcasts the new projection to Master and 
     __testing.setSceneService(null);
   }
 });
+
+test('scene switches keep live tokens in their own scene and restore them on return', async () => {
+  const first = makeScene('scene-one', 'Prima', 1, 'ONE');
+  const second = makeScene('scene-two', 'Seconda', 1, 'TWO');
+  let active = first;
+  __testing.setSceneService({ getActiveScene: () => structuredClone(active), getCatalog: () => [first, second] });
+  const firstToken = { id: 'token-one', name: 'Uno', type: 'player', size: 'medium', position: { x: 2, y: 2 }, color: '#ffffff' };
+  try {
+    __testing.setBattleMapState({ tokens: [firstToken] });
+    const toSecond = __testing.prepareActiveSceneTransition(second);
+    assert.equal(toSecond.status, 200);
+    active = second;
+    __testing.installPreparedSceneTransition(second, toSecond);
+    assert.deepEqual(__testing.getBattleMapState().tokens, []);
+
+    const duplicate = await __testing.app.inject({
+      method: 'PUT', url: '/api/battle-map/state', headers: sessionHeaders(MASTER),
+      payload: { baseVersion: __testing.getBattleMapVersion(), state: { ...__testing.getBattleMapState(), tokens: [firstToken] } },
+    });
+    assert.equal(duplicate.statusCode, 409);
+    assert.deepEqual(__testing.getBattleMapState().tokens, []);
+
+    const secondToken = { id: 'token-two', name: 'Due', type: 'enemy', size: 'medium', position: { x: 4, y: 4 }, color: '#ff0000' };
+    const mutation = await __testing.app.inject({
+      method: 'PUT', url: '/api/battle-map/state', headers: sessionHeaders(MASTER),
+      payload: { baseVersion: __testing.getBattleMapVersion(), state: { ...__testing.getBattleMapState(), tokens: [secondToken] } },
+    });
+    assert.equal(mutation.statusCode, 200);
+    const toFirst = __testing.prepareActiveSceneTransition(first);
+    active = first;
+    __testing.installPreparedSceneTransition(first, toFirst);
+    assert.deepEqual(__testing.getBattleMapState().tokens.map((token) => token.id), ['token-one']);
+    const again = __testing.prepareActiveSceneTransition(second);
+    active = second;
+    __testing.installPreparedSceneTransition(second, again);
+    assert.deepEqual(__testing.getBattleMapState().tokens.map((token) => token.id), ['token-two']);
+  } finally {
+    __testing.setSceneService(null);
+  }
+});

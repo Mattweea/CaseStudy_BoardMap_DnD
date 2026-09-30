@@ -19,11 +19,13 @@ import { bootstrapScenes } from './scene-bootstrap.mjs';
 import { SceneRepository } from './scene-repository.mjs';
 import { registerSceneRoutes } from './scene-routes.mjs';
 import { SceneService } from './scene-service.mjs';
+import { PartyTransferError, planPartyTransfer } from './party-transfer.mjs';
 import {
   attachActiveSceneMetadata,
   buildSceneStateView,
   installActiveSceneProjection,
   prepareSceneTransitionState,
+  prepareResumedSceneState,
 } from './active-scene-projection.mjs';
 import { CharacterSheetPolicy } from './character-sheet-policy.mjs';
 import { broadcastCharacterSheetEvent as broadcastSheetEvent } from './character-sheet-events.mjs';
@@ -107,6 +109,9 @@ let characterSheetService;
 let sceneService;
 let battleMapState = normalizeSharedState(initialSharedState);
 let battleMapVersion = 1;
+// Il runtime della scena attiva vive in battleMapState; questa mappa contiene solo scene inattive.
+const inactiveSceneTokens = new Map();
+let partyTransferBeforePublish = null;
 let turnTransitionId = 0;
 let lastSessionSnapshot = null;
 const streamClients = new Set();
@@ -932,9 +937,21 @@ function prepareActiveSceneTransition(targetScene) {
     return { status: 409, message: 'Non puoi cambiare scena mentre un round e attivo.' };
   }
   try {
+    const targetTokens = targetScene.id === battleMapState.activeSceneId
+      ? battleMapState.tokens
+      : inactiveSceneTokens.get(targetScene.id) ?? [];
     return {
       status: 200,
-      state: normalizeSharedState(prepareSceneTransitionState(battleMapState, targetScene)),
+      state: normalizeSharedState(prepareSceneTransitionState({
+        ...battleMapState,
+        tokens: structuredClone(targetTokens),
+        initiatives: [],
+        activeTurnTokenId: null,
+        movementUsedByTokenId: {},
+        diagonalParityByTokenId: {},
+        dashUsedByTokenId: {},
+        extraMovementByTokenId: {},
+      }, targetScene)),
     };
   } catch (error) {
     return { status: 400, message: error?.message ?? 'La scena di destinazione non e valida.' };
@@ -943,12 +960,80 @@ function prepareActiveSceneTransition(targetScene) {
 
 function installPreparedSceneTransition(_scene, prepared) {
   if (!prepared?.state) throw new Error('Transizione scena non preparata.');
+  const previousSceneId = battleMapState.activeSceneId;
+  if (previousSceneId && previousSceneId !== prepared.state.activeSceneId) {
+    inactiveSceneTokens.set(previousSceneId, structuredClone(battleMapState.tokens));
+    inactiveSceneTokens.delete(prepared.state.activeSceneId);
+  }
   battleMapState = prepared.state;
   masterUndoStack.length = 0;
   playerUndoStackByUserId.clear();
   turnTransitionId += 1;
   bumpBattleMapVersion();
   broadcastSnapshot();
+}
+
+function preparePartyTransfer(body) {
+  if (battleMapState.isRoundStarted) throw new PartyTransferError('Termina il round prima di trasferire il party.', 409);
+  const sourceId = typeof body?.sourceSceneId === 'string' ? body.sourceSceneId : '';
+  const active = sceneService?.getActiveScene?.();
+  if (!active || !sourceId || sourceId === active.id) {
+    throw new PartyTransferError('Scegli una scena sorgente diversa da quella attiva.');
+  }
+  const source = sceneService.getScene(sourceId);
+  if (!source) throw new PartyTransferError('Scena sorgente non trovata.', 404);
+  if (body.sourceVersion !== source.version || body.targetVersion !== active.version
+    || (body.stateVersion !== undefined && body.stateVersion !== battleMapVersion)) {
+    throw new PartyTransferError('Le scene o il runtime sono cambiati. Aggiorna la preview.', 409);
+  }
+  const plan = planPartyTransfer({
+    sourceTokens: inactiveSceneTokens.get(sourceId) ?? [],
+    targetTokens: battleMapState.tokens,
+    targetScene: active,
+    anchor: body.anchor,
+    profiles: CHARACTER_PROFILES,
+    getTokenFootprint,
+  });
+  const nextState = normalizeSharedState({
+    ...battleMapState,
+    tokens: applyVehicleAwareUpdates([...battleMapState.tokens, ...plan.transferred]),
+  });
+  const validationError = validateSharedState(nextState);
+  if (validationError) throw new PartyTransferError(validationError.message, 409);
+  return { source, active, plan, nextState };
+}
+
+function preparePartySceneTransition(body) {
+  if (battleMapState.isRoundStarted) throw new PartyTransferError('Termina il round prima di cambiare scena.', 409);
+  const source = sceneService?.getActiveScene?.();
+  const targetId = typeof body?.targetSceneId === 'string' ? body.targetSceneId : '';
+  if (!source || !targetId || targetId === source.id) {
+    throw new PartyTransferError('Scegli una scena di destinazione diversa da quella attiva.');
+  }
+  const target = sceneService.getScene(targetId);
+  if (!target) throw new PartyTransferError('Scena di destinazione non trovata.', 404);
+  if (body.sourceVersion !== source.version || body.targetVersion !== target.version
+    || (body.stateVersion !== undefined && body.stateVersion !== battleMapVersion)) {
+    throw new PartyTransferError('Le scene o il runtime sono cambiati. Aggiorna la preview.', 409);
+  }
+  const targetTokens = inactiveSceneTokens.get(target.id) ?? [];
+  const plan = planPartyTransfer({
+    sourceTokens: battleMapState.tokens,
+    targetTokens,
+    targetScene: target,
+    anchor: body.anchor,
+    profiles: CHARACTER_PROFILES,
+    getTokenFootprint,
+  });
+  const prepared = prepareActiveSceneTransition(target);
+  if (prepared.status !== 200) throw new PartyTransferError(prepared.message, prepared.status);
+  const nextState = normalizeSharedState({
+    ...prepared.state,
+    tokens: applyVehicleAwareUpdates([...targetTokens, ...plan.transferred]),
+  });
+  const validationError = validateSharedState(nextState);
+  if (validationError) throw new PartyTransferError(validationError.message, 409);
+  return { source, target, plan, nextState };
 }
 
 function broadcastCharacterSheetEvent(event, sheet) {
@@ -1065,6 +1150,21 @@ function replaceBattleMapState(nextState) {
   }, { recordMasterUndo: true, validate: true });
 }
 
+function validateActiveTokenIdentity(tokens) {
+  const inactive = [...inactiveSceneTokens.values()].flat();
+  const inactiveIds = new Set(inactive.map((token) => token.id));
+  if (tokens.some((token) => inactiveIds.has(token.id))) {
+    return { status: 409, message: 'Un ID token è già presente in un’altra scena live.' };
+  }
+  const inactiveCharacters = inactive.filter((token) => token.type === 'player' && token.isFamiliar !== true);
+  if (tokens.some((token) => token.type === 'player' && token.isFamiliar !== true
+    && inactiveCharacters.some((other) => (token.ownerUserId && token.ownerUserId === other.ownerUserId)
+      || (token.characterKey && token.characterKey === other.characterKey)))) {
+    return { status: 409, message: 'Un personaggio è già presente in un’altra scena live.' };
+  }
+  return null;
+}
+
 function commitBattleMapState(nextState, options = {}) {
   const { recordMasterUndo = false, validate = true } = options;
 
@@ -1076,7 +1176,9 @@ function commitBattleMapState(nextState, options = {}) {
     normalizeSharedState(nextState),
     sceneService?.getActiveScene?.() ?? null,
   );
-  const validationError = validate ? validateSharedState(normalizedState) : null;
+  const validationError = validate
+    ? validateSharedState(normalizedState) ?? validateActiveTokenIdentity(normalizedState.tokens)
+    : null;
   if (validationError) {
     if (recordMasterUndo) {
       masterUndoStack.pop();
@@ -1103,11 +1205,12 @@ async function restoreLastSessionSnapshot() {
   }
 
   lastSessionSnapshot = snapshot;
-  battleMapState = normalizeSharedState(installActiveSceneProjection({
-    ...snapshot.state,
-    diceLogs: battleMapState.diceLogs,
-    latestDicePreview: battleMapState.latestDicePreview,
-  }, sceneService?.getActiveScene?.() ?? null));
+  inactiveSceneTokens.clear();
+  masterUndoStack.length = 0;
+  playerUndoStackByUserId.clear();
+  battleMapState = normalizeSharedState(prepareResumedSceneState(
+    snapshot.state, battleMapState, sceneService?.getActiveScene?.() ?? null,
+  ));
   battleMapVersion = snapshot.version;
   broadcastSnapshot();
   return nextSnapshot();
@@ -1867,6 +1970,9 @@ function sanitizeUser(user) {
       (token) => token.ownerUserId === user.id && token.type === 'player' && token.isFamiliar !== true,
     ) ??
     battleMapState.tokens.find((token) => token.characterKey === profile?.key) ??
+    [...inactiveSceneTokens.values()].flat().find((token) =>
+      token.type === 'player' && token.isFamiliar !== true
+      && (token.ownerUserId === user.id || token.characterKey === profile?.key)) ??
     null;
 
   return {
@@ -1923,6 +2029,12 @@ function ensureCharacterTokenForUser(user) {
   const existingIndex = battleMapState.tokens.findIndex(
     (token) => token.ownerUserId === user.id || token.characterKey === profile.key,
   );
+
+  if (existingIndex === -1 && [...inactiveSceneTokens.values()].some((tokens) => tokens.some((token) =>
+    token.type === 'player' && token.isFamiliar !== true
+    && (token.ownerUserId === user.id || token.characterKey === profile.key)))) {
+    return;
+  }
 
   if (existingIndex === -1) {
     const spawnToken = createCharacterToken(profile, user.id);
@@ -2129,6 +2241,92 @@ app.post('/api/auth/logout', async (request, reply) => {
   return { ok: true };
 });
 
+app.post('/api/scenes/party-transfer/preview', async (request, reply) => {
+  if (!requireMaster(request, reply)) return;
+  try {
+    const { source, active, plan } = preparePartyTransfer(request.body);
+    return {
+      sourceSceneId: source.id,
+      sourceVersion: source.version,
+      targetSceneId: active.id,
+      targetVersion: active.version,
+      stateVersion: battleMapVersion,
+      anchor: request.body.anchor,
+      placements: plan.transferred.map((token) => ({ tokenId: token.id, name: token.name, position: token.position })),
+    };
+  } catch (error) {
+    reply.code(error?.statusCode ?? 500);
+    return { message: error?.message ?? 'Preview del trasferimento non riuscita.' };
+  }
+});
+
+app.post('/api/scenes/party-transfer/commit', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) return;
+  try {
+    if (!Number.isSafeInteger(request.body?.stateVersion) || request.body.stateVersion < 1) {
+      throw new PartyTransferError('La versione della preview è obbligatoria.');
+    }
+    const { source, plan, nextState } = preparePartyTransfer(request.body);
+    partyTransferBeforePublish?.();
+    inactiveSceneTokens.set(source.id, structuredClone(plan.remaining));
+    battleMapState = nextState;
+    masterUndoStack.length = 0;
+    playerUndoStackByUserId.clear();
+    bumpBattleMapVersion();
+    broadcastSnapshot();
+    return nextSnapshot(user);
+  } catch (error) {
+    reply.code(error?.statusCode ?? 500);
+    return { message: error?.message ?? 'Trasferimento del party non riuscito.', ...nextSnapshot(user) };
+  }
+});
+
+app.post('/api/scenes/party-transition/preview', async (request, reply) => {
+  if (!requireMaster(request, reply)) return;
+  try {
+    const { source, target, plan } = preparePartySceneTransition(request.body);
+    return {
+      sourceSceneId: source.id,
+      sourceVersion: source.version,
+      targetSceneId: target.id,
+      targetVersion: target.version,
+      stateVersion: battleMapVersion,
+      anchor: request.body.anchor,
+      placements: plan.transferred.map((token) => ({ tokenId: token.id, name: token.name, position: token.position })),
+    };
+  } catch (error) {
+    reply.code(error?.statusCode ?? 500);
+    return { message: error?.message ?? 'Preview del cambio scena non riuscita.' };
+  }
+});
+
+app.post('/api/scenes/party-transition/commit', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) return;
+  try {
+    if (!Number.isSafeInteger(request.body?.stateVersion) || request.body.stateVersion < 1) {
+      throw new PartyTransferError('La versione della preview è obbligatoria.');
+    }
+    const { source, target, plan, nextState } = preparePartySceneTransition(request.body);
+    const remaining = structuredClone(plan.remaining);
+    partyTransferBeforePublish?.();
+    sceneService.activateScene({ id: target.id, expectedVersion: target.version });
+    inactiveSceneTokens.set(source.id, remaining);
+    inactiveSceneTokens.delete(target.id);
+    battleMapState = nextState;
+    masterUndoStack.length = 0;
+    playerUndoStackByUserId.clear();
+    turnTransitionId += 1;
+    bumpBattleMapVersion();
+    broadcastSnapshot();
+    return nextSnapshot(user);
+  } catch (error) {
+    reply.code(error?.statusCode ?? 500);
+    return { message: error?.message ?? 'Cambio scena con party non riuscito.', ...nextSnapshot(user) };
+  }
+});
+
 app.get('/api/battle-map/state', async (request, reply) => {
   const user = requireUser(request, reply);
   if (!user) {
@@ -2165,7 +2363,9 @@ app.put('/api/battle-map/state', async (request, reply) => {
     };
   }
 
-  return replaceBattleMapState(nextState);
+  const result = replaceBattleMapState(nextState);
+  if (result.status && result.status !== 200) reply.code(result.status);
+  return result;
 });
 
 app.post('/api/battle-map/dice-logs', async (request, reply) => {
@@ -2710,21 +2910,25 @@ export const __testing = {
     return sessionId;
   },
   setBattleMapState: (state) => {
+    inactiveSceneTokens.clear();
     battleMapState = normalizeSharedState(
       installActiveSceneProjection(state, sceneService?.getActiveScene?.() ?? null),
     );
     battleMapVersion = 1;
   },
   getBattleMapState: () => battleMapState,
+  ensureCharacterTokenForUser,
   setCharacterSheetService: (service) => {
     characterSheetService = service;
   },
   setSceneService: (service) => {
+    inactiveSceneTokens.clear();
     sceneService = service;
     battleMapState = normalizeSharedState(
       installActiveSceneProjection(battleMapState, sceneService?.getActiveScene?.() ?? null),
     );
   },
+  setPartyTransferBeforePublish: (callback) => { partyTransferBeforePublish = callback; },
   sanitizeStateForUser,
   nextSnapshot,
   normalizeSharedState,

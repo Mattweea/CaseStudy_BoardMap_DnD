@@ -60,10 +60,16 @@ export function SceneCatalogPanel({
     isLoading,
     isMutating,
     error,
+    transferPreview,
+    transferNotice,
+    transferError,
     reload,
     selectScene,
     createScene,
     activateScene,
+    previewPartyTransfer,
+    commitPartyTransfer,
+    clearTransferPreview,
     updateScene,
     addDrawing,
     eraseDrawings,
@@ -91,6 +97,8 @@ export function SceneCatalogPanel({
   const [boardDimensionsDraft, setBoardDimensionsDraft] = useState({ columns: '', rows: '' });
   const [isDarknessEnabledDraft, setIsDarknessEnabledDraft] = useState(true);
   const [dimensionsError, setDimensionsError] = useState<string | null>(null);
+  const [transferAnchor, setTransferAnchor] = useState({ x: '0', y: '0' });
+  const [transferAnchorError, setTransferAnchorError] = useState<string | null>(null);
   const [drawingTool, setDrawingTool] = useState<'pencil' | 'eraser' | null>(null);
   const [drawingColor, setDrawingColor] = useState('#f36f3d');
   const [drawingWidth, setDrawingWidth] = useState(0.12);
@@ -181,6 +189,19 @@ export function SceneCatalogPanel({
     }
   };
 
+  const requestTransferPreview = () => {
+    const x = Number(transferAnchor.x);
+    const y = Number(transferAnchor.y);
+    if (transferAnchor.x.trim() === '' || transferAnchor.y.trim() === ''
+      || !Number.isSafeInteger(x) || !Number.isSafeInteger(y) || x < 0 || y < 0) {
+      setTransferAnchorError('Inserisci due coordinate intere non negative.');
+      return;
+    }
+    setTransferAnchorError(null);
+    void previewPartyTransfer({ x, y });
+  };
+
+  const activeScene = catalog.find((scene) => scene.isActive);
   const persistedCalibration = sceneCalibration(selectedScene);
   const calibrationChanged = calibrationDraft.scale !== persistedCalibration.scale
     || calibrationDraft.offsetX !== persistedCalibration.offsetX
@@ -675,6 +696,40 @@ export function SceneCatalogPanel({
               )}
             </div>
             <p className="scene-catalog__hint">Le modifiche alla scena attiva si applicano alla board al salvataggio; le altre restano preparazione finché non vengono attivate.</p>
+            {!selectedScene.isActive ? (
+              <fieldset className="scene-catalog__party-transfer">
+                <legend>Attiva e trasferisci il party</legend>
+                <p>Da <strong>{activeScene?.name ?? 'scena attiva'}</strong> a <strong>{selectedScene.name}</strong>. Gli altri token restano nella scena di partenza.</p>
+                <div className="scene-catalog__party-anchor">
+                  <label htmlFor="party-anchor-x">Colonna ancora
+                    <input id="party-anchor-x" type="number" min="0" step="1" value={transferAnchor.x}
+                      disabled={isMutating} onChange={(event) => { setTransferAnchor((current) => ({ ...current, x: event.target.value })); clearTransferPreview(); }} />
+                  </label>
+                  <label htmlFor="party-anchor-y">Riga ancora
+                    <input id="party-anchor-y" type="number" min="0" step="1" value={transferAnchor.y}
+                      disabled={isMutating} onChange={(event) => { setTransferAnchor((current) => ({ ...current, y: event.target.value })); clearTransferPreview(); }} />
+                  </label>
+                  <button type="button" className="secondary-button" disabled={isMutating || isLoading || hasDraftChanges}
+                    title={hasDraftChanges ? 'Salva o annulla le modifiche alla scena prima di calcolare le posizioni' : undefined}
+                    onClick={requestTransferPreview}>{isMutating ? 'Calcolo...' : 'Anteprima posizioni'}</button>
+                </div>
+                {hasDraftChanges ? <p className="scene-catalog__hint">Salva o annulla le modifiche alla scena per calcolare le posizioni.</p> : null}
+                {transferAnchorError ? <p className="scene-catalog__error" role="alert">{transferAnchorError}</p> : null}
+                {transferError ? <p className="scene-catalog__error" role="alert">{transferError}</p> : null}
+                {transferPreview?.targetSceneId === selectedScene.id ? (
+                  <div className="scene-catalog__party-result" role="status">
+                    <strong>Anteprima · {transferPreview.placements.length} token</strong>
+                    <ul>{transferPreview.placements.map((placement) => (
+                      <li key={placement.tokenId}>{placement.name} <span>({placement.position.x}, {placement.position.y})</span></li>
+                    ))}</ul>
+                    <button type="button" className="primary-button" disabled={isMutating || hasDraftChanges}
+                      onClick={() => void commitPartyTransfer()}>Conferma attivazione e trasferimento</button>
+                  </div>
+                ) : null}
+                <small>L'anteprima non cambia scena né sposta token. Per attivare la scena senza il party, usa «Attiva scena».</small>
+              </fieldset>
+            ) : null}
+            {transferNotice ? <p className="scene-catalog__status" role="status">{transferNotice}</p> : null}
             <div className="scene-catalog__draft-actions">
               <button type="button" className="secondary-button" disabled={isMutating || !hasDraftChanges} onClick={() => { setNameDraft(selectedScene.name); setBackgroundDraft(null); setCalibrationDraft(sceneCalibration(selectedScene)); setBoardDimensionsDraft({ columns: String(selectedScene.document.board.dimensions.columns), rows: String(selectedScene.document.board.dimensions.rows) }); setIsDarknessEnabledDraft(!selectedScene.document.board.isFullyLit); setDimensionsError(null); }}>
                 Annulla
