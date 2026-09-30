@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { normalizeSceneDrawings, normalizeSceneElements, normalizeSceneEncounters, SCENE_LIMITS } from '../shared/scene-model.mjs';
+import { normalizeSceneDrawings, normalizeSceneElements, normalizeSceneEncounters, normalizeSceneDocument, SCENE_LIMITS, SCENE_ENTITY_KINDS } from '../shared/scene-model.mjs';
 
 const DRAWING_HISTORY_LIMIT = 40;
 
@@ -33,6 +33,14 @@ export class SceneEncounterReferencedError extends Error {
   constructor() {
     super('Rimuovi prima i placement collegati a questo encounter.');
     this.name = 'SceneEncounterReferencedError';
+    this.statusCode = 409;
+  }
+}
+
+export class SceneEntityReferencedError extends Error {
+  constructor() {
+    super('Rimuovi prima i placement collegati a questa entità.');
+    this.name = 'SceneEntityReferencedError';
     this.statusCode = 409;
   }
 }
@@ -295,11 +303,69 @@ export class SceneService {
     if (!current.document.encounters.some((encounter) => encounter.id === encounterId)) {
       throw new ScenePersistenceConflictError(current);
     }
-    if (current.document.preparedPlacements.some((placement) => placement.encounterId === encounterId)) {
+    const entityIds = new Set(current.document.entityReferences
+      .filter((reference) => reference.encounterId === encounterId).map((reference) => reference.id));
+    if (current.document.preparedPlacements.some((placement) => placement.encounterId === encounterId
+      || entityIds.has(placement.entityReferenceId))) {
       throw new SceneEncounterReferencedError();
     }
-    return this.persistEncounters(current, expectedVersion,
-      current.document.encounters.filter((encounter) => encounter.id !== encounterId));
+    return this.updateScene({
+      id: current.id,
+      expectedVersion,
+      name: current.name,
+      document: {
+        ...current.document,
+        encounters: current.document.encounters.filter((encounter) => encounter.id !== encounterId),
+        entityReferences: current.document.entityReferences.filter((reference) => reference.encounterId !== encounterId),
+      },
+      sortOrder: current.sortOrder,
+    });
+  }
+
+  createEncounterEntity({ id, encounterId, expectedVersion, entity }) {
+    const current = this.versionedScene(id, expectedVersion);
+    if (!current.document.encounters.some((encounter) => encounter.id === encounterId)) {
+      throw new ScenePersistenceConflictError(current);
+    }
+    if (!entity || typeof entity !== 'object' || Array.isArray(entity)
+      || !SCENE_ENTITY_KINDS.includes(entity.kind)) {
+      throw new TypeError('Specifica nome e tipo monster o npc dell’entità.');
+    }
+    const reference = {
+      id: randomUUID(),
+      entityId: randomUUID(),
+      entityType: entity.kind,
+      encounterId,
+      name: entity.name,
+    };
+    const document = normalizeSceneDocument({
+      ...current.document,
+      entityReferences: [...current.document.entityReferences, reference],
+    });
+    return this.updateScene({
+      id: current.id, expectedVersion, name: current.name, document, sortOrder: current.sortOrder,
+    });
+  }
+
+  removeEncounterEntity({ id, encounterId, referenceId, expectedVersion }) {
+    const current = this.versionedScene(id, expectedVersion);
+    if (!current.document.entityReferences.some((reference) => reference.id === referenceId
+      && reference.encounterId === encounterId)) {
+      throw new ScenePersistenceConflictError(current);
+    }
+    if (current.document.preparedPlacements.some((placement) => placement.entityReferenceId === referenceId)) {
+      throw new SceneEntityReferencedError();
+    }
+    return this.updateScene({
+      id: current.id,
+      expectedVersion,
+      name: current.name,
+      document: {
+        ...current.document,
+        entityReferences: current.document.entityReferences.filter((reference) => reference.id !== referenceId),
+      },
+      sortOrder: current.sortOrder,
+    });
   }
 
   async replaceBackground({ id, expectedVersion, buffer, mediaType, storage }) {

@@ -14,6 +14,7 @@ Define current combat sequencing, movement accounting, dice behavior, and role b
 - The shared `playersCanEndTurn` setting (default off, master-only) lets an adventurer advance `next` only while the active token is their own character.
 - Only the Master may activate another scene. Activation is rejected while `isRoundStarted` is true. During Combat roll phase it keeps Combat mode but clears initiative, active turn, round number, movement usage, diagonal parity, dash and extra movement before the new projection is broadcast; in Dungeon it preserves compatible runtime. The activation itself does not transfer the party.
 - Un encounter preparato nella configurazione di una scena descrive una situazione narrativa, di combattimento o altra; il suo CRUD non cambia `sessionMode`, iniziativa o round. L'avvio del combattimento resta un'azione esplicita della sessione.
+- Associare monster/npc a un encounter non crea token live né voci iniziativa. Una futura istanza materializzata come token `enemy` potrà usare il tiro e tracker esistenti senza scheda PC; solo il Master avvia il combat e decide quando inserirla nel runtime.
 
 ## Initiative
 

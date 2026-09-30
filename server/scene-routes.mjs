@@ -330,6 +330,49 @@ export function registerSceneRoutes(app, {
   app.patch('/api/scenes/:id/encounters/:encounterId', (request, reply) => mutateEncounter(request, reply, 'update'));
   app.delete('/api/scenes/:id/encounters/:encounterId', (request, reply) => mutateEncounter(request, reply, 'remove'));
 
+  app.get('/api/scenes/:id/encounters/:encounterId/entities', (request, reply) => {
+    if (!masterOnly(request, reply)) return;
+    const scene = service.getScene(request.params.id);
+    if (!scene) return reply.code(404).send({ message: 'Scena non trovata.' });
+    if (!scene.document.encounters.some((encounter) => encounter.id === request.params.encounterId)) {
+      return reply.code(404).send({ message: 'Encounter non trovato.' });
+    }
+    return {
+      sceneId: scene.id,
+      version: scene.version,
+      entities: scene.document.entityReferences.filter((reference) => reference.encounterId === request.params.encounterId),
+    };
+  });
+
+  function mutateEncounterEntity(request, reply, mode) {
+    if (!masterOnly(request, reply)) return;
+    try {
+      const body = request.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || !Number.isSafeInteger(body.baseVersion) || body.baseVersion < 1) {
+        throw new TypeError('La versione base della scena è obbligatoria.');
+      }
+      const args = {
+        id: request.params.id,
+        encounterId: request.params.encounterId,
+        expectedVersion: body.baseVersion,
+      };
+      const scene = mode === 'create'
+        ? service.createEncounterEntity({ ...args, entity: body.entity })
+        : service.removeEncounterEntity({ ...args, referenceId: request.params.referenceId });
+      if (scene.id === service.getActiveScene()?.id) onActiveSceneUpdated?.(scene);
+      if (mode === 'create') reply.code(201);
+      return sceneDetail(scene);
+    } catch (error) {
+      return sendError(reply, error);
+    }
+  }
+
+  app.post('/api/scenes/:id/encounters/:encounterId/entities',
+    (request, reply) => mutateEncounterEntity(request, reply, 'create'));
+  app.delete('/api/scenes/:id/encounters/:encounterId/entities/:referenceId',
+    (request, reply) => mutateEncounterEntity(request, reply, 'remove'));
+
   if (backgroundStorage) {
     app.addContentTypeParser(
       ['image/jpeg', 'image/png', 'image/webp'],

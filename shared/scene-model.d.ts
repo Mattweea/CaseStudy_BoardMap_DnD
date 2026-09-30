@@ -32,6 +32,7 @@ export class SceneValidationError extends Error {
 
 export const SCENE_ELEMENT_KINDS: readonly ['rock', 'crate', 'table'];
 export const SCENE_ENCOUNTER_KINDS: readonly ['combat', 'narrative', 'other'];
+export const SCENE_ENTITY_KINDS: readonly ['monster', 'npc'];
 
 export interface SceneEncounter {
   id: string;
@@ -89,6 +90,14 @@ export interface SceneEntityReference {
   id: string;
   entityType: string;
   entityId: string;
+  encounterId?: string;
+  name?: string;
+}
+
+export interface SceneEncounterEntityReference extends SceneEntityReference {
+  entityType: (typeof SCENE_ENTITY_KINDS)[number];
+  encounterId: string;
+  name: string;
 }
 
 export interface ScenePreparedPlacement {

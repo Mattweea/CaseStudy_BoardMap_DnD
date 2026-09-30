@@ -158,6 +158,99 @@ test('invalid encounter or failed persistence leaves the scene unchanged', async
   }
 });
 
+test('encounter entities are Master-only, versioned and remain private preparation', async () => {
+  const refreshed = [];
+  const { app, service, repository, close } = await createApp({
+    onActiveSceneUpdated: (scene) => refreshed.push(scene.version),
+  });
+  const master = { 'x-test-user': 'master' };
+  const player = { 'x-test-user': 'player' };
+  try {
+    const encounterResponse = await app.inject({ method: 'POST', url: '/api/scenes/scene-initial/encounters',
+      headers: master, payload: { baseVersion: 1, encounter: { name: 'Parlamento', kind: 'narrative' } } });
+    const encounterId = encounterResponse.json().document.encounters[0].id;
+    const base = `/api/scenes/scene-initial/encounters/${encounterId}/entities`;
+    assert.equal((await app.inject({ method: 'GET', url: base })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'GET', url: base, headers: player })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: base, headers: player,
+      payload: { baseVersion: 2, entity: { kind: 'monster', name: 'Goblin' } } })).statusCode, 403);
+    const monsterResponse = await app.inject({ method: 'POST', url: base, headers: master,
+      payload: { baseVersion: 2, entity: { kind: 'monster', name: 'Goblin' } } });
+    assert.equal(monsterResponse.statusCode, 201);
+    const monster = monsterResponse.json().document.entityReferences[0];
+    assert.equal(monster.encounterId, encounterId);
+    assert.equal(monster.entityType, 'monster');
+    assert.equal(monster.name, 'Goblin');
+    assert.ok(monster.id && monster.entityId && monster.id !== monster.entityId);
+    const npcResponse = await app.inject({ method: 'POST', url: base, headers: master,
+      payload: { baseVersion: 3, entity: { kind: 'npc', name: 'Custode' } } });
+    assert.equal(npcResponse.statusCode, 201);
+    const npc = npcResponse.json().document.entityReferences[1];
+    assert.deepEqual(npcResponse.json().document.entityReferences.map((entity) => entity.entityType), ['monster', 'npc']);
+    assert.deepEqual(npcResponse.json().document.runtime.tokens, []);
+    assert.deepEqual(repository.findById('scene-initial').document.entityReferences,
+      npcResponse.json().document.entityReferences);
+    service.load();
+    assert.deepEqual(service.getScene('scene-initial').document.entityReferences,
+      npcResponse.json().document.entityReferences);
+    assert.equal((await app.inject({ method: 'GET', url: base, headers: master })).json().entities.length, 2);
+    const stale = await app.inject({ method: 'POST', url: base, headers: master,
+      payload: { baseVersion: 3, entity: { kind: 'npc', name: 'Stale' } } });
+    assert.equal(stale.statusCode, 409);
+    assert.equal(stale.json().currentScene.version, 4);
+    assert.equal((await app.inject({ method: 'POST', url: base, headers: master,
+      payload: { baseVersion: 4, entity: { kind: 'object', name: 'Invalido' } } })).statusCode, 400);
+    assert.equal((await app.inject({ method: 'DELETE', url: `${base}/${monster.id}`, headers: player,
+      payload: { baseVersion: 4 } })).statusCode, 403);
+    const removed = await app.inject({ method: 'DELETE', url: `${base}/${monster.id}`, headers: master,
+      payload: { baseVersion: 4 } });
+    assert.equal(removed.statusCode, 200);
+    assert.deepEqual(removed.json().document.entityReferences.map((entity) => entity.entityType), ['npc']);
+    const current = service.getScene('scene-initial');
+    service.updateScene({ id: current.id, expectedVersion: current.version, name: current.name,
+      sortOrder: current.sortOrder, document: { ...current.document,
+        preparedPlacements: [{ id: 'placement-1', entityReferenceId: npc.id, encounterId,
+          position: { x: 2, y: 2 } }],
+      } });
+    assert.equal((await app.inject({ method: 'DELETE', url: `${base}/${npc.id}`, headers: master,
+      payload: { baseVersion: 6 } })).statusCode, 409);
+    assert.equal((await app.inject({ method: 'DELETE', url: `/api/scenes/scene-initial/encounters/${encounterId}`,
+      headers: master, payload: { baseVersion: 6 } })).statusCode, 409);
+    const linked = service.getScene('scene-initial');
+    service.updateScene({ id: linked.id, expectedVersion: linked.version, name: linked.name,
+      sortOrder: linked.sortOrder, document: { ...linked.document, preparedPlacements: [] } });
+    const encounterRemoved = await app.inject({ method: 'DELETE',
+      url: `/api/scenes/scene-initial/encounters/${encounterId}`, headers: master,
+      payload: { baseVersion: 7 } });
+    assert.equal(encounterRemoved.statusCode, 200);
+    assert.deepEqual(encounterRemoved.json().document.entityReferences, []);
+    assert.deepEqual(refreshed, [2, 3, 4, 5, 8]);
+    assert.equal(service.getActiveScene().document.runtime.tokens.length, 0);
+  } finally {
+    await close();
+  }
+});
+
+test('failed encounter entity persistence leaves memory and runtime unchanged', async () => {
+  const { app, service, repository, close } = await createApp();
+  const headers = { 'x-test-user': 'master' };
+  try {
+    const created = await app.inject({ method: 'POST', url: '/api/scenes/scene-initial/encounters', headers,
+      payload: { baseVersion: 1, encounter: { name: 'Imboscata', kind: 'combat' } } });
+    const encounterId = created.json().document.encounters[0].id;
+    repository.saveVersion = () => { throw new Error('storage failure'); };
+    const response = await app.inject({ method: 'POST',
+      url: `/api/scenes/scene-initial/encounters/${encounterId}/entities`, headers,
+      payload: { baseVersion: 2, entity: { kind: 'monster', name: 'Goblin' } } });
+    assert.equal(response.statusCode, 500);
+    assert.equal(service.getScene('scene-initial').version, 2);
+    assert.deepEqual(service.getScene('scene-initial').document.entityReferences, []);
+    assert.deepEqual(service.getScene('scene-initial').document.runtime.tokens, []);
+  } finally {
+    await close();
+  }
+});
+
 test('scene activation is Master-only, versioned, blocked during a round and committed once', async () => {
   let roundStarted = true;
   const activated = [];

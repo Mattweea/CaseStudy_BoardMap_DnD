@@ -25,6 +25,7 @@ const DEFAULT_MEASUREMENT_UNIT = Object.freeze({
 
 export const SCENE_ELEMENT_KINDS = Object.freeze(['rock', 'crate', 'table']);
 export const SCENE_ENCOUNTER_KINDS = Object.freeze(['combat', 'narrative', 'other']);
+export const SCENE_ENTITY_KINDS = Object.freeze(['monster', 'npc']);
 
 export class SceneValidationError extends Error {
   constructor(message, path = 'scene') {
@@ -357,9 +358,17 @@ export function normalizeSceneElements(value, dimensions = { columns: 0, rows: 0
   return normalizeElements(value, 'elements', dimensions);
 }
 
-function normalizeEntityReferences(value, path) {
+function normalizeEntityReferences(value, path, encounterIds) {
   return normalizeCollection(value, path, (item, itemPath) => {
     const cloned = cloneJsonObject(item, itemPath);
+    const encounterId = cloned.encounterId === undefined
+      ? undefined : normalizeId(cloned.encounterId, itemPath + '.encounterId');
+    if (encounterId !== undefined && !encounterIds.has(encounterId)) {
+      fail(itemPath + '.encounterId', 'references missing encounter "' + encounterId + '"');
+    }
+    if (encounterId !== undefined && !SCENE_ENTITY_KINDS.includes(cloned.entityType)) {
+      fail(itemPath + '.entityType', 'must be monster or npc for an encounter entity');
+    }
     return {
       id: normalizeId(cloned.id, itemPath + '.id'),
       entityType: normalizeShortString(
@@ -368,6 +377,10 @@ function normalizeEntityReferences(value, path) {
         SCENE_LIMITS.maxReferenceTypeLength,
       ),
       entityId: normalizeId(cloned.entityId, itemPath + '.entityId'),
+      ...(encounterId === undefined ? {} : {
+        encounterId,
+        name: normalizeShortString(cloned.name, itemPath + '.name', SCENE_LIMITS.maxNameLength),
+      }),
     };
   });
 }
@@ -390,14 +403,15 @@ export function normalizeSceneEncounters(value) {
   });
 }
 
-function normalizePreparedPlacements(value, path, referenceIds, encounterIds) {
+function normalizePreparedPlacements(value, path, referencesById, encounterIds) {
   return normalizeCollection(value, path, (item, itemPath) => {
     const cloned = cloneJsonObject(item, itemPath);
     const entityReferenceId = normalizeId(
       cloned.entityReferenceId,
       itemPath + '.entityReferenceId',
     );
-    if (!referenceIds.has(entityReferenceId)) {
+    const reference = referencesById.get(entityReferenceId);
+    if (!reference) {
       fail(
         itemPath + '.entityReferenceId',
         'references missing entity "' + entityReferenceId + '"',
@@ -407,6 +421,9 @@ function normalizePreparedPlacements(value, path, referenceIds, encounterIds) {
       ? undefined : normalizeId(cloned.encounterId, itemPath + '.encounterId');
     if (encounterId !== undefined && !encounterIds.has(encounterId)) {
       fail(itemPath + '.encounterId', 'references missing encounter "' + encounterId + '"');
+    }
+    if (reference.encounterId !== undefined && encounterId !== reference.encounterId) {
+      fail(itemPath + '.encounterId', 'must match the entity encounter');
     }
     return {
       ...cloned,
@@ -491,13 +508,14 @@ export function normalizeSceneDocument(value) {
     fail('scene.schemaVersion', 'must equal ' + SCENE_DOCUMENT_VERSION);
   }
 
+  const encounters = normalizeSceneEncounters(value.encounters ?? []);
+  const encounterIds = new Set(encounters.map((encounter) => encounter.id));
   const entityReferences = normalizeEntityReferences(
     value.entityReferences ?? [],
     'scene.entityReferences',
+    encounterIds,
   );
-  const referenceIds = new Set(entityReferences.map((reference) => reference.id));
-  const encounters = normalizeSceneEncounters(value.encounters ?? []);
-  const encounterIds = new Set(encounters.map((encounter) => encounter.id));
+  const referencesById = new Map(entityReferences.map((reference) => [reference.id, reference]));
   const runtime = value.runtime === undefined
     ? {}
     : cloneJsonObject(value.runtime, 'scene.runtime');
@@ -514,7 +532,7 @@ export function normalizeSceneDocument(value) {
     preparedPlacements: normalizePreparedPlacements(
       value.preparedPlacements ?? [],
       'scene.preparedPlacements',
-      referenceIds,
+      referencesById,
       encounterIds,
     ),
     runtime: {

@@ -256,6 +256,28 @@ test('encounters normalize supported kinds and prepared placements cannot refere
   assert.deepEqual(normalizeSceneDocument(scene).encounters, []);
 });
 
+test('monster and npc references keep stable encounter links without breaking legacy references', () => {
+  const scene = validScene();
+  scene.entityReferences.push(
+    { id: 'monster-ref', entityType: 'monster', entityId: 'monster-1', encounterId: 'encounter-1', name: 'Goblin' },
+    { id: 'npc-ref', entityType: 'npc', entityId: 'npc-1', encounterId: 'encounter-1', name: 'Custode' },
+  );
+  const normalized = normalizeSceneDocument(scene);
+  assert.deepEqual(normalized.entityReferences, scene.entityReferences);
+  assert.deepEqual(captureSceneConfiguration(scene).entityReferences, scene.entityReferences);
+
+  scene.entityReferences[1].encounterId = 'missing';
+  assert.throws(() => normalizeSceneDocument(scene), /references missing encounter/);
+  scene.entityReferences[1].encounterId = 'encounter-1';
+  scene.entityReferences[1].entityType = 'object';
+  assert.throws(() => normalizeSceneDocument(scene), /must be monster or npc/);
+  scene.entityReferences[1].entityType = 'npc';
+  scene.preparedPlacements[0].entityReferenceId = 'npc-ref';
+  assert.deepEqual(normalizeSceneDocument(scene).preparedPlacements[0].encounterId, 'encounter-1');
+  scene.preparedPlacements[0].encounterId = undefined;
+  assert.throws(() => normalizeSceneDocument(scene), /must match the entity encounter/);
+});
+
 test('coordinates must be safe integers inside the configured guardrail', () => {
   const fractional = validScene();
   fractional.runtime.tokens[0].position.x = 1.5;

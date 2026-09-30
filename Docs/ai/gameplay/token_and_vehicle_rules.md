@@ -10,6 +10,8 @@ Supported types are player, enemy, object, and vehicle. D&D size maps to a squar
 
 Every token has a stable ID, name, grid position, color, initiative modifier, and conditions. Optional fields describe ownership, roster identity, movement, affiliation, vehicle state, grouping, HP, visibility, familiarity, collision blocking, initiative exclusion, and auras.
 
+Le definizioni monster/npc associate agli encounter sono configurazione, non una nuova categoria runtime. Un adapter puro produce un `UnitToken` di tipo `enemy` con ID dell'istanza/placement, geometria e proprietà canoniche; non assegna `ownerUserId` né `characterKey` e non crea schede PC. E.2 non colloca token sulla board: E.4 userà l'adapter per materializzare placement confermati.
+
 ## Visibility and ownership
 
 - `isInvisible` means hidden from non-owner adventurer snapshots, not merely transparent CSS.
