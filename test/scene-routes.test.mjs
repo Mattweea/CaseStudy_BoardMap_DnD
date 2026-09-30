@@ -66,6 +66,98 @@ test('scene catalog routes enforce authentication and master authorization', asy
   }
 });
 
+test('encounter lifecycle is Master-only, versioned, persistent and does not start combat', async () => {
+  const refreshed = [];
+  const { app, service, repository, close } = await createApp({
+    onActiveSceneUpdated: (scene) => refreshed.push(scene.version),
+  });
+  const master = { 'x-test-user': 'master' };
+  const player = { 'x-test-user': 'player' };
+  const base = '/api/scenes/scene-initial/encounters';
+  try {
+    assert.equal((await app.inject({ method: 'GET', url: base })).statusCode, 401);
+    assert.equal((await app.inject({ method: 'GET', url: base, headers: player })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'POST', url: base, headers: player,
+      payload: { baseVersion: 1, encounter: { name: 'Vietato', kind: 'combat' } } })).statusCode, 403);
+    const created = await app.inject({ method: 'POST', url: base, headers: master,
+      payload: { baseVersion: 1, encounter: { name: 'Parlamento', kind: 'narrative', description: 'Trattativa' } } });
+    assert.equal(created.statusCode, 201);
+    const encounter = created.json().document.encounters[0];
+    assert.equal(encounter.kind, 'narrative');
+    assert.equal(created.json().version, 2);
+    assert.deepEqual(created.json().document.runtime.tokens, []);
+    assert.equal(service.getActiveScene().document.board.diagonalRule, 'standard');
+    assert.deepEqual(repository.findById('scene-initial').document.encounters, [encounter]);
+    assert.deepEqual((await app.inject({ method: 'GET', url: base, headers: master })).json().encounters, [encounter]);
+    const itemUrl = `${base}/${encounter.id}`;
+    assert.deepEqual((await app.inject({ method: 'GET', url: itemUrl, headers: master })).json().encounter, encounter);
+    assert.equal((await app.inject({ method: 'GET', url: itemUrl, headers: player })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'PATCH', url: itemUrl, headers: player,
+      payload: { baseVersion: 2, patch: { name: 'Vietato' } } })).statusCode, 403);
+    assert.equal((await app.inject({ method: 'DELETE', url: itemUrl, headers: player,
+      payload: { baseVersion: 2 } })).statusCode, 403);
+    const updated = await app.inject({ method: 'PATCH', url: itemUrl, headers: master,
+      payload: { baseVersion: 2, patch: { name: 'Imboscata', kind: 'combat' } } });
+    assert.equal(updated.statusCode, 200);
+    assert.equal(updated.json().version, 3);
+    assert.equal(updated.json().document.encounters[0].kind, 'combat');
+    const stale = await app.inject({ method: 'PATCH', url: itemUrl, headers: master,
+      payload: { baseVersion: 2, patch: { name: 'Stale' } } });
+    assert.equal(stale.statusCode, 409);
+    assert.equal(stale.json().currentScene.version, 3);
+    assert.equal((await app.inject({ method: 'PATCH', url: itemUrl, headers: master,
+      payload: { baseVersion: 3, patch: { name: null } } })).statusCode, 400);
+    assert.equal(service.getScene('scene-initial').document.encounters[0].name, 'Imboscata');
+    const current = service.getScene('scene-initial');
+    service.updateScene({ id: current.id, expectedVersion: current.version, name: current.name,
+      sortOrder: current.sortOrder, document: { ...current.document,
+        entityReferences: [{ id: 'ref-1', entityType: 'encounter-entity', entityId: 'entity-1' }],
+        preparedPlacements: [{ id: 'placement-1', entityReferenceId: 'ref-1', encounterId: encounter.id,
+          position: { x: 2, y: 2 } }],
+      } });
+    const linked = await app.inject({ method: 'DELETE', url: itemUrl, headers: master,
+      payload: { baseVersion: 4 } });
+    assert.equal(linked.statusCode, 409);
+    assert.match(linked.json().message, /placement collegati/);
+    assert.equal(service.getScene('scene-initial').version, 4);
+    const unlinked = service.getScene('scene-initial');
+    service.updateScene({ id: unlinked.id, expectedVersion: unlinked.version, name: unlinked.name,
+      sortOrder: unlinked.sortOrder, document: { ...unlinked.document, preparedPlacements: [] } });
+    const removed = await app.inject({ method: 'DELETE', url: itemUrl, headers: master,
+      payload: { baseVersion: 5 } });
+    assert.equal(removed.statusCode, 200);
+    assert.deepEqual(removed.json().document.encounters, []);
+    assert.deepEqual(repository.findById('scene-initial').document.encounters, []);
+    assert.deepEqual(refreshed, [2, 3, 6]);
+  } finally {
+    await close();
+  }
+});
+
+test('invalid encounter or failed persistence leaves the scene unchanged', async () => {
+  const refreshed = [];
+  const { app, service, repository, close } = await createApp({
+    onActiveSceneUpdated: (scene) => refreshed.push(scene.version),
+  });
+  const headers = { 'x-test-user': 'master' };
+  const url = '/api/scenes/scene-initial/encounters';
+  try {
+    const invalid = await app.inject({ method: 'POST', url, headers,
+      payload: { baseVersion: 1, encounter: { name: 'Invalido', kind: 'unknown' } } });
+    assert.equal(invalid.statusCode, 400);
+    assert.equal(service.getScene('scene-initial').version, 1);
+    repository.saveVersion = () => { throw new Error('storage failure'); };
+    const failed = await app.inject({ method: 'POST', url, headers,
+      payload: { baseVersion: 1, encounter: { name: 'Non salvato', kind: 'other' } } });
+    assert.equal(failed.statusCode, 500);
+    assert.equal(service.getScene('scene-initial').version, 1);
+    assert.deepEqual(service.getScene('scene-initial').document.encounters, []);
+    assert.deepEqual(refreshed, []);
+  } finally {
+    await close();
+  }
+});
+
 test('scene activation is Master-only, versioned, blocked during a round and committed once', async () => {
   let roundStarted = true;
   const activated = [];

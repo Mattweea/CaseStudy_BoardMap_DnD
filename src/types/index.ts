@@ -8,6 +8,7 @@ export type {
   SceneDocument,
   SceneDrawing,
   SceneElement,
+  SceneEncounter,
   SceneEntityReference,
   ScenePreparedPlacement,
   SceneRuntime,

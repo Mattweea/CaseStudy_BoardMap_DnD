@@ -39,6 +39,7 @@ function validScene() {
       { id: 'element-1', kind: 'rock', position: { x: 7, y: 8 }, widthCells: 2, heightCells: 1, rotation: 45,
         blocksMovement: false, blocksVision: false },
     ],
+    encounters: [{ id: 'encounter-1', name: 'Guardia al ponte', kind: 'narrative', description: 'Un dialogo.' }],
     entityReferences: [
       { id: 'reference-1', entityType: 'encounter-entity', entityId: 'entity-1' },
     ],
@@ -46,6 +47,7 @@ function validScene() {
       {
         id: 'placement-1',
         entityReferenceId: 'reference-1',
+        encounterId: 'encounter-1',
         position: { x: 9, y: 10 },
       },
     ],
@@ -72,6 +74,7 @@ test('default scene contains independent, versioned, separated sections', () => 
   assert.deepEqual(first.board.dimensions, { columns: 30, rows: 30 });
   assert.deepEqual(first.drawings, []);
   assert.deepEqual(first.elements, []);
+  assert.deepEqual(first.encounters, []);
   assert.deepEqual(first.entityReferences, []);
   assert.deepEqual(first.preparedPlacements, []);
   assert.deepEqual(first.runtime.tokens, []);
@@ -233,6 +236,24 @@ test('prepared placements cannot reference a missing entity', () => {
       error instanceof SceneValidationError
       && error.path === 'scene.preparedPlacements[0].entityReferenceId',
   );
+});
+
+test('encounters normalize supported kinds and prepared placements cannot reference a missing encounter', () => {
+  const scene = validScene();
+  assert.deepEqual(normalizeSceneDocument(scene).encounters, scene.encounters);
+  scene.encounters.push({ ...scene.encounters[0] });
+  assert.throws(() => normalizeSceneDocument(scene), /duplicates id/);
+  scene.encounters.pop();
+  scene.encounters[0].kind = 'unsupported';
+  assert.throws(() => normalizeSceneDocument(scene), /supported encounter kind/);
+  scene.encounters[0].kind = 'combat';
+  scene.preparedPlacements[0].encounterId = 'missing';
+  assert.throws(() => normalizeSceneDocument(scene), /references missing encounter/);
+  scene.preparedPlacements[0].encounterId = 'encounter-1';
+  assert.deepEqual(captureSceneConfiguration(scene).encounters[0].kind, 'combat');
+  delete scene.encounters;
+  delete scene.preparedPlacements[0].encounterId;
+  assert.deepEqual(normalizeSceneDocument(scene).encounters, []);
 });
 
 test('coordinates must be safe integers inside the configured guardrail', () => {

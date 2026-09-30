@@ -3,6 +3,7 @@ import type { BoardDimensions, SceneDrawing } from '../types';
 import { useSceneCatalog } from '../hooks/useSceneCatalog';
 import { sceneBackgroundUrl } from '../utils/sceneApi';
 import { SceneElementEditor } from './SceneElementEditor';
+import { SceneEncounterSection } from './SceneEncounterSection';
 
 const DEFAULT_CALIBRATION = { scale: 1, offsetX: 0, offsetY: 0 };
 const CELL_SIZE = 48;
@@ -78,6 +79,9 @@ export function SceneCatalogPanel({
     addElement,
     updateElement,
     removeElement,
+    createEncounter,
+    updateEncounter,
+    removeEncounter,
   } = useSceneCatalog(true);
   const [newName, setNewName] = useState('');
   const [nameDraft, setNameDraft] = useState('');
@@ -427,6 +431,7 @@ export function SceneCatalogPanel({
 
       <div className="scene-catalog__workspace">
         {selectedScene ? (
+          <>
           <form className="scene-catalog__detail" onSubmit={(event) => void submitUpdate(event)}>
             <div className="scene-catalog__detail-heading">
               <div>
@@ -739,6 +744,9 @@ export function SceneCatalogPanel({
               </button>
             </div>
           </form>
+          <SceneEncounterSection scene={selectedScene} disabled={isMutating || isLoading || hasDraftChanges} error={error}
+            onCreate={createEncounter} onUpdate={updateEncounter} onRemove={removeEncounter} />
+          </>
         ) : (
           <div className="scene-catalog__empty-workspace">
             <span aria-hidden="true">⌖</span>

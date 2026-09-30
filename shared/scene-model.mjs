@@ -24,6 +24,7 @@ const DEFAULT_MEASUREMENT_UNIT = Object.freeze({
 });
 
 export const SCENE_ELEMENT_KINDS = Object.freeze(['rock', 'crate', 'table']);
+export const SCENE_ENCOUNTER_KINDS = Object.freeze(['combat', 'narrative', 'other']);
 
 export class SceneValidationError extends Error {
   constructor(message, path = 'scene') {
@@ -371,7 +372,25 @@ function normalizeEntityReferences(value, path) {
   });
 }
 
-function normalizePreparedPlacements(value, path, referenceIds) {
+export function normalizeSceneEncounters(value) {
+  return normalizeCollection(value, 'encounters', (item, itemPath) => {
+    const cloned = cloneJsonObject(item, itemPath);
+    if (!SCENE_ENCOUNTER_KINDS.includes(cloned.kind)) {
+      fail(itemPath + '.kind', 'must be a supported encounter kind');
+    }
+    if (cloned.description !== undefined && (typeof cloned.description !== 'string' || cloned.description.length > 2000)) {
+      fail(itemPath + '.description', 'must be a string of at most 2000 characters');
+    }
+    return {
+      id: normalizeId(cloned.id, itemPath + '.id'),
+      name: normalizeShortString(cloned.name, itemPath + '.name', SCENE_LIMITS.maxNameLength),
+      kind: cloned.kind,
+      description: cloned.description?.trim() ?? '',
+    };
+  });
+}
+
+function normalizePreparedPlacements(value, path, referenceIds, encounterIds) {
   return normalizeCollection(value, path, (item, itemPath) => {
     const cloned = cloneJsonObject(item, itemPath);
     const entityReferenceId = normalizeId(
@@ -384,10 +403,16 @@ function normalizePreparedPlacements(value, path, referenceIds) {
         'references missing entity "' + entityReferenceId + '"',
       );
     }
+    const encounterId = cloned.encounterId === undefined
+      ? undefined : normalizeId(cloned.encounterId, itemPath + '.encounterId');
+    if (encounterId !== undefined && !encounterIds.has(encounterId)) {
+      fail(itemPath + '.encounterId', 'references missing encounter "' + encounterId + '"');
+    }
     return {
       ...cloned,
       id: normalizeId(cloned.id, itemPath + '.id'),
       entityReferenceId,
+      ...(encounterId === undefined ? {} : { encounterId }),
       position: normalizePosition(cloned.position, itemPath + '.position'),
     };
   });
@@ -418,6 +443,7 @@ export function createDefaultSceneDocument() {
     },
     drawings: [],
     elements: [],
+    encounters: [],
     entityReferences: [],
     preparedPlacements: [],
     runtime: {
@@ -470,6 +496,8 @@ export function normalizeSceneDocument(value) {
     'scene.entityReferences',
   );
   const referenceIds = new Set(entityReferences.map((reference) => reference.id));
+  const encounters = normalizeSceneEncounters(value.encounters ?? []);
+  const encounterIds = new Set(encounters.map((encounter) => encounter.id));
   const runtime = value.runtime === undefined
     ? {}
     : cloneJsonObject(value.runtime, 'scene.runtime');
@@ -481,11 +509,13 @@ export function normalizeSceneDocument(value) {
     board,
     drawings: normalizeDrawings(value.drawings ?? [], 'scene.drawings'),
     elements: normalizeElements(value.elements ?? [], 'scene.elements', board.dimensions),
+    encounters,
     entityReferences,
     preparedPlacements: normalizePreparedPlacements(
       value.preparedPlacements ?? [],
       'scene.preparedPlacements',
       referenceIds,
+      encounterIds,
     ),
     runtime: {
       tokens: normalizeTokens(runtime.tokens ?? [], 'scene.runtime.tokens'),
@@ -507,6 +537,7 @@ export function captureSceneConfiguration(scene) {
     board: normalized.board,
     drawings: normalized.drawings,
     elements: normalized.elements,
+    encounters: normalized.encounters,
     entityReferences: normalized.entityReferences,
     preparedPlacements: normalized.preparedPlacements,
   };

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Encounter Management Specification
+
+## Purpose
+
+Consente al Master di preparare e gestire encounter associati alle scene, inclusi incontri narrativi e di combattimento, senza avviare automaticamente il combattimento.
+
+## Requirements
 
 ### Requirement: P0.9e.1 Lifecycle degli encounter associati alla scena
 Il sistema SHALL consentire al Master di creare, elencare, leggere, modificare e rimuovere encounter associati a una scena mediante mutazioni autorizzate e versionate. Un encounter SHALL poter rappresentare combattimento, narrazione o altra situazione supportata senza avviare automaticamente il combattimento.

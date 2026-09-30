@@ -1,4 +1,5 @@
-import { normalizeSceneDrawings, normalizeSceneElements, SCENE_LIMITS } from '../shared/scene-model.mjs';
+import { randomUUID } from 'node:crypto';
+import { normalizeSceneDrawings, normalizeSceneElements, normalizeSceneEncounters, SCENE_LIMITS } from '../shared/scene-model.mjs';
 
 const DRAWING_HISTORY_LIMIT = 40;
 
@@ -25,6 +26,14 @@ export class SceneNotFoundError extends Error {
     super(`Scena non trovata: ${sceneId}`);
     this.name = 'SceneNotFoundError';
     this.statusCode = 404;
+  }
+}
+
+export class SceneEncounterReferencedError extends Error {
+  constructor() {
+    super('Rimuovi prima i placement collegati a questo encounter.');
+    this.name = 'SceneEncounterReferencedError';
+    this.statusCode = 409;
   }
 }
 
@@ -241,6 +250,56 @@ export class SceneService {
     }
     return this.persistElements(current, expectedVersion,
       current.document.elements.filter((element) => element.id !== elementId));
+  }
+
+  persistEncounters(current, expectedVersion, encounters) {
+    return this.updateScene({
+      id: current.id,
+      expectedVersion,
+      name: current.name,
+      document: { ...current.document, encounters },
+      sortOrder: current.sortOrder,
+    });
+  }
+
+  createEncounter({ id, expectedVersion, encounter }) {
+    const current = this.versionedScene(id, expectedVersion);
+    if (!encounter || typeof encounter !== 'object' || Array.isArray(encounter)) {
+      throw new TypeError('Specifica i dati dell’encounter.');
+    }
+    const encounters = normalizeSceneEncounters([
+      ...current.document.encounters,
+      { ...encounter, id: randomUUID() },
+    ]);
+    return this.persistEncounters(current, expectedVersion, encounters);
+  }
+
+  updateEncounter({ id, encounterId, expectedVersion, patch }) {
+    const current = this.versionedScene(id, expectedVersion);
+    const index = current.document.encounters.findIndex((encounter) => encounter.id === encounterId);
+    if (index < 0) throw new ScenePersistenceConflictError(current);
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)
+      || (patch.name === undefined && patch.kind === undefined && patch.description === undefined)) {
+      throw new TypeError('Specifica i dati da modificare.');
+    }
+    const encounters = [...current.document.encounters];
+    encounters[index] = { ...encounters[index],
+      name: patch.name === undefined ? encounters[index].name : patch.name,
+      kind: patch.kind === undefined ? encounters[index].kind : patch.kind,
+      description: patch.description === undefined ? encounters[index].description : patch.description };
+    return this.persistEncounters(current, expectedVersion, normalizeSceneEncounters(encounters));
+  }
+
+  removeEncounter({ id, encounterId, expectedVersion }) {
+    const current = this.versionedScene(id, expectedVersion);
+    if (!current.document.encounters.some((encounter) => encounter.id === encounterId)) {
+      throw new ScenePersistenceConflictError(current);
+    }
+    if (current.document.preparedPlacements.some((placement) => placement.encounterId === encounterId)) {
+      throw new SceneEncounterReferencedError();
+    }
+    return this.persistEncounters(current, expectedVersion,
+      current.document.encounters.filter((encounter) => encounter.id !== encounterId));
   }
 
   async replaceBackground({ id, expectedVersion, buffer, mediaType, storage }) {

@@ -31,6 +31,14 @@ export class SceneValidationError extends Error {
 }
 
 export const SCENE_ELEMENT_KINDS: readonly ['rock', 'crate', 'table'];
+export const SCENE_ENCOUNTER_KINDS: readonly ['combat', 'narrative', 'other'];
+
+export interface SceneEncounter {
+  id: string;
+  name: string;
+  kind: (typeof SCENE_ENCOUNTER_KINDS)[number];
+  description: string;
+}
 
 export interface BlankSceneBackground {
   kind: 'blank';
@@ -86,6 +94,7 @@ export interface SceneEntityReference {
 export interface ScenePreparedPlacement {
   id: string;
   entityReferenceId: string;
+  encounterId?: string;
   position: GridPosition;
   [key: string]: unknown;
 }
@@ -106,6 +115,7 @@ export interface SceneConfigurationDocument {
   board: SceneBoardConfig;
   drawings: SceneDrawing[];
   elements: SceneElement[];
+  encounters: SceneEncounter[];
   entityReferences: SceneEntityReference[];
   preparedPlacements: ScenePreparedPlacement[];
 }
@@ -130,6 +140,7 @@ export function normalizeScene(value: unknown): Scene;
 export function normalizeSceneDocument(value: unknown): SceneDocument;
 export function normalizeSceneDrawings(value: unknown): SceneDrawing[];
 export function normalizeSceneElements(value: unknown, dimensions?: { columns: number; rows: number }): SceneElement[];
+export function normalizeSceneEncounters(value: unknown): SceneEncounter[];
 export function captureSceneConfiguration(scene: unknown): SceneConfigurationDocument;
 export function projectSceneRuntime(
   configuration: unknown,

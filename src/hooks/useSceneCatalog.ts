@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BoardDimensions, SceneDrawing, SceneElement } from '../types';
+import type { BoardDimensions, SceneDrawing, SceneElement, SceneEncounter } from '../types';
 import {
   sceneApi,
   SceneApiError,
@@ -286,5 +286,11 @@ export function useSceneCatalog(enabled: boolean) {
     addElement: (element: SceneElement) => writeLayer((scene) => sceneApi.addElement(scene.id, scene.version, element), 'Aggiunta dell’elemento non riuscita. Riprova.'),
     updateElement: (elementId: string, transform: Pick<SceneElement, 'position' | 'widthCells' | 'heightCells' | 'rotation' | 'blocksMovement' | 'blocksVision'>) => writeLayer((scene) => sceneApi.updateElement(scene.id, elementId, scene.version, transform), 'Trasformazione dell’elemento non riuscita. Riprova.'),
     removeElement: (elementId: string) => writeLayer((scene) => sceneApi.removeElement(scene.id, elementId, scene.version), 'Rimozione dell’elemento non riuscita. Riprova.'),
+    createEncounter: (encounter: Omit<SceneEncounter, 'id'>) => writeLayer(
+      (scene) => sceneApi.createEncounter(scene.id, scene.version, encounter), 'Creazione dell’encounter non riuscita.'),
+    updateEncounter: (encounterId: string, patch: Pick<SceneEncounter, 'name' | 'kind' | 'description'>) => writeLayer(
+      (scene) => sceneApi.updateEncounter(scene.id, encounterId, scene.version, patch), 'Modifica dell’encounter non riuscita.'),
+    removeEncounter: (encounterId: string) => writeLayer(
+      (scene) => sceneApi.removeEncounter(scene.id, encounterId, scene.version), 'Rimozione dell’encounter non riuscita.'),
   };
 }

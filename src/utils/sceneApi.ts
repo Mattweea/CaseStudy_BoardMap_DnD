@@ -1,4 +1,4 @@
-import type { Scene, SceneDrawing, SceneElement } from '../types';
+import type { Scene, SceneDrawing, SceneElement, SceneEncounter } from '../types';
 import { API_BASE_URL } from './api';
 
 export interface SceneCatalogEntry {
@@ -138,6 +138,23 @@ export const sceneApi = {
     method: 'DELETE',
     body: JSON.stringify({ baseVersion }),
   }),
+  listEncounters: (id: string) => request<{ sceneId: string; version: number; encounters: SceneEncounter[] }>(
+    `/scenes/${encodeURIComponent(id)}/encounters`),
+  getEncounter: (id: string, encounterId: string) => request<{ sceneId: string; version: number; encounter: SceneEncounter }>(
+    `/scenes/${encodeURIComponent(id)}/encounters/${encodeURIComponent(encounterId)}`),
+  createEncounter: (id: string, baseVersion: number, encounter: Omit<SceneEncounter, 'id'>) => request<PersistedScene>(
+    `/scenes/${encodeURIComponent(id)}/encounters`, {
+      method: 'POST', body: JSON.stringify({ baseVersion, encounter }),
+    }),
+  updateEncounter: (id: string, encounterId: string, baseVersion: number,
+    patch: Pick<SceneEncounter, 'name' | 'kind' | 'description'>) => request<PersistedScene>(
+    `/scenes/${encodeURIComponent(id)}/encounters/${encodeURIComponent(encounterId)}`, {
+      method: 'PATCH', body: JSON.stringify({ baseVersion, patch }),
+    }),
+  removeEncounter: (id: string, encounterId: string, baseVersion: number) => request<PersistedScene>(
+    `/scenes/${encodeURIComponent(id)}/encounters/${encodeURIComponent(encounterId)}`, {
+      method: 'DELETE', body: JSON.stringify({ baseVersion }),
+    }),
 };
 
 export function sceneBackgroundUrl(scene: PersistedScene): string | null {
