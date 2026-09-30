@@ -2254,6 +2254,20 @@ function sendMutationResult(reply, user, result) {
   return result.skipped?.length ? { ...response, skipped: result.skipped } : response;
 }
 
+function requireCurrentPlayerScene(user, body, reply) {
+  if (user.role === 'master') return true;
+  // Snapshot legacy e harness isolati possono non avere ancora un'identità scena installata.
+  // Appena l'identità persistita esiste, entrambi i campi diventano obbligatori per i Player.
+  if (battleMapState.activeSceneId === null || battleMapState.activeSceneVersion === null) return true;
+  if (body?.sceneId === battleMapState.activeSceneId
+    && body?.sceneVersion === battleMapState.activeSceneVersion) return true;
+  reply.code(409).send({
+    message: 'La scena attiva è cambiata. Sincronizza e riprova.',
+    ...nextSnapshot(user),
+  });
+  return false;
+}
+
 app.delete('/api/battle-map/dice-logs', async (request, reply) => {
   const user = requireUser(request, reply);
   if (!user) {
@@ -2315,6 +2329,7 @@ app.post('/api/battle-map/turn/advance', async (request, reply) => {
   if (!user) {
     return;
   }
+  if (!requireCurrentPlayerScene(user, request.body, reply)) return;
 
   return sendMutationResult(reply, user, advanceTurn(user, request.body?.direction));
 });
@@ -2335,6 +2350,7 @@ app.post('/api/battle-map/initiative/roll', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   if (typeof body.tokenId !== 'string' || !body.tokenId) {
     reply.code(400);
     return { message: 'Payload tiro iniziativa non valido.', ...nextSnapshot(user) };
@@ -2358,6 +2374,7 @@ app.post('/api/battle-map/move', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
   if (!tokenId) {
     reply.code(400);
@@ -2416,6 +2433,7 @@ app.post('/api/battle-map/ping', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   const result = sendPing(user, body.position);
   if (result.status !== 200) {
     reply.code(result.status);
@@ -2431,7 +2449,9 @@ app.post('/api/battle-map/template', async (request, reply) => {
     return;
   }
 
-  const result = sendTemplateEvent(user, request.body ?? {});
+  const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
+  const result = sendTemplateEvent(user, body);
   if (result.status !== 200) {
     reply.code(result.status);
     return { message: result.message };
@@ -2447,6 +2467,7 @@ app.post('/api/battle-map/dash', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
   if (!tokenId) {
     reply.code(400);
@@ -2472,6 +2493,7 @@ app.post('/api/battle-map/token-update', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
   if (!tokenId || typeof body.updates !== 'object' || !body.updates) {
     reply.code(400);
@@ -2497,6 +2519,7 @@ app.post('/api/battle-map/extra-movement', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
   const amount = typeof body.amount === 'number' ? body.amount : 1;
   if (!tokenId) {
@@ -2521,6 +2544,7 @@ app.post('/api/battle-map/undo', async (request, reply) => {
   if (!user) {
     return;
   }
+  if (!requireCurrentPlayerScene(user, request.body, reply)) return;
 
   const result = undoLastAction(user);
   if (result.status !== 200) {

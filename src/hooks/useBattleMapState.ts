@@ -603,12 +603,28 @@ export function useBattleMapState(isAuthenticated: boolean) {
     options: { diceBaseline?: boolean } = {},
   ) => {
     const normalizedState = normalizeSharedState(nextState);
+    const sceneChanged = sharedStateRef.current.activeSceneId !== normalizedState.activeSceneId;
+    if (sceneChanged) {
+      pingTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
+      pingTimeoutsRef.current.clear();
+      templateTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
+      templateTimeoutsRef.current.clear();
+      setEphemeralPings([]);
+      setEphemeralTemplates([]);
+      setTokenWalkEvents([]);
+      setMovementNotice(null);
+    }
     recordDiceSnapshot(normalizedState.diceLogs, options.diceBaseline === true);
     sharedStateRef.current = normalizedState;
     versionRef.current = nextVersion;
     setSharedState(normalizedState);
     setVersion(nextVersion);
   }, [recordDiceSnapshot]);
+
+  const currentSceneContext = () => ({
+    sceneId: sharedStateRef.current.activeSceneId,
+    sceneVersion: sharedStateRef.current.activeSceneVersion,
+  });
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -1053,7 +1069,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
         {
           method: 'POST',
           body: JSON.stringify(
-            waypoints && waypoints.length > 0 ? { tokenId, waypoints } : { tokenId, x, y },
+            { ...(waypoints && waypoints.length > 0 ? { tokenId, waypoints } : { tokenId, x, y }), ...currentSceneContext() },
           ),
         },
       );
@@ -1290,7 +1306,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
       try {
         const payload = await requestJson<{ state: BattleMapSharedState; version: number; skipped?: string[] }>(path, {
           method: 'POST',
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...body, ...currentSceneContext() }),
         });
         applySnapshot(payload.state, payload.version);
         return { ok: true as const, skipped: payload.skipped ?? [] };
@@ -1350,7 +1366,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
           '/battle-map/dash',
           {
             method: 'POST',
-            body: JSON.stringify({ tokenId }),
+            body: JSON.stringify({ tokenId, ...currentSceneContext() }),
           },
         );
         applySnapshot(payload.state, payload.version);
@@ -1377,7 +1393,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
         '/battle-map/token-update',
         {
           method: 'POST',
-          body: JSON.stringify({ tokenId, updates }),
+          body: JSON.stringify({ tokenId, updates, ...currentSceneContext() }),
         },
       );
 
@@ -1391,7 +1407,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
         '/battle-map/extra-movement',
         {
           method: 'POST',
-          body: JSON.stringify({ tokenId, amount }),
+          body: JSON.stringify({ tokenId, amount, ...currentSceneContext() }),
         },
       );
 
@@ -1406,6 +1422,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
           '/battle-map/undo',
           {
             method: 'POST',
+            body: JSON.stringify(currentSceneContext()),
           },
         );
 
@@ -1520,7 +1537,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     try {
       await requestJson('/battle-map/ping', {
         method: 'POST',
-        body: JSON.stringify({ position }),
+        body: JSON.stringify({ position, ...currentSceneContext() }),
       });
     } catch (error) {
       console.error(error);
@@ -1538,7 +1555,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     try {
       await requestJson('/battle-map/template', {
         method: 'POST',
-        body: JSON.stringify(event),
+        body: JSON.stringify({ ...event, ...currentSceneContext() }),
       });
     } catch (error) {
       console.error(error);

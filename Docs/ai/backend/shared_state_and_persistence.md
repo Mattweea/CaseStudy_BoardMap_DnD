@@ -63,6 +63,8 @@ Before an adventurer receives a snapshot:
 
 The master receives full state. Sanitization applies independently for HTTP and each SSE client.
 
+Scene isolation is narrower than complete secret filtering. An Adventurer snapshot contains only the active scene identity and projection and never contains `sceneCatalog`, inactive documents, or inactive asset URLs. Within the active projection, the existing token/dice sanitizers still apply; fog, lighting, drawings and scene elements are presentation data already delivered to the client and are not a P0.9 guarantee that every unrevealed secret is absent. Complete server-side fog/secrets remain the P0.10 boundary.
+
 ## Ephemeral events
 
 Ping, template-drawing, and token-walk events (`ephemeral-ping`, `ephemeral-template`, `ephemeral-template-end`, `token-walk`) are named SSE events on the same stream as the snapshot, on the model of `server/character-sheet-events.mjs`. They:

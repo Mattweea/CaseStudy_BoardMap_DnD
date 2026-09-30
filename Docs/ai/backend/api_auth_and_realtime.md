@@ -58,6 +58,7 @@ Ownership-aware endpoints must validate the current server token and user. New m
 - La proiezione attiva porta anche `activeSceneDrawings`. Un aggiornamento del drawing della scena attiva incrementa la versione condivisa e viene diffuso ai client; la modifica di una scena inattiva non espone il suo documento.
 - La proiezione attiva porta `activeSceneElements` della sola scena attiva a Master e Player. Una mutazione elementi sulla scena attiva aggiorna la proiezione e il broadcast; la preparazione di una scena inattiva resta nel suo dettaglio Master e non raggiunge gli snapshot Player.
 - Disconnect cleanup must remove the client and its keepalive timer.
+- Le mutazioni effettuabili da un Adventurer sulla board attiva (movimento, iniziativa personale, fine turno, dash, modifica del proprio token, movimento extra, undo, ping e sagome) dichiarano `sceneId` e `sceneVersion`. Quando l'identità non coincide con la proiezione attiva, il server risponde `409` con lo snapshot sanitizzato corrente prima di applicare qualsiasi effetto. Il Master resta governato dai propri controlli autorevoli e dalle versioni specifiche delle operazioni.
 - Never broadcast raw master state to all clients.
 - Per-die roll detail is part of its parent log rather than a separate event. The existing per-recipient snapshot sanitization therefore delivers the complete detail wherever that log is visible and delivers none of it where a secret log is hidden.
 

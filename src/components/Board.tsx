@@ -63,6 +63,7 @@ function formatRulerMeasurement(cells: number, unit: MeasurementUnit): string {
 }
 
 interface BoardProps {
+  sceneId: string | null;
   tokens: UnitToken[];
   zoom: number;
   selectedTokenIds: string[];
@@ -436,6 +437,7 @@ function isPathBlocked(
 }
 
 export function Board({
+  sceneId,
   tokens,
   zoom,
   selectedTokenIds,
@@ -907,6 +909,19 @@ export function Board({
   // pianificazione: per questo vive separato da planPath, con la stessa durata dell'animazione.
   const [walkTrackPaths, setWalkTrackPaths] = useState<Record<string, GridPosition[]>>({});
   const processedTokenWalkEventIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    setCamera(INITIAL_CAMERA);
+    setInteraction(null);
+    setActiveTool(null);
+    setRulerWaypoints([]);
+    setRulerHoverCell(null);
+    setLightPreviewCell(null);
+    walkAnimationsRef.current = {};
+    processedTokenWalkEventIdsRef.current.clear();
+    setWalkAnimatedPositions({});
+    setWalkTrackPaths({});
+  }, [sceneId]);
 
   const walkPathPoints = (waypoints: GridPosition[]): GridPosition[] => {
     const cost = pathCost(waypoints, { rule: diagonalRule });

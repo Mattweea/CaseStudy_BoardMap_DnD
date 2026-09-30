@@ -41,13 +41,44 @@ function withActiveTurn(state) {
 }
 
 async function move(user, body) {
+  const state = __testing.getBattleMapState();
   return __testing.app.inject({
     method: 'POST',
     url: '/api/battle-map/move',
     headers: sessionHeaders(user),
-    payload: body,
+    payload: {
+      ...(state.activeSceneId && state.activeSceneVersion
+        ? { sceneId: state.activeSceneId, sceneVersion: state.activeSceneVersion }
+        : {}),
+      ...body,
+    },
   });
 }
+
+test('player movement rejects missing, inactive and stale scene identities', async () => {
+  const activeScene = {
+    id: 'scene-current',
+    name: 'Scena corrente',
+    version: 4,
+    document: createDefaultSceneDocument(),
+  };
+  __testing.setSceneService({
+    getActiveScene: () => activeScene,
+  });
+  try {
+    __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()] }));
+    const payload = { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 1, y: 0 }] };
+    const missing = await __testing.app.inject({ method: 'POST', url: '/api/battle-map/move',
+      headers: sessionHeaders(PLAYER), payload });
+    assert.equal(missing.statusCode, 409);
+    assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
+    assert.equal((await move(PLAYER, { ...payload, sceneId: 'scene-old' })).statusCode, 409);
+    assert.equal((await move(PLAYER, { ...payload, sceneVersion: 3 })).statusCode, 409);
+    assert.equal((await move(PLAYER, payload)).statusCode, 200);
+  } finally {
+    __testing.setSceneService(null);
+  }
+});
 
 test('x/y and waypoints payloads produce the same result on a straight move', async () => {
   __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()] }));

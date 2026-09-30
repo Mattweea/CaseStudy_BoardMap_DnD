@@ -14,11 +14,11 @@ I Player devono operare sulla sola scena attiva senza che P0.9 dichiari prematur
 
 ### New Capabilities
 
-- multi-scene-session: comportamento realtime e operativo fra scene.
+Nessuna.
 
 ### Modified Capabilities
 
-Nessuna.
+- multi-scene-session: aggiunge isolamento Player e protezione dalle operazioni stale fra scene.
 
 ## Impact
 

@@ -221,6 +221,10 @@ function App() {
   const [selectedTokenIds, setSelectedTokenIds] = useState<string[]>(
     state.tokens[0] ? [state.tokens[0].id] : [],
   );
+
+  useEffect(() => {
+    setSelectedTokenIds([]);
+  }, [state.activeSceneId]);
   const [isNewElementModalOpen, setIsNewElementModalOpen] = useState(false);
   const [isElementsListModalOpen, setIsElementsListModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -1683,6 +1687,7 @@ function App() {
 
       <main className="app-main">
         <Board
+          sceneId={state.activeSceneId}
           onPresentationHostChange={setStandardBoardHost}
           onMapInteractionChange={handleStandardBoardInteraction}
           tokens={visibleBoardTokens}
@@ -1759,6 +1764,7 @@ function App() {
           className={`board-fullscreen-overlay board-fullscreen-overlay--${boardFullscreenPhase}`}
         >
           <Board
+            sceneId={state.activeSceneId}
             onPresentationHostChange={setFullscreenBoardHost}
             onMapInteractionChange={handleFullscreenBoardInteraction}
             tokens={visibleBoardTokens}
