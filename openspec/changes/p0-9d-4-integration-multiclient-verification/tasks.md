@@ -2,8 +2,8 @@
 
 ## 1. Preparazione matrice
 
-- [ ] 1.1 Definire fixture/database/storage temporanei e checklist Master + due Player.
-- [ ] 1.2 Mappare ogni requisito P0.9 a test automatico o passo manuale osservabile.
+- [x] 1.1 Definire fixture/database/storage temporanei e checklist Master + due Player.
+- [x] 1.2 Mappare ogni requisito P0.9 a test automatico o passo manuale osservabile.
 
 ## 2. Scenario integrato
 
