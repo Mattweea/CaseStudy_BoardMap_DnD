@@ -585,7 +585,7 @@ Il tooltip non è una perdita: non è raggiungibile da tastiera e non è annunci
 
 **Sistema**
 
-- [ ] Mantenere la scelta dei suoni locale al browser e compatibile con silenziamento, volume, preferenze dei dadi e limiti di riproduzione audio del browser; un suono non disponibile non deve interrompere il gioco.
+- [x] Mantenere la scelta dei suoni locale al browser e compatibile con silenziamento, volume, preferenze dei dadi e limiti di riproduzione audio del browser; un suono non disponibile non deve interrompere il gioco.
 - [ ] Allineare la guida in-app e `HOWITWORKS.md` ai comandi effettivamente consegnati, eliminando indicazioni superate.
 - [ ] Mantenere pan, zoom e centratura come stato della visuale del singolo client, senza modificare posizione dei token o stato condiviso della partita.
 
