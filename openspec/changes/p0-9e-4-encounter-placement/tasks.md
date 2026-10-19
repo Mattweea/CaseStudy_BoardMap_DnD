@@ -20,4 +20,4 @@
 
 ## 4. Accettazione UI
 
-- [ ] 4.1 Provare nel browser il nuovo flusso di collocazione con Master e Player: creare un'istanza, trascinarla nella preview con pan/zoom, modificarne l'ingombro, nasconderla/mostrarla e rimuoverla; confrontare board normale e fullscreen. L'approvazione dei test precedenti non copre questa nuova UI.
+- [x] 4.1 Provare nel browser il nuovo flusso di collocazione con Master e Player: creare un'istanza, trascinarla nella preview con pan/zoom, modificarne l'ingombro, nasconderla/mostrarla e rimuoverla; confrontare board normale e fullscreen. Accettazione dell'utente registrata in verification.md dopo la conferma della collocazione di mostri e PNG.

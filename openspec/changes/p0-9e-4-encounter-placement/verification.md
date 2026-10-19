@@ -22,10 +22,10 @@
 | Scrittura non riuscita | Riferimenti invalidi, fuori board, collisioni e failure injection lasciano scena, versione e runtime invariati |
 | Preparazione distinta dal gioco | Riconciliazione per differenze: HP/condizioni/posizione live sopravvivono a modifiche estranee e al cambio scena; la configurazione iniziale resta separata |
 
-## Accettazione browser aperta
+## Accettazione utente — 2026-10-19
 
-Il task 4.1 rimane aperto: non è disponibile un browser nell'ambiente. La suite UI con hook controllati non attesta layout reale, eventi del browser o una partita dal vivo. L'approvazione utente dei test precedenti è stata registrata separatamente prima dell'implementazione E.4 e non viene estesa a questa UI.
+L'utente conferma che mostri e PNG funzionano e possono essere collocati tranquillamente, e chiede di procedere rimandando la semplificazione degli encounter. Il task 4.1 è chiuso sulla base di questa accettazione e dei test automatici indicati sopra. Non si attribuisce all'agente una nuova sessione browser: i controlli UI automatici usano hook e geometria simulati.
 
 Percorso da provare: Preparazione scena → selezione encounter → aggiunta/selezione mostro o PNG → «Figure sulla mappa» → scegliere figura, colonna/riga e visibilità → «Colloca figura». Sulla scena attiva il token compare sulla board; una scena inattiva conserva la preparazione fino all'attivazione. Provare poi trascinamento nella preview, resize dal form, hidden e rimozione con Master/Player e fullscreen.
 
-La verifica completa del riavvio e del recupero della configurazione encounter resta nello step E.5; E.4 non dichiara completato il recovery live P0.11. La change non è ancora archiviabile fino alla chiusura dell'accettazione browser.
+La verifica del riavvio e del recupero della configurazione encounter è documentata separatamente in [E.5](../p0-9e-5-encounter-persistence/verification.md). L'accettazione di E.4 riguarda la collocazione; non dichiara completato il recovery live P0.11.

@@ -32,6 +32,7 @@ Define the stable connection, schema-evolution, safety, and verification rules f
 - `campaign_active_scenes` stores at most one active scene per campaign. Its composite foreign key guarantees that the selected scene belongs to the same campaign; deleting an active scene remains restricted until its lifecycle is explicitly handled.
 - Scene repository writes normalize the document and remove its runtime projection before serialization. An update succeeds only when its expected version still matches, then advances by one.
 - Structural scene changes use persist-before-project: the service changes its in-memory catalog only after SQLite accepts the write. A stale write returns the persisted current scene as conflict context and a storage error leaves the projection untouched.
+- Encounter definitions, monster/npc initial properties and prepared placements share that same document and scene version; they require no separate table or runtime checkpoint. Relationship validation precedes serialization, including matching encounter/entity links. Reopening the database recovers accepted authoring updates and removals. A rejected write must preserve both the persisted document/version and the service/runtime projections, without a realtime publication.
 
 ## Verification
 

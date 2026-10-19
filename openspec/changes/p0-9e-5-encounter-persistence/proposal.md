@@ -14,13 +14,13 @@ La preparazione degli encounter deve sopravvivere al riavvio, mentre round e sta
 
 ### New Capabilities
 
-- encounter-management: configurazione e preparazione degli encounter associati alle scene.
+Nessuna.
 
 ### Modified Capabilities
 
-Nessuna.
+- encounter-management: durabilità della preparazione e separazione dallo stato live.
 
 ## Impact
 
-- Estensione del documento JSON e del service scena.
+- Verifica del documento JSON e del service scena già integrati in E.1–E.4, senza nuovo schema o storage parallelo.
 - Test di riavvio mirati al confine configurazione/runtime.
