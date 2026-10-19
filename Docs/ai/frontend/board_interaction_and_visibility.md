@@ -56,9 +56,11 @@ Master multi-token and connected-obstacle movement may use a full shared-state c
 - `isInvisible` controls whether a token is included in an adventurer's server snapshot; an owner still receives their own invisible token.
 - The master receives the unsanitized state and may render invisible tokens as preparation/ghost elements.
 - Fog and lighting are separate from server-side hidden-token sanitization. They determine what received content is visually revealed, not whether secret content was delivered.
-- A fully lit board bypasses darkness presentation but does not bypass `isInvisible` sanitization.
+- A fully lit board bypasses darkness presentation but does not bypass `isInvisible` sanitization. The Master-only moon/sun button beside zoom in normal and fullscreen views writes `board.isFullyLit` on the active scene with its current version; the confirmed active-scene projection drives both icon and Player lighting. A stale or failed write leaves the displayed state unchanged. Inactive scene drafts retain their own lighting.
 - The Master configures that fully-lit/dark choice per scene in the preparation dialog. `Buio attivo` is a local draft until explicit save; cancel leaves rendering unchanged, and activating a prepared scene applies its saved choice to every connected client.
 - Blocking tokens participate in line-of-sight calculations. Source and target cells are excluded where needed to prevent self-occlusion.
+
+- A token with positive maximum HP displays a compact proportional current-HP row below its border; positive temporary HP uses a separate row. Hover or keyboard focus expands the rows to show exact values, with the focused token above its neighbors. The token’s accessible name always includes exact HP. Other users’ private HP remain absent from Player snapshots.
 
 ## Vision and light
 

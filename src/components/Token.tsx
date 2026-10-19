@@ -39,6 +39,12 @@ export function Token({
   const isCompact = Math.min(screenWidth, screenHeight) <= 34;
   const compactLabel =
     token.type === 'vehicle' ? vehicleCompactLabel(token, tokens) : tokenCompactLabel(token.name);
+  const maxHp = typeof token.maxHitPoints === 'number' && token.maxHitPoints > 0 ? token.maxHitPoints : null;
+  const currentHp = token.hitPoints ?? 0;
+  const temporaryHp = token.temporaryHitPoints ?? 0;
+  const currentRatio = maxHp ? Math.min(1, Math.max(0, currentHp / maxHp)) : 0;
+  const temporaryRatio = maxHp ? Math.min(1, Math.max(0, temporaryHp / maxHp)) : 0;
+  const hpTone = currentRatio < 0.2 ? 'danger' : currentRatio <= 0.5 ? 'warn' : 'healthy';
   const style = {
     width: screenWidth,
     height: screenHeight,
@@ -78,7 +84,7 @@ export function Token({
       onPointerDown={(event) => onPointerDown(event, token)}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
-      aria-label={`Elemento ${token.name}, ${tokenTypeLabel(token.type)}`}
+      aria-label={`Elemento ${token.name}, ${tokenTypeLabel(token.type)}${maxHp ? `, Punti ferita ${currentHp} su ${maxHp}${temporaryHp > 0 ? `, ${temporaryHp} temporanei` : ''}` : ''}`}
     >
       {token.conditions.length > 0 ? (
         <span className="token__conditions">
@@ -87,9 +93,18 @@ export function Token({
           ))}
         </span>
       ) : null}
-      {token.maxHitPoints !== null && token.maxHitPoints !== undefined ? (
-        <span className="token__hp" aria-label={`Punti ferita ${token.hitPoints ?? 0} su ${token.maxHitPoints}`}>
-          {`${token.hitPoints ?? 0}/${token.maxHitPoints}`}
+      {maxHp ? (
+        <span className={`token__hp token__hp--${hpTone} ${currentHp === 0 ? 'token__hp--empty' : ''}`} aria-hidden="true">
+          <span className="token__hp-row">
+            <span className="token__hp-current" style={{ width: `${currentRatio * 100}%` }} />
+            <span className="token__hp-label">{currentHp}/{maxHp}</span>
+          </span>
+          {temporaryRatio > 0 ? (
+            <span className="token__hp-row token__hp-row--temporary">
+              <span className="token__hp-temporary" style={{ width: `${temporaryRatio * 100}%` }} />
+              <span className="token__hp-label">+{temporaryHp} temp</span>
+            </span>
+          ) : null}
         </span>
       ) : null}
       {isCompact ? <span className="token__compact">{compactLabel}</span> : null}

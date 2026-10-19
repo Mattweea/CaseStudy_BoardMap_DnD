@@ -32,6 +32,7 @@ import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './ut
 import { collectVisionBlockers } from '../shared/scene-blockers';
 import { characterSheetApi } from './utils/characterSheetApi';
 import { playCombatSound } from './utils/combatAudio';
+import { sceneApi } from './utils/sceneApi';
 import type { CharacterSheetRosterEntry, PublicPortraitEntry } from './utils/characterSheetApi';
 import type { CombatAnnouncement, DiceRollLog, GridPosition, TokenMovementBudget, UnitToken } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
@@ -250,6 +251,7 @@ function App() {
   const [measurementUnitDraft, setMeasurementUnitDraft] = useState({ label: state.measurementUnit.label, cellsValue: String(state.measurementUnit.cellsValue) });
   const [measurementUnitError, setMeasurementUnitError] = useState<string | null>(null);
   const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null);
+  const [isBoardLightPending, setIsBoardLightPending] = useState(false);
   const [combatAnnouncement, setCombatAnnouncement] = useState<CombatAnnouncement | null>(null);
   const [isCombatAnnouncementOpen, setIsCombatAnnouncementOpen] = useState(false);
   const [draftNotes, setDraftNotes] = useState('');
@@ -818,6 +820,20 @@ function App() {
       setSessionFeedback(null);
       sessionFeedbackTimeoutRef.current = null;
     }, 3600);
+  };
+
+  const toggleActiveSceneLight = async () => {
+    const sceneId = state.activeSceneId;
+    const sceneVersion = state.activeSceneVersion;
+    if (!canManageBattleMap || !sceneId || !sceneVersion || isBoardLightPending) return;
+    setIsBoardLightPending(true);
+    try {
+      await sceneApi.update(sceneId, sceneVersion, { isFullyLit: !state.isBoardFullyLit });
+    } catch (error) {
+      showSessionFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Luce della scena non aggiornata.' });
+    } finally {
+      setIsBoardLightPending(false);
+    }
   };
 
   const handleSuspendSession = async () => {
@@ -1705,6 +1721,9 @@ function App() {
           focusRequest={focusRequest}
           followTokenId={followTokenId}
           isBackgroundHidden={state.isBoardBackgroundHidden}
+          isBoardFullyLit={state.isBoardFullyLit}
+          onToggleBoardLight={canManageBattleMap && state.activeSceneId ? toggleActiveSceneLight : undefined}
+          isBoardLightPending={isBoardLightPending}
           background={state.activeSceneBackground}
           drawings={state.activeSceneDrawings}
           elements={state.activeSceneElements}
@@ -1784,6 +1803,9 @@ function App() {
             followTokenId={followTokenId}
             isFullscreen
             isBackgroundHidden={state.isBoardBackgroundHidden}
+            isBoardFullyLit={state.isBoardFullyLit}
+            onToggleBoardLight={canManageBattleMap && state.activeSceneId ? toggleActiveSceneLight : undefined}
+            isBoardLightPending={isBoardLightPending}
             background={state.activeSceneBackground}
             drawings={state.activeSceneDrawings}
             elements={state.activeSceneElements}

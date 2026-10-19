@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BlockIcon, BookIcon, CircleTemplateIcon, CloseIcon, CollapseIcon, ConeTemplateIcon, ExpandIcon, LineTemplateIcon, MapIcon,
-  PingIcon, RulerIcon, SearchIcon, SparkIcon,
+  MoonIcon, PingIcon, RulerIcon, SearchIcon, SparkIcon, SunIcon,
 } from './UiIcons';
 import type { CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
@@ -72,6 +72,9 @@ interface BoardProps {
   followTokenId?: string | null;
   isFullscreen?: boolean;
   isBackgroundHidden?: boolean;
+  isBoardFullyLit?: boolean;
+  onToggleBoardLight?: () => void;
+  isBoardLightPending?: boolean;
   background?: SceneBackground;
   drawings?: SceneDrawing[];
   elements?: SceneElement[];
@@ -434,6 +437,9 @@ export function Board({
   followTokenId = null,
   isFullscreen = false,
   isBackgroundHidden = false,
+  isBoardFullyLit = false,
+  onToggleBoardLight,
+  isBoardLightPending = false,
   background = { kind: 'blank' },
   drawings = [],
   elements = [],
@@ -1937,6 +1943,19 @@ export function Board({
         className={`board-shell ${isBackgroundHidden ? 'board-shell--hidden-map' : background.kind === 'image' ? 'board-shell--image-map' : 'board-shell--blank-map'}`}
       >
         <div className="board-zoom-controls">
+          {onToggleBoardLight ? (
+            <button
+              type="button"
+              className="board-zoom-button board-light-button"
+              onClick={onToggleBoardLight}
+              disabled={isBoardLightPending}
+              aria-pressed={isBoardFullyLit}
+              aria-label={isBoardFullyLit ? 'Mostra buio nella scena attiva' : 'Mostra luce nella scena attiva'}
+              title={isBoardFullyLit ? 'Scena attiva illuminata: mostra buio ai Player' : 'Scena attiva buia: mostra luce ai Player'}
+            >
+              {isBoardFullyLit ? <SunIcon /> : <MoonIcon />}
+            </button>
+          ) : null}
           <button
             type="button"
             className="board-zoom-button"
