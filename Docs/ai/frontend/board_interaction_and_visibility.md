@@ -83,7 +83,7 @@ Master multi-token and connected-obstacle movement may use a full shared-state c
 
 ## Aura rendering and presence
 
-- Active auras render as low-opacity rectangles expanded from the owner's token footprint; their fills multiply with each other inside an isolated SVG group, while the solid same-color borders remain unblended above all fills. The same shared geometry determines presence. A contained owner renders no aura.
+- Active auras render as low-opacity rectangles expanded from the owner's token footprint; their fills multiply with each other inside an isolated SVG group, while the solid same-color borders remain unblended above all fills. The same shared geometry determines presence. A contained owner renders no aura. While the owner's walk animation runs, its aura is drawn from the animated position so it moves with the token; presence keeps using the shared (already final) position.
 - The radial menu's `Aure` action and `U` key open a positioned panel of named `menuitemcheckbox` switches for the canonical player token's auras, available to the owner and master. Arrow keys navigate, Enter/Space switches, and Escape returns to the ring.
 - An adventurer inside another character's active aura sees a compact, centered panel below the board's top coordinate axis in the active normal/fullscreen map host. Multiple auras share one panel, with a row for each; each row labels its detail control `Mostra dettagli` or `Nascondi dettagli` and reveals the effect inside the panel. New rows are announced without moving focus. The master and an aura's own owner get no presence notice for that aura.
 

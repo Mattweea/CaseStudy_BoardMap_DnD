@@ -910,36 +910,6 @@ export function Board({
       ]),
     );
   }, [planInteraction, planEndCell]);
-  // Rettangoli secondo la griglia del PHB (design, decisione 6): l'ingombro del token allargato
-  // del raggio su ogni lato, sempre, anche con la variante 5-10-5 per il movimento.
-  const auraRects = useMemo(
-    () =>
-      tokens.flatMap((token) => {
-        if (
-          (token.type !== 'player' && token.type !== 'enemy') ||
-          token.containedInVehicleId ||
-          !token.auras?.some((aura) => aura.active)
-        ) {
-          return [];
-        }
-
-        return token.auras.flatMap((aura) => {
-          if (!aura.active) {
-            return [];
-          }
-          const rect = auraRect(token, aura.radiusCells);
-          return [{
-            id: `${token.id}-${aura.id}`,
-            color: aura.color,
-            x: (rect.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
-            y: (rect.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
-            width: rect.width * BOARD_CONFIG.cellSize * zoom,
-            height: rect.height * BOARD_CONFIG.cellSize * zoom,
-          }];
-        });
-      }),
-    [camera.x, camera.y, tokens, zoom],
-  );
   const visibleTokenMaskRects = useMemo(() => {
     if (!effectiveVision) {
       return [];
@@ -1098,6 +1068,40 @@ export function Board({
   // pianificazione: per questo vive separato da planPath, con la stessa durata dell'animazione.
   const [walkTrackPaths, setWalkTrackPaths] = useState<Record<string, GridPosition[]>>({});
   const processedTokenWalkEventIdsRef = useRef<Set<string>>(new Set());
+
+  // Rettangoli secondo la griglia del PHB (design, decisione 6): l'ingombro del token allargato
+  // del raggio su ogni lato, sempre, anche con la variante 5-10-5 per il movimento. Durante il
+  // cammino l'aura segue la posizione animata del token: quella condivisa è già la destinazione.
+  const auraRects = useMemo(
+    () =>
+      tokens.flatMap((token) => {
+        if (
+          (token.type !== 'player' && token.type !== 'enemy') ||
+          token.containedInVehicleId ||
+          !token.auras?.some((aura) => aura.active)
+        ) {
+          return [];
+        }
+
+        const walkingPosition = walkAnimatedPositions[token.id];
+        const owner = walkingPosition ? { ...token, position: walkingPosition } : token;
+        return token.auras.flatMap((aura) => {
+          if (!aura.active) {
+            return [];
+          }
+          const rect = auraRect(owner, aura.radiusCells);
+          return [{
+            id: `${token.id}-${aura.id}`,
+            color: aura.color,
+            x: (rect.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+            y: (rect.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+            width: rect.width * BOARD_CONFIG.cellSize * zoom,
+            height: rect.height * BOARD_CONFIG.cellSize * zoom,
+          }];
+        });
+      }),
+    [camera.x, camera.y, tokens, walkAnimatedPositions, zoom],
+  );
 
   const walkPathPoints = (waypoints: GridPosition[]): GridPosition[] => {
     const cost = pathCost(waypoints, { rule: diagonalRule });
