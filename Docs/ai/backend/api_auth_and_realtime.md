@@ -8,6 +8,8 @@ Define the Fastify server boundary, authorization model, HTTP contracts, and SSE
 
 `server/index.mjs` is the authoritative process for authentication, shared game state, validation, versioning, snapshots, and broadcasts. The frontend may hide controls and update optimistically, but it cannot grant permission or make an invalid state valid.
 
+When a `dist` build exists, the same process serves its public files with `@fastify/static` using fixed file routes. Only `dist` is a static root; runtime storage and source files stay outside it. Existing API routes retain their authentication and errors, and missing files return `404`. Development may run without a build alongside Vite.
+
 ## Authentication
 
 - The server bootstraps the canonical roster into SQLite and resolves users through `UserRepository` on every authenticated request.

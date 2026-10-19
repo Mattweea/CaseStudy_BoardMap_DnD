@@ -23,6 +23,7 @@
   "dependencies": {
     "@3d-dice/dice-box-threejs": "0.0.12",
     "@fastify/multipart": "^8.3.1",
+    "@fastify/static": "^7.0.4",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.10.0",
     "fastify": "^4.29.1",

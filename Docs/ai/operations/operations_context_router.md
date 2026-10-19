@@ -7,6 +7,7 @@ Route local development, build, environment, proxy, public-session, and runtime 
 | Document | Read when the task involves | Usually skip when |
 |---|---|---|
 | [Development and live-session workflow](development_and_live_session.md) | Install/start/build commands, ports, environment variables, Vite proxying, allowed hosts, ngrok, runtime files, process lifecycle, or troubleshooting | Pure application behavior with unchanged runtime configuration |
+| [Docker and Dokploy deployment](docker_and_dokploy.md) | Container builds, serving the frontend build, Dokploy setup, container health, persistent volumes, deployment backups, or containerized local verification | Development without containers or unchanged deployment configuration |
 
 ## Cross-context routes
 

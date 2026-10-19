@@ -116,6 +116,29 @@ async function connect(f, cookie) {
   return stream;
 }
 
+test('one server serves the frontend build while preserving API authorization and file boundaries', async (t) => {
+  const f = await isolatedServer(t);
+  mkdirSync(join(f.directory, 'dist/assets'), { recursive: true });
+  writeFileSync(join(f.directory, 'dist/index.html'), '<!doctype html><div id="root">Frontend</div>');
+  writeFileSync(join(f.directory, 'dist/assets/app.js'), 'console.log("frontend");');
+  writeFileSync(join(f.directory, 'dist/.env'), 'PRIVATE=value');
+  await f.start();
+
+  const page = await request(f, null, 'GET', '/');
+  assert.match(page.headers.get('content-type'), /text\/html/);
+  assert.match(await page.text(), /Frontend/);
+  assert.equal(await (await request(f, null, 'GET', '/assets/app.js')).text(), 'console.log("frontend");');
+  assert.equal((await json(f, null, 'GET', '/api/health')).ok, true);
+  await request(f, null, 'GET', '/api/battle-map/state', undefined, 401);
+  for (const path of ['/api/missing', '/assets/missing.js', '/server/data/last-session.json', '/database/connection.mjs', '/.env']) {
+    const response = await request(f, null, 'GET', path, undefined, 404);
+    assert.match(response.headers.get('content-type'), /application\/json/);
+  }
+  const master = await login(f, 'master'), player = await login(f, 'vesuth');
+  assert.ok((await state(f, master)).state.sceneCatalog);
+  assert.ok(!('sceneCatalog' in (await state(f, player)).state));
+});
+
 test('production session crosses two scenes with three HTTP/SSE users, then recovers preparation after a real restart', { timeout: 30000 }, async (t) => {
   const f = await isolatedServer(t); await f.start();
   const cookies = await Promise.all(['master', 'vesuth', 'ilthar'].map((name) => login(f, name)));

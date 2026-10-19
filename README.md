@@ -82,6 +82,21 @@ Preview locale della build:
 npm run preview
 ```
 
+## Deploy Docker / Dokploy
+
+Il `Dockerfile` costruisce e avvia l'intero progetto in un solo container: Fastify serve sia il frontend compilato sia le API.
+
+Su Dokploy crea una **Application**, seleziona **Build Type: Dockerfile**, percorso `Dockerfile`, contesto `.` e nessun build stage. Collega il dominio HTTPS alla porta **3001** e aggiungi un named volume su **`/app/server/data`** per SQLite, upload e snapshot. Le migrazioni vengono applicate all'avvio. Mantieni una sola replica e sospendi la partita prima di un redeploy.
+
+Per provare in locale:
+
+```bash
+docker build -t dnd-battle-map .
+docker run --name dnd-battle-map --stop-timeout 30 -p 127.0.0.1:3001:3001 -e NODE_ENV=development --mount type=volume,source=dnd-battle-map-data,target=/app/server/data dnd-battle-map
+```
+
+Apri `http://localhost:3001`. L'override di `NODE_ENV` serve solo per il cookie su HTTP locale. Dettagli su configurazione, persistenza e backup nella [guida Docker e Dokploy](Docs/ai/operations/docker_and_dokploy.md).
+
 ## Database SQLite e migrazioni
 
 Il database richiede Node.js 22 (la versione del progetto) e viene gestito con `better-sqlite3`. Installa le dipendenze e crea lo schema locale con:

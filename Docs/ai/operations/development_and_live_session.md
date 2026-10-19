@@ -16,7 +16,7 @@ Define supported local, preview, and ngrok workflows plus their configuration bo
 - Manage the SQLite schema with `npm run db:migrate`, `npm run db:status`, `npm run db:rollback`, and the explicitly confirmed development reset command.
 - Validate documentation topology with `npm run docs:check`.
 
-The frontend and backend are separate processes. The default backend listens on `0.0.0.0:3001`; Vite normally serves on port `5173` and proxies `/api` to the backend.
+During development, the frontend and backend are separate processes. The default backend listens on `0.0.0.0:3001`; Vite normally serves on port `5173` and proxies `/api` to the backend. Containerized production uses the [Docker and Dokploy deployment](docker_and_dokploy.md) contract.
 
 ## Environment contract
 
@@ -35,7 +35,7 @@ Do not commit real credentials, database files, portraits, scene background uplo
 
 ## API URL behavior
 
-On `localhost` or `127.0.0.1`, the browser defaults directly to `http://localhost:3001/api`. On non-local hosts it uses relative `/api`, relying on the Vite proxy or same-origin deployment. Explicit Vite environment overrides take precedence.
+The browser defaults to relative `/api` and `/api/battle-map/stream` on every host, relying on the Vite proxy during development or Fastify serving both the build and API in production. Explicit Vite environment overrides take precedence. The Docker frontend build fixes both URLs to these same-origin paths.
 
 ## Live session
 

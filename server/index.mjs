@@ -1,4 +1,6 @@
 import Fastify from 'fastify';
+import fastifyStatic from '@fastify/static';
+import { existsSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { normalizeSceneDrawings, normalizeSceneElements } from '../shared/scene-model.mjs';
 import { collectMovementBlockers, footprintsOverlap } from '../shared/scene-blockers.mjs';
@@ -3343,6 +3345,10 @@ async function start() {
     characterSheetService.flushAll();
     database.close();
   });
+  const frontendPath = path.resolve(SERVER_DIR, '../dist');
+  if (existsSync(frontendPath)) {
+    await app.register(fastifyStatic, { root: frontendPath, wildcard: false });
+  }
   await app.listen({ port: PORT, host: HOST });
   let isShuttingDown = false;
   const shutdown = async (signal) => {
