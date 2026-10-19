@@ -23,7 +23,7 @@ Questo documento è una checklist di lavoro, non un'attestazione di esito. Regis
 
 ## Tracciabilità dei requisiti
 
-`A` indica un test automatico già presente; `M` un passo manuale/integrato ancora da eseguire. L'esistenza di `A` non prova da sola la sessione completa. I cinque requisiti P0.9e sono pianificati ma non ancora implementati.
+`A` indica un test automatico già presente; `M` un passo manuale/integrato. Gli esiti correnti sono registrati in fondo. P0.9e.1–e.3 sono implementati; placement E.4 e verifica completa della persistenza E.5 restano da completare.
 
 | Requisito | Evidenza prevista |
 |---|---|
@@ -65,3 +65,10 @@ Controlli trasversali: modalità/round in `combat-session-mode`, unità/diagonal
 - `openspec validate p0-9d-4-integration-multiclient-verification --strict --no-interactive`: superato.
 - Server locale raggiungibile su `127.0.0.1:3001` con richiesta di sessione; non sono state effettuate mutazioni sulla partita corrente. Nessuna verifica UI con tre sessioni è ancora attestata.
 - Blocco per la chiusura: P0.9e.1–e.5 sono ancora change attive con attività non completate; pertanto encounter e recupero della sua preparazione non sono verificabili. Anche le prove manuali M 1–9 e il confronto finale 3.2 restano da registrare. Ripetere i controlli di progetto dopo l'eventuale implementazione P0.9e.
+
+## Approvazione utente delle verifiche precedenti — 2026-10-19
+
+- L'utente dichiara funzionanti le funzionalità disponibili e richiede di segnare tutti i test precedenti come approvati. Si registra approvazione UI per scene/catalogo, sfondo/calibrazione/griglia, dimensioni, buio, drawing, elementi e blocker, transizione/trasferimento, controlli di ruolo e riconnessione, CRUD encounter e figure manuali E.1–E.3, zoom orizzontale e seguito del PG.
+- Questa è approvazione dell'utente, non una nuova esecuzione browser dell'agente. Non vengono inventati ID di scene, sessioni o misure di runtime.
+- I controlli automatici della change camera sono passati: 46 file di suite, build, docs:check e diff:check. La verifica della camera è dettagliata nella change `follow-player-movement-camera`.
+- Il task 2.2 è approvato per i flussi disponibili. Il task 2.1 resta parziale fino al placement E.4; il task 2.3 e il confronto finale 3.2 restano aperti fino alla verifica integrata di encounter, persistenza/riavvio e compatibilità legacy. L'approvazione non marca come implementate E.4/E.5.

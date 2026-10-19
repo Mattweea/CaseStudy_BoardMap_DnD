@@ -33,7 +33,7 @@ import {
 } from '../utils/board';
 import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
 import { cellsToUnit, pathCost, pathStepCount, MAX_MOVEMENT_PATH_STEPS } from '../../shared/grid-movement';
-import { SCENE_LIMITS } from '../../shared/scene-model';
+import { cameraFollowingPosition, clampCamera, walkingTokenPosition } from '../utils/boardCamera';
 import { collectMovementBlockers, footprintsOverlap, type SceneBlocker } from '../../shared/scene-blockers';
 import { sceneBackgroundViewportTransform } from '../../shared/scene-background-calibration';
 import { Token } from './Token';
@@ -69,6 +69,7 @@ interface BoardProps {
   selectedTokenIds: string[];
   editableTokenIds?: string[];
   focusRequest: { tokenId: string; nonce: number } | null;
+  followTokenId?: string | null;
   isFullscreen?: boolean;
   isBackgroundHidden?: boolean;
   background?: SceneBackground;
@@ -150,19 +151,6 @@ function tokenCenter(token: UnitToken): { x: number; y: number } {
   return {
     x: token.position.x + footprint.width / 2,
     y: token.position.y + footprint.height / 2,
-  };
-}
-
-function clampCamera(position: GridPosition, dimensions: BoardDimensions, viewport: BoardDimensions): GridPosition {
-  if (dimensions.columns === 0 && dimensions.rows === 0) {
-    return {
-      x: Math.min(SCENE_LIMITS.maxCoordinateMagnitude - viewport.columns, Math.max(0, position.x)),
-      y: Math.min(SCENE_LIMITS.maxCoordinateMagnitude - viewport.rows, Math.max(0, position.y)),
-    };
-  }
-  return {
-    x: Math.min(Math.max(0, position.x), Math.max(0, dimensions.columns - viewport.columns)),
-    y: Math.min(Math.max(0, position.y), Math.max(0, dimensions.rows - viewport.rows)),
   };
 }
 
@@ -439,10 +427,11 @@ function isPathBlocked(
 export function Board({
   sceneId,
   tokens,
-  zoom,
+  zoom: requestedZoom,
   selectedTokenIds,
   editableTokenIds = [],
   focusRequest,
+  followTokenId = null,
   isFullscreen = false,
   isBackgroundHidden = false,
   background = { kind: 'blank' },
@@ -563,16 +552,17 @@ export function Board({
   const isUnlimitedBoard = dimensions.columns === 0 && dimensions.rows === 0;
   const minimumViewportZoom = isUnlimitedBoard
     ? BOARD_CONFIG.minZoom
-    : viewportPixels.width > 0 && viewportPixels.height > 0
-    ? Math.max(
-        BOARD_CONFIG.minZoom,
-        Math.min(
-          1,
-          viewportPixels.width / fullBoardPixelSize.width,
-          viewportPixels.height / fullBoardPixelSize.height,
-        ),
-      )
+    : viewportPixels.width > 0
+    ? clampZoom(viewportPixels.width / fullBoardPixelSize.width)
     : BOARD_CONFIG.minZoom;
+  // La larghezza limita lo zoom out; l'altezza resta esplorabile con il pan.
+  // Applica il limite anche a preferenze salvate e cambi di viewport/scena.
+  const zoom = clampZoom(requestedZoom, minimumViewportZoom);
+  const visibleViewport = useMemo(() => ({
+    columns: Math.max(0, viewportPixels.width) / (BOARD_CONFIG.cellSize * zoom),
+    rows: Math.max(0, viewportPixels.height) / (BOARD_CONFIG.cellSize * zoom),
+  }), [viewportPixels.width, viewportPixels.height, zoom]);
+  const consumedFocusRef = useRef(focusRequest);
   const movableTokenIdSet = useMemo(() => new Set(movableTokenIds), [movableTokenIds]);
   const editableTokenIdSet = useMemo(() => new Set(editableTokenIds), [editableTokenIds]);
   const obstacleClusters = useMemo(() => buildObstacleClusters(tokens), [tokens]);
@@ -671,8 +661,12 @@ export function Board({
   }, [dimensions.columns, dimensions.rows, zoom]);
 
   useEffect(() => {
-    setCamera((current) => clampCamera(current, dimensions, viewportCells));
-  }, [dimensions, viewportCells]);
+    if (visibleViewport.columns <= 0 || visibleViewport.rows <= 0) return;
+    setCamera((current) => {
+      const next = clampCamera(current, dimensions, visibleViewport);
+      return next.x === current.x && next.y === current.y ? current : next;
+    });
+  }, [dimensions, visibleViewport]);
 
   useEffect(() => {
     const node = shellRef.current;
@@ -690,7 +684,9 @@ export function Board({
     return () => node.removeEventListener('wheel', handleWheel);
   }, [minimumViewportZoom, onZoomChange, zoom]);
 
-  const viewportPixelSize = boardPixelSize(viewportCells.columns, viewportCells.rows);
+  const renderedColumns = isUnlimitedBoard ? viewportCells.columns : Math.max(0, Math.min(viewportCells.columns, dimensions.columns - camera.x));
+  const renderedRows = isUnlimitedBoard ? viewportCells.rows : Math.max(0, Math.min(viewportCells.rows, dimensions.rows - camera.y));
+  const viewportPixelSize = boardPixelSize(renderedColumns, renderedRows);
   // Ogni layer della viewport usa coordinate gia moltiplicate per lo zoom. Anche lo stage deve
   // quindi crescere allo stesso modo: una superficie non scalata taglierebbe sfondo, griglia e
   // SVG sul bordo destro/inferiore quando zoom > 1.
@@ -701,7 +697,9 @@ export function Board({
     : null;
 
   useEffect(() => {
-    if (!focusRequest) {
+    if (!focusRequest || visibleViewport.columns <= 0 || visibleViewport.rows <= 0
+      || (consumedFocusRef.current?.nonce === focusRequest.nonce
+        && consumedFocusRef.current?.tokenId === focusRequest.tokenId)) {
       return;
     }
 
@@ -711,13 +709,14 @@ export function Board({
     }
 
     const footprint = getTokenFootprint(token);
+    consumedFocusRef.current = focusRequest;
     setCamera(
       clampCamera({
-        x: token.position.x - Math.floor((viewportCells.columns - footprint.width) / 2),
-        y: token.position.y - Math.floor((viewportCells.rows - footprint.height) / 2),
-      }, dimensions, viewportCells),
+        x: token.position.x - Math.floor((visibleViewport.columns - footprint.width) / 2),
+        y: token.position.y - Math.floor((visibleViewport.rows - footprint.height) / 2),
+      }, dimensions, visibleViewport),
     );
-  }, [dimensions, focusRequest, tokens, viewportCells]);
+  }, [dimensions, focusRequest, tokens, visibleViewport]);
 
   const planInteraction = interaction?.mode === 'plan' ? interaction : null;
   const isMapInteractionActive = planInteraction !== null || isRulerActive || activeTemplateShape !== null;
@@ -909,6 +908,10 @@ export function Board({
   // pianificazione: per questo vive separato da planPath, con la stessa durata dell'animazione.
   const [walkTrackPaths, setWalkTrackPaths] = useState<Record<string, GridPosition[]>>({});
   const processedTokenWalkEventIdsRef = useRef<Set<string>>(new Set());
+  const followContextRef = useRef({ followTokenId, tokens, dimensions, visibleViewport });
+  useEffect(() => {
+    followContextRef.current = { followTokenId, tokens, dimensions, visibleViewport };
+  }, [followTokenId, tokens, dimensions, visibleViewport]);
 
   useEffect(() => {
     setCamera(INITIAL_CAMERA);
@@ -918,7 +921,9 @@ export function Board({
     setRulerHoverCell(null);
     setLightPreviewCell(null);
     walkAnimationsRef.current = {};
-    processedTokenWalkEventIdsRef.current.clear();
+    // Gli eventi già presenti al mount (anche aprendo fullscreen) non sono nuove camminate.
+    processedTokenWalkEventIdsRef.current = new Set(tokenWalkEvents.map((event) => event.id));
+    consumedFocusRef.current = focusRequest;
     setWalkAnimatedPositions({});
     setWalkTrackPaths({});
   }, [sceneId]);
@@ -963,6 +968,7 @@ export function Board({
       if (tokenIds.length > 0) {
         const now = performance.now();
         const nextPositions: Record<string, GridPosition> = {};
+        const framePositions: Record<string, GridPosition> = {};
         const stillRunning: typeof animations = {};
         const finishedTokenIds: string[] = [];
 
@@ -975,18 +981,27 @@ export function Board({
           const localT = segments === 0 ? 1 : scaled - index;
           const from = animation.points[index];
           const to = animation.points[index + 1] ?? from;
+          framePositions[tokenId] = {
+            x: from.x + (to.x - from.x) * localT,
+            y: from.y + (to.y - from.y) * localT,
+          };
           // Un'animazione conclusa esce anche dalle posizioni mostrate: il token torna a seguire la
           // posizione dello stato condiviso. Lasciarla lì bloccava il token sull'ultimo arrivo,
           // ignorando ogni aggiornamento successivo senza animazione (undo, rifiuto, mosse di gruppo).
           if (t < 1) {
-            nextPositions[tokenId] = {
-              x: from.x + (to.x - from.x) * localT,
-              y: from.y + (to.y - from.y) * localT,
-            };
+            nextPositions[tokenId] = framePositions[tokenId];
             stillRunning[tokenId] = animation;
           } else {
             finishedTokenIds.push(tokenId);
           }
+        }
+
+        const context = followContextRef.current;
+        const followed = context.tokens.find((token) => token.id === context.followTokenId);
+        const followedPosition = followed && walkingTokenPosition(followed, context.tokens, framePositions);
+        if (followed && followedPosition) {
+          setCamera((current) => cameraFollowingPosition(current, followedPosition,
+            getTokenFootprint(followed), context.visibleViewport, context.dimensions));
         }
 
         walkAnimationsRef.current = stillRunning;
@@ -1013,13 +1028,13 @@ export function Board({
   // errore invece di un rifiuto.
   useEffect(() => {
     for (const event of tokenWalkEvents) {
-      if (processedTokenWalkEventIdsRef.current.has(event.id)) {
+      if (event.sceneId !== sceneId || processedTokenWalkEventIdsRef.current.has(event.id)) {
         continue;
       }
       processedTokenWalkEventIdsRef.current.add(event.id);
       startWalkAnimation(event.tokenId, walkPathPoints(event.waypoints), WALK_PACE, event.showTrack);
     }
-  }, [tokenWalkEvents]);
+  }, [sceneId, tokenWalkEvents]);
 
   const confirmPlan = (plan: PlanInteraction) => {
     // La destinazione e' la casella sotto il puntatore, non un waypoint da cliccare.
@@ -1222,7 +1237,7 @@ export function Board({
           clampCamera({
             x: interaction.startCamera.x - cellsX,
             y: interaction.startCamera.y - cellsY,
-          }, dimensions, viewportCells),
+          }, dimensions, visibleViewport),
         );
         return;
       }
@@ -1401,7 +1416,7 @@ export function Board({
       window.removeEventListener('pointercancel', completeInteraction);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [camera, interaction, obstaclePlacement, onDrawTemplate, onMoveTokens, onSelectionChange, selectedTokenIds, tokens, zoom]);
+  }, [camera, dimensions, interaction, obstaclePlacement, onDrawTemplate, onMoveTokens, onSelectionChange, selectedTokenIds, tokens, visibleViewport, zoom]);
 
   // Righello, ping e sagome sono indipendenti dai permessi sui token: quando uno di questi
   // strumenti è attivo intercetta il click prima della selezione o del trascinamento normale,
@@ -1868,8 +1883,8 @@ export function Board({
     );
   };
 
-  const topLabels = Array.from({ length: viewportCells.columns }, (_, index) => camera.x + index);
-  const leftLabels = Array.from({ length: viewportCells.rows }, (_, index) => camera.y + index);
+  const topLabels = Array.from({ length: renderedColumns }, (_, index) => camera.x + index);
+  const leftLabels = Array.from({ length: renderedRows }, (_, index) => camera.y + index);
   const orderedTokens = useMemo(() => {
     const hiddenOccupantIds = new Set(
       tokens
@@ -2249,7 +2264,7 @@ export function Board({
             ) : null}
 
             {orderedTokens.map((token) => {
-              const walkingPosition = walkAnimatedPositions[token.id];
+              const walkingPosition = walkingTokenPosition(token, tokens, walkAnimatedPositions);
               const isWalking = walkingPosition !== undefined;
               const worldPosition = isWalking ? walkingPosition : token.position;
               const footprint = getTokenFootprint(token);

@@ -26,6 +26,7 @@ import { useCombatAudioPreferences } from './hooks/useCombatAudioPreferences';
 import { useDicePresentationPreferences } from './hooks/useDicePresentationPreferences';
 import { usePageActivation } from './hooks/usePageActivation';
 import { getTokenFootprint } from './utils/board';
+import { resolveFollowTokenId } from './utils/boardCamera';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
 import { collectVisionBlockers } from '../shared/scene-blockers';
@@ -314,6 +315,7 @@ function App() {
   const ownedFamiliarIds = ownedTokens
     .filter((token) => token.type === 'player' && token.isFamiliar === true)
     .map((token) => token.id);
+  const followTokenId = resolveFollowTokenId(state.tokens, canManageBattleMap, selectedTokenIds, sessionToken?.id ?? null);
   const sessionVehicle =
     sessionToken
       ? state.tokens.find(
@@ -730,6 +732,12 @@ function App() {
         }
 
         event.preventDefault();
+        // Anche i passi del PG selezionato devono produrre la camminata confermata,
+        // come un percorso: la camera non segue le sole posizioni ottimistiche.
+        if (followTokenId && selectedMoves.length === 1 && selectedMoves[0].tokenId === followTokenId) {
+          void moveOwnedTokenBy(followTokenId, movement.dx, movement.dy);
+          return;
+        }
         moveTokens(selectedMoves);
         return;
       }
@@ -746,6 +754,8 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     canManageBattleMap,
+    followTokenId,
+    moveOwnedTokenBy,
     moveSessionTokenBy,
     moveTokens,
     removeTokens,
@@ -1693,6 +1703,7 @@ function App() {
           selectedTokenIds={selectedTokenIds}
           editableTokenIds={editableTokenIds}
           focusRequest={focusRequest}
+          followTokenId={followTokenId}
           isBackgroundHidden={state.isBoardBackgroundHidden}
           background={state.activeSceneBackground}
           drawings={state.activeSceneDrawings}
@@ -1770,6 +1781,7 @@ function App() {
             selectedTokenIds={selectedTokenIds}
             editableTokenIds={editableTokenIds}
             focusRequest={focusRequest}
+            followTokenId={followTokenId}
             isFullscreen
             isBackgroundHidden={state.isBoardBackgroundHidden}
             background={state.activeSceneBackground}
