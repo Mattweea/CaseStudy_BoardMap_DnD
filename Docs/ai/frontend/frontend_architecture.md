@@ -11,7 +11,7 @@ Define the stable React boundaries and client-state rules used by D&D Battle Map
 - `src/hooks/useAuthSession.ts` owns session discovery, login, logout, and authentication feedback.
 - `src/hooks/useBattleMapState.ts` owns the client copy of shared game state, SSE subscription, version tracking, optimistic mutations, mutation serialization, and local zoom.
 - `src/components/Board.tsx` owns board-space rendering and pointer interaction.
-- `src/components/Dice3DOverlay.tsx` owns the single client-local 3D dice scene, its FIFO presentation queue, and capability fallback. It draws no textual result summary over the map: the dice log is the only place where a roll is read. `App.tsx` points it at the currently active normal or fullscreen board host; individual `Board` instances do not own renderer instances.
+- `src/components/Dice3DOverlay.tsx` owns the single client-local 3D dice scene, its FIFO presentation queue, and capability fallback. It draws no textual result summary over the map: the dice log is the only place where a roll is read. `App.tsx` points it at the currently active normal or fullscreen board host; individual `Board` instances do not own renderer instances. The overlay is portaled to `document.body` as a fixed layer aligned to that host's rectangle, so the dice always roll over the map and above every other app layer (character sheet, modals, toasts); it stays pointer-transparent.
 - Feature components receive state and actions through typed props; they must not create a second shared-state source.
 
 ## State ownership

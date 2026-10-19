@@ -163,6 +163,8 @@ export function Dice3DOverlay({
     }
     if (!webglAvailableRef.current) return;
 
+    // Il renderer misura il contenitore alla creazione: va allineato prima del primo tiro.
+    syncToHost();
     setPresentation(result.presentation);
     overlayRoot.dataset.state = 'rolling';
 
@@ -232,14 +234,48 @@ export function Dice3DOverlay({
     }
   };
 
+  // L'overlay vive su document.body, non dentro la plancia: lo stacking context della board lo
+  // terrebbe sotto scheda personaggio, modali e toast. Resta però allineato al rettangolo
+  // dell'host attivo, così i dadi rotolano sempre sulla mappa e sopra ogni altro livello.
+  const syncToHost = useCallback(() => {
+    const activeHost = hostRef.current;
+    if (!activeHost) return;
+    const rect = activeHost.getBoundingClientRect();
+    overlayRoot.style.left = `${rect.left}px`;
+    overlayRoot.style.top = `${rect.top}px`;
+    overlayRoot.style.width = `${rect.width}px`;
+    overlayRoot.style.height = `${rect.height}px`;
+  }, [overlayRoot]);
+
   useEffect(() => {
     if (!host) return undefined;
-    host.appendChild(overlayRoot);
+    document.body.appendChild(overlayRoot);
+    syncToHost();
     rendererRef.current?.setDimensions();
+    const hostObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(syncToHost);
+    hostObserver?.observe(host);
+    window.addEventListener('resize', syncToHost);
+    window.addEventListener('scroll', syncToHost, true);
     return () => {
-      if (overlayRoot.parentElement === host) host.removeChild(overlayRoot);
+      hostObserver?.disconnect();
+      window.removeEventListener('resize', syncToHost);
+      window.removeEventListener('scroll', syncToHost, true);
+      if (overlayRoot.parentElement === document.body) document.body.removeChild(overlayRoot);
     };
-  }, [host, overlayRoot]);
+  }, [host, overlayRoot, syncToHost]);
+
+  // La plancia può spostarsi senza cambiare dimensione (sidebar, transizione a schermo intero):
+  // durante un tiro l'allineamento segue ogni fotogramma.
+  useEffect(() => {
+    if (!presentation) return undefined;
+    let frame = 0;
+    const follow = () => {
+      syncToHost();
+      frame = requestAnimationFrame(follow);
+    };
+    follow();
+    return () => cancelAnimationFrame(frame);
+  }, [presentation, syncToHost]);
 
   useEffect(() => {
     const query = window.matchMedia('(prefers-reduced-motion: reduce)');
