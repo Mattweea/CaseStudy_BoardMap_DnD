@@ -488,27 +488,29 @@ Il tooltip non è una perdita: non è raggiungibile da tastiera e non è annunci
 
 **Players**
 
-- [ ] Vedere la scena attiva, i suoi disegni e gli elementi predefiniti aggiornarsi in tempo reale, senza poter modificare la mappa salvo un permesso esplicito del master.
+- [x] Vedere la scena attiva, i suoi disegni e gli elementi predefiniti aggiornarsi in tempo reale, senza poter modificare la mappa salvo un permesso esplicito del master.
 
 **Master**
 
-- [ ] Caricare immagini di mappa senza modificare il codice.
-- [ ] Creare una scena vuota da disegnare, oppure usare un'immagine importata come base.
-- [ ] Disegnare liberamente sulla mappa con matita e gomma; scegliere colore e spessore, annullare e ripetere le modifiche.
-- [ ] Inserire elementi predefiniti come rocce e alberi; spostarli, ridimensionarli, ruotarli ed eliminarli. Permettere di decidere separatamente se bloccano movimento e visuale.
-- [ ] Creare, rinominare e selezionare più scene.
-- [ ] Impostare per ogni scena dimensioni, scala, griglia e unità di misura.
-- [ ] Allineare la griglia a un'immagine importata, con anteprima prima del salvataggio.
-- [ ] Spostare il party alla scena attiva senza perdere lo stato delle altre.
+- [x] Caricare immagini di mappa senza modificare il codice.
+- [x] Creare una scena vuota da disegnare, oppure usare un'immagine importata come base.
+- [x] Disegnare liberamente sulla mappa con matita e gomma; scegliere colore e spessore, annullare e ripetere le modifiche.
+- [x] Inserire elementi predefiniti come rocce e alberi; spostarli, ridimensionarli, ruotarli ed eliminarli. Permettere di decidere separatamente se bloccano movimento e visuale.
+- [x] Creare, rinominare e selezionare più scene.
+- [x] Impostare per ogni scena dimensioni finite o illimitate, scala, griglia, unità di misura e buio.
+- [x] Allineare la griglia a un'immagine importata, con anteprima prima del salvataggio.
+- [x] Spostare il party alla scena attiva senza perdere lo stato delle altre durante il processo.
+- [x] Preparare encounter, mostri e PNG manuali e collocarne istanze con posizione, ingombro e visibilità.
 
 **Sistema**
 
-- [ ] Tenere separati sfondo, tratti disegnati, elementi predefiniti, token e blocchi di movimento/visuale, così da poterli modificare e sincronizzare senza effetti collaterali.
-- [ ] Salvare disegni, elementi predefiniti, token, elementi nascosti e stato di esplorazione per ciascuna scena.
+- [x] Tenere separati sfondo, tratti disegnati, elementi predefiniti, token e blocchi di movimento/visuale, così da poterli modificare e sincronizzare senza effetti collaterali.
+- [x] Salvare configurazione, disegni, elementi predefiniti, encounter, definizioni monster/npc e placement preparati per ciascuna scena.
+- [ ] Recuperare automaticamente dopo un riavvio token e modifiche esclusivamente live, combattimento, log e stato di esplorazione completo: responsabilità P0.11.
 
-**Stato attuale:** la board usa un'immagine di sfondo fissata nel CSS. La modalità `obstacle-paint` colora celle per creare ostacoli, ma non permette disegni liberi o di collocare elementi grafici come rocce e alberi. Non c'è un flusso di importazione e gestione delle scene.
+**Stato attuale:** P0.9 completata secondo le specifiche approvate, con 22 change foglia verificate e archiviate. Catalogo, configurazione e preparazione sono persistiti in SQLite; i token live delle scene inattive rimangono separati in memoria durante il processo. Al riavvio le figure preparate tornano con i valori iniziali salvati, senza recuperare automaticamente HP, condizioni, posizioni o combattimento modificati durante il gioco. Il seguito camera del PG e lo zoom minimo orizzontale sono inclusi. Il refactoring degli encounter è rimandato. Evidenze nella [verifica finale P0.9](openspec/changes/archive/2026-10-19-p0-9-playable-maps-and-scenes/verification.md).
 
-**Accettazione:** il master crea una scena vuota, disegna un sentiero con la matita, inserisce un albero e una roccia, li modifica e vede gli aggiornamenti sui client dei player. Importa poi una seconda mappa con scala diversa, passa fra le due scene e ritrova disegni, elementi e token come li ha lasciati anche dopo un riavvio.
+**Accettazione:** il master prepara due scene con sfondi, calibrazione, disegni, elementi e figure e vede gli aggiornamenti sui client dei player; trasferisce il party conservando identità e ownership e ritrova i runtime separati tornando alle scene durante il processo. Dopo un riavvio ritrova catalogo, configurazione, asset e placement iniziali. La verifica integrata con Master e due Player passa; l'accettazione UI dell'utente è registrata separatamente. Segretezza server-side completa e recupero automatico dell'ultimo stato giocato restano P0.10 e P0.11.
 
 ### P0.10 — Preparazione dell'incontro e segreti
 

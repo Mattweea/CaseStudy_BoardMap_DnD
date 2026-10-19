@@ -11,7 +11,7 @@
 
 ## 2. Validazione e applicazione
 
-- [ ] 2.1 Validare in modalità strict ciascuna delle 22 change prima dell'implementazione e prima dell'archiviazione.
+- [x] 2.1 Validare in modalità strict ciascuna delle 22 change prima dell'implementazione e prima dell'archiviazione. Chiusura basata sulle verifiche foglia registrate e sulla rivalidazione strict finale delle 22 directory, incluse quelle già archiviate; vedere verification.md.
 - [x] 2.2 Applicare le change nell'ordine di dipendenza del design, verificando le regressioni indicate nei task foglia.
 - [x] 2.3 Completare P0.9d.4 con Master e due Player, migrazione legacy e riavvio entro i confini P0.10/P0.11. Evidenze nella verification.md della change foglia, con accettazione UI utente distinta dalla prova automatica HTTP/SSE.
-- [ ] 2.4 Sincronizzare e archiviare tutte le foglie, poi archiviare questa change di coordinamento.
+- [x] 2.4 Sincronizzare e archiviare tutte le foglie, poi archiviare questa change di coordinamento.

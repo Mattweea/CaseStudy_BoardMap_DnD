@@ -28,4 +28,4 @@ L'utente conferma che mostri e PNG funzionano e possono essere collocati tranqui
 
 Percorso da provare: Preparazione scena → selezione encounter → aggiunta/selezione mostro o PNG → «Figure sulla mappa» → scegliere figura, colonna/riga e visibilità → «Colloca figura». Sulla scena attiva il token compare sulla board; una scena inattiva conserva la preparazione fino all'attivazione. Provare poi trascinamento nella preview, resize dal form, hidden e rimozione con Master/Player e fullscreen.
 
-La verifica del riavvio e del recupero della configurazione encounter è documentata separatamente in [E.5](../p0-9e-5-encounter-persistence/verification.md). L'accettazione di E.4 riguarda la collocazione; non dichiara completato il recovery live P0.11.
+La verifica del riavvio e del recupero della configurazione encounter è documentata separatamente in [E.5](../2026-10-19-p0-9e-5-encounter-persistence/verification.md). L'accettazione di E.4 riguarda la collocazione; non dichiara completato il recovery live P0.11.
