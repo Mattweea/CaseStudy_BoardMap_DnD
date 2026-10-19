@@ -31,7 +31,7 @@ The frontend and backend are separate processes. The default backend listens on 
 | `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` | Vite/script | Comma-separated additional dev/preview hosts |
 | `FRONTEND_PORT`, `NGROK_API_URL` | live script | Local frontend port and ngrok inspector endpoint |
 
-Do not commit real credentials, database files, portraits, session snapshots, or secrets. When `VTT_DB_PATH` points inside the repository, add that exact runtime location to the ignore rules.
+Do not commit real credentials, database files, portraits, scene background uploads, session snapshots, or secrets. Portraits and scene backgrounds are runtime files below ignored `server/data/`; when `VTT_DB_PATH` points elsewhere inside the repository, add that exact runtime location to the ignore rules.
 
 ## API URL behavior
 
@@ -46,9 +46,11 @@ Share the frontend HTTPS URL, not the backend port. The default allowed-host lis
 ## Runtime durability
 
 - Authentication sessions, undo stacks, SSE clients, and battle-map live state are process memory.
+- Anche i token delle scene inattive restano soltanto nella memoria del processo; cambiare scena li conserva fino al riavvio, mentre lo snapshot di sospensione corrente contiene soltanto il runtime della scena attiva.
 - Saved game state is written only when the master suspends the session.
 - The saved file lives under ignored `server/data/`.
 - Users, roles, campaigns, and character sheets are SQLite-backed; character-sheet writes are debounced and flushed on controlled lifecycle boundaries.
+- Scene configuration and background metadata are SQLite-backed; uploaded background binaries are runtime files under `server/data/scene-backgrounds/` and are served only by authenticated API routes.
 - Starting the backend loads only saved-session metadata; the master resumes the snapshot explicitly.
 
 ## Verification and troubleshooting
@@ -59,3 +61,4 @@ Share the frontend HTTPS URL, not the backend port. The default allowed-host lis
 - After server roster changes, restart the backend.
 - A restart without a prior suspend loses unsaved live state and all in-memory sessions.
 - Migration and persistence tests must use temporary database paths, never the developer database.
+- Tests that start the production server must isolate storage as well as SQLite: snapshot, portrait and background paths are relative to the server module. `test/multi-scene-session.test.mjs` copies only source modules into a temporary directory, shares installed dependencies through a read-only usage convention, binds loopback on a random port and closes its HTTP/SSE clients before stopping its own child process. It must never restart the developer server or copy the current runtime data. This test requires local socket and subprocess support; it does not require a browser.

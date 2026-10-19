@@ -16,13 +16,19 @@ export interface PathCostOptions {
   diagonalParity?: DiagonalParity;
   // Moltiplicatore del costo di ogni passo (default 1); 2 per chi si muove strisciando da prono.
   stepCostMultiplier?: number;
+  includeSteps?: boolean;
 }
 
 export interface PathCostResult {
   cells: number;
   steps: PathStep[];
   nextDiagonalParity: DiagonalParity;
+  exceedsLimit: boolean;
 }
+
+export const MAX_MOVEMENT_PATH_STEPS: number;
+
+export function pathStepCount(waypoints: GridPosition[]): number;
 
 export function decomposeSegment(
   from: GridPosition,

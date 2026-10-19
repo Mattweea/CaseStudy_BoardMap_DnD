@@ -1,0 +1,17 @@
+# Tasks
+
+## 1. Revisione delle change foglia
+
+- [x] 1.1 Revisionare e approvare P0.9a.1–a.4.
+- [x] 1.2 Revisionare e approvare P0.9b.1–b.4.
+- [x] 1.3 Revisionare e approvare P0.9c.1–c.4.
+- [x] 1.4 Revisionare e approvare P0.9d.1–d.4.
+- [x] 1.5 Revisionare e approvare P0.9e.1–e.5.
+- [x] 1.6 Revisionare e approvare P0.9b.5.
+
+## 2. Validazione e applicazione
+
+- [x] 2.1 Validare in modalità strict ciascuna delle 22 change prima dell'implementazione e prima dell'archiviazione. Chiusura basata sulle verifiche foglia registrate e sulla rivalidazione strict finale delle 22 directory, incluse quelle già archiviate; vedere verification.md.
+- [x] 2.2 Applicare le change nell'ordine di dipendenza del design, verificando le regressioni indicate nei task foglia.
+- [x] 2.3 Completare P0.9d.4 con Master e due Player, migrazione legacy e riavvio entro i confini P0.10/P0.11. Evidenze nella verification.md della change foglia, con accettazione UI utente distinta dalla prova automatica HTTP/SSE.
+- [x] 2.4 Sincronizzare e archiviare tutte le foglie, poi archiviare questa change di coordinamento.

@@ -127,16 +127,25 @@ export function InitiativePanel({
     <section className="sidebar__section initiative-panel">
       <div className="initiative-panel__header">
         <h2>Ordine dei turni</h2>
-        <span className={`initiative-panel__mode initiative-panel__mode--${isCombat ? 'combat' : 'exploration'}`}>
-          {!isCombat ? 'Esplorazione' : isRoundStarted ? `Round ${roundNumber}` : 'Combattimento'}
+        <span
+          className={`initiative-panel__mode initiative-panel__mode--${isCombat ? 'combat' : 'exploration'}`}
+          aria-label={`Modalità sessione: ${isCombat ? 'Combattimento' : 'Dungeon'}`}
+        >
+          {!isCombat ? 'Dungeon' : isRoundStarted ? `Round ${roundNumber}` : 'Combattimento'}
         </span>
       </div>
 
       {canManageInitiative ? (
         <div className="initiative-deck" role="group" aria-label="Comandi del Master">
           {!isCombat ? (
-            <button type="button" className="primary-button initiative-deck__primary" disabled={isBusy} onClick={() => void run('start', onStartCombat)}>
-              <CrossedSwordsIcon size={18} /> Avvia combattimento
+            <button
+              type="button"
+              className="primary-button initiative-deck__primary"
+              disabled={isBusy}
+              aria-label="Passa da Dungeon a Combattimento"
+              onClick={() => void run('start', onStartCombat)}
+            >
+              <CrossedSwordsIcon size={18} /> Passa a Combattimento
             </button>
           ) : !isRoundStarted ? (
             <button
@@ -210,8 +219,8 @@ export function InitiativePanel({
             {isCombat
               ? "Nessuna voce ancora: tirate l'iniziativa per entrare nell'ordine dei turni."
               : canManageInitiative
-                ? "Esplorazione: avvia il combattimento per aprire la fase di tiro dell'iniziativa."
-                : "Esplorazione: il tiro d'iniziativa si abilita quando il Master avvia il combattimento."}
+                ? "Dungeon: passa a Combattimento per aprire la fase di tiro dell'iniziativa."
+                : "Dungeon: il tiro d'iniziativa si abilita quando il Master passa a Combattimento."}
           </p>
         ) : null}
 
@@ -327,8 +336,14 @@ export function InitiativePanel({
 
       {canManageInitiative && isCombat ? (
         <div className="initiative-panel__footer">
-          <button type="button" className="initiative-panel__end-combat" disabled={isBusy} onClick={() => void run('end', onEndCombat)}>
-            Termina combattimento
+          <button
+            type="button"
+            className="initiative-panel__end-combat"
+            disabled={isBusy}
+            aria-label="Passa da Combattimento a Dungeon"
+            onClick={() => void run('end', onEndCombat)}
+          >
+            Passa a Dungeon
           </button>
         </div>
       ) : null}

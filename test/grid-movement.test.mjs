@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cellsToUnit, decomposeSegment, isValidCellsValue, pathCost } from '../shared/grid-movement.mjs';
+import { cellsToUnit, decomposeSegment, isValidCellsValue, pathCost, MAX_MOVEMENT_PATH_STEPS } from '../shared/grid-movement.mjs';
 
 test('decomposeSegment on an orthogonal segment covers the axis difference exactly', () => {
   const steps = decomposeSegment({ x: 0, y: 0 }, { x: 3, y: 0 });
@@ -51,6 +51,17 @@ test('pathCost on an empty or single-point path costs 0', () => {
   assert.equal(pathCost([], {}).cells, 0);
   assert.equal(pathCost([{ x: 1, y: 1 }], {}).cells, 0);
   assert.equal(pathCost(undefined, {}).cells, 0);
+});
+
+test('pathCost caps step expansion while ruler-only measurement handles long paths arithmetically', () => {
+  const waypoints = [{ x: 0, y: 0 }, { x: MAX_MOVEMENT_PATH_STEPS + 1, y: MAX_MOVEMENT_PATH_STEPS + 1 }];
+  const expanded = pathCost(waypoints, { rule: 'alternating' });
+  assert.equal(expanded.exceedsLimit, true);
+  assert.equal(expanded.steps.length, 0);
+  const measured = pathCost(waypoints, { rule: 'alternating', includeSteps: false });
+  assert.equal(measured.exceedsLimit, false);
+  assert.equal(measured.cells, MAX_MOVEMENT_PATH_STEPS + 1 + Math.floor((MAX_MOVEMENT_PATH_STEPS + 1) / 2));
+  assert.equal(measured.nextDiagonalParity, 1);
 });
 
 test('pathCost alternating parity continues across two calls the same as a single call', () => {

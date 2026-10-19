@@ -1,0 +1,392 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  SCENE_DOCUMENT_VERSION,
+  SCENE_LIMITS,
+  SceneValidationError,
+  captureSceneConfiguration,
+  createDefaultSceneDocument,
+  normalizeScene,
+  normalizeSceneMetadata,
+  normalizeSceneDocument,
+  normalizeSceneElements,
+  projectSceneRuntime,
+} from '../shared/scene-model.mjs';
+
+function validScene() {
+  return {
+    schemaVersion: SCENE_DOCUMENT_VERSION,
+    background: { kind: 'blank' },
+    board: {
+      diagonalRule: 'alternating',
+      measurementUnit: { label: 'ft', cellsValue: 5 },
+      dimensions: { columns: 42, rows: 36 },
+      isBackgroundHidden: true,
+      isFullyLit: false,
+      lightSources: [
+        { id: 'light-1', position: { x: -2, y: 3 }, radiusCells: 6 },
+      ],
+    },
+    drawings: [
+      {
+        id: 'drawing-1',
+        color: '#123456',
+        widthCells: 0.12,
+        points: [{ x: 1, y: 2 }, { x: 4, y: 5 }],
+      },
+    ],
+    elements: [
+      { id: 'element-1', kind: 'rock', position: { x: 7, y: 8 }, widthCells: 2, heightCells: 1, rotation: 45,
+        blocksMovement: false, blocksVision: false },
+    ],
+    encounters: [{ id: 'encounter-1', name: 'Guardia al ponte', kind: 'narrative', description: 'Un dialogo.' }],
+    entityReferences: [
+      { id: 'reference-1', entityType: 'encounter-entity', entityId: 'entity-1' },
+    ],
+    preparedPlacements: [
+      {
+        id: 'placement-1',
+        entityReferenceId: 'reference-1',
+        encounterId: 'encounter-1',
+        position: { x: 9, y: 10 },
+      },
+    ],
+    runtime: {
+      tokens: [
+        {
+          id: 'token-1',
+          name: 'Guardia',
+          position: { x: 11, y: 12 },
+          hitPoints: 7,
+        },
+      ],
+    },
+  };
+}
+
+test('default scene contains independent, versioned, separated sections', () => {
+  const first = createDefaultSceneDocument();
+  const second = createDefaultSceneDocument();
+
+  assert.equal(first.schemaVersion, 1);
+  assert.deepEqual(first.background, { kind: 'blank' });
+  assert.deepEqual(first.board.measurementUnit, { label: 'm', cellsValue: 1.5 });
+  assert.deepEqual(first.board.dimensions, { columns: 30, rows: 30 });
+  assert.deepEqual(first.drawings, []);
+  assert.deepEqual(first.elements, []);
+  assert.deepEqual(first.encounters, []);
+  assert.deepEqual(first.entityReferences, []);
+  assert.deepEqual(first.preparedPlacements, []);
+  assert.deepEqual(first.runtime.tokens, []);
+
+  first.drawings.push({ id: 'local-change', points: [{ x: 0, y: 0 }] });
+  first.board.measurementUnit.label = 'ft';
+  assert.deepEqual(second.drawings, []);
+  assert.equal(second.board.measurementUnit.label, 'm');
+});
+
+test('scene document accepts only normalized managed image metadata for backgrounds', () => {
+  const document = createDefaultSceneDocument();
+  document.background = {
+    kind: 'image',
+    assetId: '8f819a71-72fe-41ec-a9f2-88f2fe006947',
+    mediaType: 'image/png',
+    byteLength: 12,
+    etag: 'a'.repeat(64),
+    updatedAt: '2026-09-28T10:00:00.000Z',
+  };
+  assert.deepEqual(normalizeSceneDocument(document).background, {
+    ...document.background,
+    scale: 1,
+    offsetX: 0,
+    offsetY: 0,
+  });
+  document.background.mediaType = 'text/html';
+  assert.throws(() => normalizeSceneDocument(document), /mediaType/);
+});
+
+test('scene metadata supplies a stable identity and positive concurrency version', () => {
+  assert.deepEqual(
+    normalizeSceneMetadata({ id: ' scene-1 ', name: ' Sala del trono ', version: 3 }),
+    { id: 'scene-1', name: 'Sala del trono', version: 3 },
+  );
+
+  const scene = normalizeScene({
+    id: 'scene-1',
+    name: 'Sala del trono',
+    version: 3,
+    document: {},
+  });
+  assert.equal(scene.id, 'scene-1');
+  assert.equal(scene.version, 3);
+  assert.deepEqual(scene.document, createDefaultSceneDocument());
+
+  assert.throws(
+    () => normalizeSceneMetadata({ id: '', name: 'Scena', version: 1 }),
+    (error) => error instanceof SceneValidationError && error.path === 'sceneMetadata.id',
+  );
+  assert.throws(
+    () => normalizeSceneMetadata({ id: 'scene-1', name: 'Scena', version: 0 }),
+    (error) => error instanceof SceneValidationError && error.path === 'sceneMetadata.version',
+  );
+});
+
+test('legacy partial scene receives canonical defaults without merging layers', () => {
+  const normalized = normalizeSceneDocument({});
+
+  assert.deepEqual(normalized, createDefaultSceneDocument());
+  assert.notEqual(normalized.drawings, normalized.elements);
+  assert.notEqual(normalized.elements, normalized.preparedPlacements);
+  assert.notEqual(normalized.preparedPlacements, normalized.runtime.tokens);
+  assert.deepEqual(normalized.board.dimensions, { columns: 30, rows: 30 });
+  assert.equal(normalized.board.isFullyLit, false);
+});
+
+test('board dimensions accept zero-by-zero unlimited and reject mixed zero', () => {
+  const scene = validScene();
+  scene.background = { ...scene.background, scale: 8, offsetX: 400, offsetY: -200 };
+  const normalized = normalizeSceneDocument(scene);
+  assert.deepEqual(normalized.background, { kind: 'blank' });
+  assert.deepEqual(normalized.board.measurementUnit, { label: 'ft', cellsValue: 5 });
+  scene.board.dimensions = { columns: 0, rows: 0 };
+  assert.deepEqual(normalizeSceneDocument(scene).board.dimensions, { columns: 0, rows: 0 });
+  scene.board.dimensions = { columns: 0, rows: 36 };
+  assert.throws(() => normalizeSceneDocument(scene), /both be zero or both be positive/);
+});
+
+test('image calibration accepts bounded scale and signed pixel offsets', () => {
+  const scene = createDefaultSceneDocument();
+  scene.background = {
+    kind: 'image',
+    assetId: 'map-calibrated',
+    mediaType: 'image/webp',
+    byteLength: 128,
+    etag: 'b'.repeat(64),
+    updatedAt: '2026-09-28T10:00:00.000Z',
+    scale: 1.25,
+    offsetX: -96,
+    offsetY: 144,
+  };
+  assert.deepEqual(normalizeSceneDocument(scene).background, scene.background);
+
+  scene.background.scale = SCENE_LIMITS.maxBackgroundScale + 0.01;
+  assert.throws(() => normalizeSceneDocument(scene), /background.scale/);
+  scene.background.scale = 1;
+  scene.background.offsetX = SCENE_LIMITS.maxBackgroundOffsetPixels + 1;
+  assert.throws(() => normalizeSceneDocument(scene), /background.offsetX/);
+});
+
+test('valid data is cloned and normalized while preserving layer-specific fields', () => {
+  const source = validScene();
+  const normalized = normalizeSceneDocument(source);
+
+  assert.deepEqual(normalized, source);
+  assert.notEqual(normalized, source);
+  assert.notEqual(normalized.runtime.tokens[0], source.runtime.tokens[0]);
+  assert.equal(normalized.drawings[0].color, '#123456');
+  assert.equal(normalized.elements[0].kind, 'rock');
+});
+
+test('duplicate ids are rejected within every collection', () => {
+  const scene = validScene();
+  scene.elements.push({ ...scene.elements[0], position: { x: 20, y: 20 } });
+
+  assert.throws(
+    () => normalizeSceneDocument(scene),
+    (error) =>
+      error instanceof SceneValidationError
+      && error.path === 'scene.elements[1].id'
+      && /duplicates id/.test(error.message),
+  );
+});
+
+test('scene elements normalize a closed kind, bounded transform and strip token fields', () => {
+  const element = { id: 'rock-1', kind: 'rock', position: { x: 2, y: 3 }, hitPoints: 20, conditions: ['prone'] };
+  assert.deepEqual(normalizeSceneElements([element], { columns: 30, rows: 30 }), [{
+    id: 'rock-1', kind: 'rock', position: { x: 2, y: 3 }, widthCells: 1, heightCells: 1, rotation: 0,
+    blocksMovement: false, blocksVision: false,
+  }]);
+  assert.deepEqual(normalizeSceneElements([{ ...element, blocksMovement: true, blocksVision: false }])[0], {
+    id: 'rock-1', kind: 'rock', position: { x: 2, y: 3 }, widthCells: 1, heightCells: 1, rotation: 0,
+    blocksMovement: true, blocksVision: false,
+  });
+  assert.equal('hitPoints' in normalizeSceneElements([element])[0], false);
+  for (const invalid of [
+    { ...element, kind: 'monster' },
+    { ...element, position: { x: -1, y: 0 } },
+    { ...element, widthCells: 0 },
+    { ...element, heightCells: SCENE_LIMITS.maxElementFootprintCells + 1 },
+    { ...element, rotation: 360 },
+    { ...element, blocksMovement: 'yes' },
+    { ...element, blocksVision: 1 },
+    { ...element, position: { x: 30, y: 0 } },
+  ]) {
+    assert.throws(() => normalizeSceneElements([invalid], { columns: 30, rows: 30 }), SceneValidationError);
+  }
+  assert.throws(() => normalizeSceneElements([element, element]), /duplicates id/);
+});
+
+test('prepared placements cannot reference a missing entity', () => {
+  const scene = validScene();
+  scene.preparedPlacements[0].entityReferenceId = 'missing';
+
+  assert.throws(
+    () => normalizeSceneDocument(scene),
+    (error) =>
+      error instanceof SceneValidationError
+      && error.path === 'scene.preparedPlacements[0].entityReferenceId',
+  );
+});
+
+test('encounters normalize supported kinds and prepared placements cannot reference a missing encounter', () => {
+  const scene = validScene();
+  assert.deepEqual(normalizeSceneDocument(scene).encounters, scene.encounters);
+  scene.encounters.push({ ...scene.encounters[0] });
+  assert.throws(() => normalizeSceneDocument(scene), /duplicates id/);
+  scene.encounters.pop();
+  scene.encounters[0].kind = 'unsupported';
+  assert.throws(() => normalizeSceneDocument(scene), /supported encounter kind/);
+  scene.encounters[0].kind = 'combat';
+  scene.preparedPlacements[0].encounterId = 'missing';
+  assert.throws(() => normalizeSceneDocument(scene), /references missing encounter/);
+  scene.preparedPlacements[0].encounterId = 'encounter-1';
+  assert.deepEqual(captureSceneConfiguration(scene).encounters[0].kind, 'combat');
+  delete scene.encounters;
+  delete scene.preparedPlacements[0].encounterId;
+  assert.deepEqual(normalizeSceneDocument(scene).encounters, []);
+});
+
+test('monster and npc references keep stable encounter links without breaking legacy references', () => {
+  const scene = validScene();
+  scene.entityReferences.push(
+    { id: 'monster-ref', entityType: 'monster', entityId: 'monster-1', encounterId: 'encounter-1', name: 'Goblin' },
+    { id: 'npc-ref', entityType: 'npc', entityId: 'npc-1', encounterId: 'encounter-1', name: 'Custode' },
+  );
+  const normalized = normalizeSceneDocument(scene);
+  assert.deepEqual(normalized.entityReferences, scene.entityReferences);
+  assert.deepEqual(captureSceneConfiguration(scene).entityReferences, scene.entityReferences);
+
+  scene.entityReferences[1].encounterId = 'missing';
+  assert.throws(() => normalizeSceneDocument(scene), /references missing encounter/);
+  scene.entityReferences[1].encounterId = 'encounter-1';
+  scene.entityReferences[1].entityType = 'object';
+  assert.throws(() => normalizeSceneDocument(scene), /must be monster or npc/);
+  scene.entityReferences[1].entityType = 'npc';
+  scene.preparedPlacements[0].entityReferenceId = 'npc-ref';
+  assert.deepEqual(normalizeSceneDocument(scene).preparedPlacements[0].encounterId, 'encounter-1');
+  scene.preparedPlacements[0].encounterId = undefined;
+  assert.throws(() => normalizeSceneDocument(scene), /must match the entity encounter/);
+});
+
+test('manual encounter data preserves only supported token fields and legacy E.2 references', () => {
+  const scene = validScene();
+  scene.entityReferences.push({ id: 'monster-ref', entityType: 'monster', entityId: 'local-1',
+    encounterId: 'encounter-1', name: 'Goblin', tokenProperties: {
+      size: 'small', initiativeModifier: -1, movementCells: 6, hitPoints: 7, maxHitPoints: 7,
+      isInvisible: false,
+    } });
+  scene.entityReferences.push({ id: 'npc-ref', entityType: 'npc', entityId: 'local-2',
+    encounterId: 'encounter-1', name: 'Custode' });
+  const normalized = normalizeSceneDocument(scene);
+  assert.deepEqual(normalized.entityReferences.slice(-2), scene.entityReferences.slice(-2));
+  assert.equal(normalized.entityReferences.at(-1).tokenProperties, undefined);
+  for (const tokenProperties of [{ movementCells: -1 }, { widthCells: 1.5 }, { color: 'red' },
+    { ownerUserId: 'player' }, { imageUrl: 'https://example.test/creature' }, null]) {
+    scene.entityReferences.at(-2).tokenProperties = tokenProperties;
+    assert.throws(() => normalizeSceneDocument(scene), (error) => error instanceof SceneValidationError
+      && error.path.endsWith('.tokenProperties'));
+  }
+});
+
+test('coordinates must be safe integers inside the configured guardrail', () => {
+  const fractional = validScene();
+  fractional.runtime.tokens[0].position.x = 1.5;
+  assert.throws(
+    () => normalizeSceneDocument(fractional),
+    (error) => error instanceof SceneValidationError && error.path.endsWith('.position.x'),
+  );
+
+  const excessive = validScene();
+  excessive.drawings[0].points[0].y = SCENE_LIMITS.maxCoordinateMagnitude + 1;
+  assert.throws(
+    () => normalizeSceneDocument(excessive),
+    (error) => error instanceof SceneValidationError && error.path.endsWith('.points[0]'),
+  );
+});
+
+test('drawing points allow fractional cells but reject unsafe color, width and excessive points', () => {
+  const fractional = validScene();
+  fractional.drawings[0].points[0] = { x: 1.25, y: 2.75 };
+  assert.deepEqual(normalizeSceneDocument(fractional).drawings[0].points[0], { x: 1.25, y: 2.75 });
+  for (const [field, value] of [['color', 'red'], ['widthCells', 0], ['widthCells', 21]]) {
+    const invalid = validScene();
+    invalid.drawings[0][field] = value;
+    assert.throws(() => normalizeSceneDocument(invalid), SceneValidationError);
+  }
+  const excessive = validScene();
+  excessive.drawings[0].points = Array.from({ length: SCENE_LIMITS.maxDrawingPoints + 1 }, () => ({ x: 1, y: 1 }));
+  assert.throws(() => normalizeSceneDocument(excessive), SceneValidationError);
+});
+
+test('unsupported versions, invalid board values, and non-JSON input are rejected', () => {
+  assert.throws(
+    () => normalizeSceneDocument({ schemaVersion: 2 }),
+    (error) => error instanceof SceneValidationError && error.path === 'scene.schemaVersion',
+  );
+  assert.throws(
+    () => normalizeSceneDocument({ board: { measurementUnit: { label: 'm', cellsValue: 0 } } }),
+    (error) =>
+      error instanceof SceneValidationError
+      && error.path === 'scene.board.measurementUnit.cellsValue',
+  );
+
+  const cyclic = {};
+  cyclic.self = cyclic;
+  assert.throws(
+    () => normalizeSceneDocument(cyclic),
+    (error) => error instanceof SceneValidationError && /JSON serializable/.test(error.message),
+  );
+});
+
+test('serialized documents over the size limit are rejected before normalization', () => {
+  const oversized = {
+    runtime: {
+      tokens: [
+        {
+          id: 'token-1',
+          position: { x: 0, y: 0 },
+          padding: 'x'.repeat(SCENE_LIMITS.maxDocumentBytes),
+        },
+      ],
+    },
+  };
+
+  assert.throws(
+    () => normalizeSceneDocument(oversized),
+    (error) => error instanceof SceneValidationError && /serialized bytes/.test(error.message),
+  );
+});
+
+test('capture and projection keep live runtime outside persistent configuration', () => {
+  const scene = {
+    ...validScene(),
+    roundNumber: 4,
+    initiatives: [{ tokenId: 'token-1', value: 20 }],
+    diceLogs: [{ id: 'roll-1' }],
+  };
+
+  const configuration = captureSceneConfiguration(scene);
+  assert.equal('runtime' in configuration, false);
+  assert.equal('roundNumber' in configuration, false);
+  assert.equal('initiatives' in configuration, false);
+  assert.equal('diceLogs' in configuration, false);
+
+  const projection = projectSceneRuntime(configuration, {
+    tokens: [{ id: 'runtime-token', position: { x: 3, y: 4 }, hitPoints: 1 }],
+  });
+  assert.equal(projection.runtime.tokens[0].id, 'runtime-token');
+  assert.deepEqual(configuration.preparedPlacements, scene.preparedPlacements);
+
+  projection.drawings[0].points[0].x = 999;
+  assert.equal(configuration.drawings[0].points[0].x, 1);
+});

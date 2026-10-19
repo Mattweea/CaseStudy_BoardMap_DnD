@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { collectDiceDeliveries } from '../../shared/dice-3d-presentation.mjs';
 import { normalizeDiceLogDetail } from '../../shared/dice-log-normalization.mjs';
+import { normalizeSceneDrawings, normalizeSceneElements } from '../../shared/scene-model.mjs';
 import { insertInitiativeEntry } from '../../shared/initiative-order.mjs';
 import { BOARD_CONFIG } from '../constants/board';
 import type {
@@ -8,6 +9,7 @@ import type {
   BattleMapSessionSnapshot,
   BattleMapSessionStatus,
   BattleMapState,
+  BoardDimensions,
   DiagonalRule,
   DiceRollLog,
   DiceRollRequest,
@@ -18,6 +20,8 @@ import type {
   InitiativeRollMode,
   LightSource,
   MeasurementUnit,
+  SceneSummary,
+  SceneBackground,
   TemplateShape,
   TokenCondition,
   TokenWalkEvent,
@@ -35,6 +39,7 @@ import {
   normalizeTokenAuras,
 } from '../utils/tokens';
 import { API_BASE_URL, EVENTS_URL } from '../utils/api';
+import { eventBelongsToActiveScene } from '../utils/sceneEvents';
 const ZOOM_STORAGE_KEY = 'dnd-battle-map-zoom';
 // Il ping ha una durata fissa; la sagoma termina quando il suo autore invia l'evento di fine,
 // più una durata massima di sicurezza per chi si disconnette senza inviarlo.
@@ -133,6 +138,12 @@ function applyVehicleAwareUpdates(tokens: UnitToken[]): UnitToken[] {
 }
 
 const initialSharedState: BattleMapSharedState = {
+  activeSceneId: null,
+  activeSceneVersion: null,
+  activeSceneSummary: null,
+  activeSceneBackground: { kind: 'blank' },
+  activeSceneDrawings: [],
+  activeSceneElements: [],
   tokens: [],
   diceLogs: [],
   latestDicePreview: null,
@@ -148,6 +159,7 @@ const initialSharedState: BattleMapSharedState = {
   diagonalParityByTokenId: {},
   diagonalRule: 'standard',
   measurementUnit: { label: 'm', cellsValue: 1.5 },
+  boardDimensions: { columns: 30, rows: 30 },
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
   isBoardBackgroundHidden: false,
@@ -199,6 +211,65 @@ function normalizeInitiativeEntries(rawEntries: unknown, tokens: UnitToken[]): I
 // Il budget di movimento vale solo in Combattimento a round avviato: stesso predicato del server.
 export function isMovementBudgetActive(state: Pick<BattleMapSharedState, 'sessionMode' | 'isRoundStarted'>) {
   return state.sessionMode === 'combat' && state.isRoundStarted;
+}
+
+function normalizeSceneSummary(value: unknown): SceneSummary | null {
+  if (!value || typeof value !== 'object') return null;
+  const summary = value as Partial<SceneSummary>;
+  if (
+    typeof summary.id !== 'string'
+    || typeof summary.name !== 'string'
+    || !Number.isSafeInteger(summary.version)
+    || (summary.version ?? 0) < 1
+  ) {
+    return null;
+  }
+  return {
+    id: summary.id,
+    name: summary.name,
+    version: summary.version!,
+    isActive: summary.isActive === true,
+  };
+}
+
+function normalizeSceneBackground(value: unknown, sceneId: string | null): SceneBackground {
+  if (!value || typeof value !== 'object' || !('kind' in value) || value.kind !== 'image') {
+    return { kind: 'blank' };
+  }
+  const candidate = value as Partial<Extract<SceneBackground, { kind: 'image' }>>;
+  const scale = candidate.scale ?? 1;
+  const offsetX = candidate.offsetX ?? 0;
+  const offsetY = candidate.offsetY ?? 0;
+  if (
+    typeof candidate.assetId !== 'string'
+    || (candidate.mediaType !== 'image/jpeg' && candidate.mediaType !== 'image/png' && candidate.mediaType !== 'image/webp')
+    || !Number.isSafeInteger(candidate.byteLength)
+    || (candidate.byteLength ?? 0) < 1
+    || typeof candidate.etag !== 'string'
+    || !/^[a-f0-9]{64}$/.test(candidate.etag)
+    || typeof candidate.updatedAt !== 'string'
+    || Number.isNaN(Date.parse(candidate.updatedAt))
+    || !Number.isFinite(scale)
+    || scale < 0.05
+    || scale > 20
+    || !Number.isFinite(offsetX)
+    || Math.abs(offsetX) > 1_000_000
+    || !Number.isFinite(offsetY)
+    || Math.abs(offsetY) > 1_000_000
+    || !sceneId
+  ) return { kind: 'blank' };
+  return {
+    kind: 'image',
+    assetId: candidate.assetId,
+    mediaType: candidate.mediaType,
+    byteLength: candidate.byteLength,
+    etag: candidate.etag,
+    updatedAt: candidate.updatedAt,
+    scale,
+    offsetX,
+    offsetY,
+    url: `${API_BASE_URL}/scenes/${encodeURIComponent(sceneId)}/background?v=${candidate.etag}`,
+  } as Extract<SceneBackground, { kind: 'image' }>;
 }
 
 function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): BattleMapSharedState {
@@ -305,6 +376,30 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
     : [];
 
   return {
+    activeSceneId: typeof parsed?.activeSceneId === 'string' ? parsed.activeSceneId : null,
+    activeSceneVersion:
+      Number.isSafeInteger(parsed?.activeSceneVersion) && (parsed?.activeSceneVersion ?? 0) > 0
+        ? parsed!.activeSceneVersion!
+        : null,
+    activeSceneSummary: normalizeSceneSummary(parsed?.activeSceneSummary),
+    activeSceneBackground: normalizeSceneBackground(
+      parsed?.activeSceneBackground,
+      typeof parsed?.activeSceneId === 'string' ? parsed.activeSceneId : null,
+    ),
+    activeSceneDrawings: (() => {
+      try { return normalizeSceneDrawings(parsed?.activeSceneDrawings ?? []); }
+      catch { return []; }
+    })(),
+    activeSceneElements: (() => {
+      try { return normalizeSceneElements(parsed?.activeSceneElements ?? [], parsed?.boardDimensions ?? { columns: 30, rows: 30 }); }
+      catch { return []; }
+    })(),
+    ...(Array.isArray(parsed?.sceneCatalog)
+      ? { sceneCatalog: parsed.sceneCatalog.flatMap((scene) => {
+          const summary = normalizeSceneSummary(scene);
+          return summary ? [summary] : [];
+        }) }
+      : {}),
     tokens: applyVehicleAwareUpdates(tokens),
     diceLogs: Array.isArray(parsed?.diceLogs)
       ? parsed.diceLogs.map((log) => normalizeDiceLogDetail({
@@ -380,6 +475,16 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
       isValidCellsValue(parsed.measurementUnit.cellsValue)
         ? { label: parsed.measurementUnit.label, cellsValue: parsed.measurementUnit.cellsValue }
         : { label: 'm', cellsValue: 1.5 },
+    boardDimensions:
+      Number.isSafeInteger(parsed?.boardDimensions?.columns)
+      && (parsed?.boardDimensions?.columns ?? -1) >= 0
+      && (parsed?.boardDimensions?.columns ?? 0) <= 500
+      && Number.isSafeInteger(parsed?.boardDimensions?.rows)
+      && (parsed?.boardDimensions?.rows ?? -1) >= 0
+      && (parsed?.boardDimensions?.rows ?? 0) <= 500
+      && ((parsed?.boardDimensions?.columns === 0) === (parsed?.boardDimensions?.rows === 0))
+        ? parsed!.boardDimensions as BoardDimensions
+        : { columns: 30, rows: 30 },
     dashUsedByTokenId:
       parsed?.dashUsedByTokenId && typeof parsed.dashUsedByTokenId === 'object'
         ? Object.fromEntries(
@@ -517,12 +622,28 @@ export function useBattleMapState(isAuthenticated: boolean) {
     options: { diceBaseline?: boolean } = {},
   ) => {
     const normalizedState = normalizeSharedState(nextState);
+    const sceneChanged = sharedStateRef.current.activeSceneId !== normalizedState.activeSceneId;
+    if (sceneChanged) {
+      pingTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
+      pingTimeoutsRef.current.clear();
+      templateTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
+      templateTimeoutsRef.current.clear();
+      setEphemeralPings([]);
+      setEphemeralTemplates([]);
+      setTokenWalkEvents([]);
+      setMovementNotice(null);
+    }
     recordDiceSnapshot(normalizedState.diceLogs, options.diceBaseline === true);
     sharedStateRef.current = normalizedState;
     versionRef.current = nextVersion;
     setSharedState(normalizedState);
     setVersion(nextVersion);
   }, [recordDiceSnapshot]);
+
+  const currentSceneContext = () => ({
+    sceneId: sharedStateRef.current.activeSceneId,
+    sceneVersion: sharedStateRef.current.activeSceneVersion,
+  });
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -610,6 +731,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     const handlePing = (event: MessageEvent) => {
       try {
         const ping = JSON.parse(event.data) as EphemeralPing;
+        if (!eventBelongsToActiveScene(ping, sharedStateRef.current.activeSceneId)) return;
         setEphemeralPings((current) => [...current.filter((entry) => entry.id !== ping.id), ping]);
         const previousTimeout = pingTimeoutsRef.current.get(ping.id);
         if (previousTimeout !== undefined) {
@@ -639,6 +761,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     const handleTemplateUpdate = (event: MessageEvent) => {
       try {
         const template = JSON.parse(event.data) as EphemeralTemplate;
+        if (!eventBelongsToActiveScene(template, sharedStateRef.current.activeSceneId)) return;
         setEphemeralTemplates((current) => [...current.filter((entry) => entry.id !== template.id), template]);
         const previousTimeout = templateTimeoutsRef.current.get(template.id);
         if (previousTimeout !== undefined) {
@@ -655,7 +778,8 @@ export function useBattleMapState(isAuthenticated: boolean) {
 
     const handleTemplateEnd = (event: MessageEvent) => {
       try {
-        const { id } = JSON.parse(event.data) as { id: string };
+        const { id, sceneId } = JSON.parse(event.data) as { id: string; sceneId: string };
+        if (!eventBelongsToActiveScene({ sceneId }, sharedStateRef.current.activeSceneId)) return;
         removeTemplate(id);
       } catch (error) {
         console.error(error);
@@ -665,9 +789,10 @@ export function useBattleMapState(isAuthenticated: boolean) {
     const tokenWalkTimeoutsRef = new Set<ReturnType<typeof window.setTimeout>>();
     const handleTokenWalk = (event: MessageEvent) => {
       try {
-        const payload = JSON.parse(event.data) as { tokenId: string; waypoints: GridPosition[]; showTrack?: boolean };
+        const payload = JSON.parse(event.data) as { sceneId: string; tokenId: string; waypoints: GridPosition[]; showTrack?: boolean };
+        if (!eventBelongsToActiveScene(payload, sharedStateRef.current.activeSceneId)) return;
         const id = `${payload.tokenId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        setTokenWalkEvents((current) => [...current, { id, tokenId: payload.tokenId, waypoints: payload.waypoints, showTrack: payload.showTrack !== false }]);
+        setTokenWalkEvents((current) => [...current, { id, sceneId: payload.sceneId, tokenId: payload.tokenId, waypoints: payload.waypoints, showTrack: payload.showTrack !== false }]);
         const timeout = window.setTimeout(() => {
           setTokenWalkEvents((current) => current.filter((entry) => entry.id !== id));
           tokenWalkTimeoutsRef.delete(timeout);
@@ -963,7 +1088,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
         {
           method: 'POST',
           body: JSON.stringify(
-            waypoints && waypoints.length > 0 ? { tokenId, waypoints } : { tokenId, x, y },
+            { ...(waypoints && waypoints.length > 0 ? { tokenId, waypoints } : { tokenId, x, y }), ...currentSceneContext() },
           ),
         },
       );
@@ -1200,7 +1325,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
       try {
         const payload = await requestJson<{ state: BattleMapSharedState; version: number; skipped?: string[] }>(path, {
           method: 'POST',
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...body, ...currentSceneContext() }),
         });
         applySnapshot(payload.state, payload.version);
         return { ok: true as const, skipped: payload.skipped ?? [] };
@@ -1260,7 +1385,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
           '/battle-map/dash',
           {
             method: 'POST',
-            body: JSON.stringify({ tokenId }),
+            body: JSON.stringify({ tokenId, ...currentSceneContext() }),
           },
         );
         applySnapshot(payload.state, payload.version);
@@ -1287,7 +1412,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
         '/battle-map/token-update',
         {
           method: 'POST',
-          body: JSON.stringify({ tokenId, updates }),
+          body: JSON.stringify({ tokenId, updates, ...currentSceneContext() }),
         },
       );
 
@@ -1491,7 +1616,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
         '/battle-map/extra-movement',
         {
           method: 'POST',
-          body: JSON.stringify({ tokenId, amount }),
+          body: JSON.stringify({ tokenId, amount, ...currentSceneContext() }),
         },
       );
 
@@ -1506,6 +1631,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
           '/battle-map/undo',
           {
             method: 'POST',
+            body: JSON.stringify(currentSceneContext()),
           },
         );
 
@@ -1532,16 +1658,9 @@ export function useBattleMapState(isAuthenticated: boolean) {
   };
 
   const setBoardBackgroundHidden = (hidden: boolean) => {
-    void commitSharedState((current) => ({
+    return commitSharedState((current) => ({
       ...current,
       isBoardBackgroundHidden: hidden,
-    }));
-  };
-
-  const setBoardFullyLit = (fullyLit: boolean) => {
-    void commitSharedState((current) => ({
-      ...current,
-      isBoardFullyLit: fullyLit,
     }));
   };
 
@@ -1595,7 +1714,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
   };
 
   const updateBattleMapSettings = async (
-    updates: Partial<{ diagonalRule: DiagonalRule; measurementUnit: MeasurementUnit }>,
+    updates: Partial<{ diagonalRule: DiagonalRule; measurementUnit: MeasurementUnit; boardDimensions: BoardDimensions }>,
   ) => {
     return enqueueMutation(async () => {
       const previousState = sharedStateRef.current;
@@ -1627,7 +1746,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     try {
       await requestJson('/battle-map/ping', {
         method: 'POST',
-        body: JSON.stringify({ position }),
+        body: JSON.stringify({ position, ...currentSceneContext() }),
       });
     } catch (error) {
       console.error(error);
@@ -1645,7 +1764,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
     try {
       await requestJson('/battle-map/template', {
         method: 'POST',
-        body: JSON.stringify(event),
+        body: JSON.stringify({ ...event, ...currentSceneContext() }),
       });
     } catch (error) {
       console.error(error);
@@ -1724,7 +1843,6 @@ export function useBattleMapState(isAuthenticated: boolean) {
     setPlayersCanEndTurn,
     setActiveTurnToken,
     setBoardBackgroundHidden,
-    setBoardFullyLit,
     addLightSource,
     removeLightSource,
     setSharedNotes,

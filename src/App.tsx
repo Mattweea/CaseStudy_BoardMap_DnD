@@ -13,6 +13,7 @@ import { InitiativeRollModal } from './components/InitiativeRollModal';
 import { InitiativePanel } from './components/InitiativePanel';
 import { Modal } from './components/Modal';
 import { CombatEmblem } from './components/CombatEmblem';
+import { SceneCatalogPanel } from './components/SceneCatalogPanel';
 import {
   BlockIcon, ChatDiceIcon, CloseIcon, CrossedSwordsIcon, DashIcon, DirectionArrowIcon, GearIcon, KeyboardIcon,
   MapIcon, MoonIcon, PawnIcon, PinIcon, PlusIcon, ResumeIcon, SaveIcon, SidebarIcon, SpeakerIcon, TrashIcon, UndoIcon,
@@ -27,11 +28,14 @@ import { useCombatAudioPreferences } from './hooks/useCombatAudioPreferences';
 import { useDicePresentationPreferences } from './hooks/useDicePresentationPreferences';
 import { usePageActivation } from './hooks/usePageActivation';
 import { getTokenFootprint } from './utils/board';
+import { resolveFollowTokenId } from './utils/boardCamera';
 import { findFirstAvailablePositionToRight } from './utils/tokens';
 import { darkvisionToCells, isTokenInsideLight, isTokenInsideVision } from './utils/vision';
+import { collectVisionBlockers } from '../shared/scene-blockers';
 import { characterSheetApi } from './utils/characterSheetApi';
 import { effectiveSpeed, movementBudget as computeMovementBudget } from '../shared/token-conditions.mjs';
 import { playCombatSound } from './utils/combatAudio';
+import { sceneApi } from './utils/sceneApi';
 import type { CharacterSheetRosterEntry, PublicPortraitEntry } from './utils/characterSheetApi';
 import type { CombatAnnouncement, DiceRollLog, GridPosition, TokenMovementBudget, UnitToken } from './types';
 import avernusImage from '../media/images/avernus.jpeg';
@@ -203,7 +207,6 @@ function App() {
     removeLightSource,
     setActiveTurnToken,
     setBoardBackgroundHidden,
-    setBoardFullyLit,
     setSharedNotes,
     updateBattleMapSettings,
     startCombat,
@@ -232,6 +235,10 @@ function App() {
   const [selectedTokenIds, setSelectedTokenIds] = useState<string[]>(
     state.tokens[0] ? [state.tokens[0].id] : [],
   );
+
+  useEffect(() => {
+    setSelectedTokenIds([]);
+  }, [state.activeSceneId]);
   const [isNewElementModalOpen, setIsNewElementModalOpen] = useState(false);
   const [isElementsListModalOpen, setIsElementsListModalOpen] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -240,6 +247,7 @@ function App() {
   const [isNotesCollapsed, setIsNotesCollapsed] = useState(false);
   const [isDiceLogModalOpen, setIsDiceLogModalOpen] = useState(false);
   const [isInitiativeModalOpen, setIsInitiativeModalOpen] = useState(false);
+  const [isSceneCatalogModalOpen, setIsSceneCatalogModalOpen] = useState(false);
   const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
   const [latestDiceResult, setLatestDiceResult] = useState<DiceResultScene | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ tokenId: string; nonce: number } | null>(null);
@@ -255,6 +263,7 @@ function App() {
   const [measurementUnitDraft, setMeasurementUnitDraft] = useState({ label: state.measurementUnit.label, cellsValue: String(state.measurementUnit.cellsValue) });
   const [measurementUnitError, setMeasurementUnitError] = useState<string | null>(null);
   const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null);
+  const [isBoardLightPending, setIsBoardLightPending] = useState(false);
   const [combatAnnouncement, setCombatAnnouncement] = useState<CombatAnnouncement | null>(null);
   const [isCombatAnnouncementOpen, setIsCombatAnnouncementOpen] = useState(false);
   const [draftNotes, setDraftNotes] = useState('');
@@ -305,6 +314,10 @@ function App() {
     setMeasurementUnitDraft({ label: state.measurementUnit.label, cellsValue: String(state.measurementUnit.cellsValue) });
   }, [state.measurementUnit.label, state.measurementUnit.cellsValue]);
   const canManageBattleMap = user?.role === 'master';
+
+  useEffect(() => {
+    if (!canManageBattleMap) setIsSceneCatalogModalOpen(false);
+  }, [canManageBattleMap]);
   const hasUnsavedNotes = draftNotes !== state.sharedNotes;
   const sessionCharacter = findCharacterProfileByKey(user?.characterKey);
   const sessionSheet = characterSheets.find((sheet) => sheet.ownerUserId === user?.id) ?? null;
@@ -319,6 +332,7 @@ function App() {
   const ownedFamiliarIds = ownedTokens
     .filter((token) => token.type === 'player' && token.isFamiliar === true)
     .map((token) => token.id);
+  const followTokenId = resolveFollowTokenId(state.tokens, canManageBattleMap, selectedTokenIds, sessionToken?.id ?? null);
   const sessionVehicle =
     sessionToken
       ? state.tokens.find(
@@ -414,7 +428,7 @@ function App() {
   const activeTurnToken =
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
   const darkvisionCells = darkvisionToCells(user?.darkvision);
-  const visionBlockers = state.tokens.filter((token) => token.blocksMovement === true);
+  const visionBlockers = collectVisionBlockers(state.tokens, state.activeSceneElements, getTokenFootprint);
   const playerVision = !canManageBattleMap && sessionToken && !state.isBoardFullyLit
     ? {
         enabled: true,
@@ -754,6 +768,12 @@ function App() {
         }
 
         event.preventDefault();
+        // Anche i passi del PG selezionato devono produrre la camminata confermata,
+        // come un percorso: la camera non segue le sole posizioni ottimistiche.
+        if (followTokenId && selectedMoves.length === 1 && selectedMoves[0].tokenId === followTokenId) {
+          void moveOwnedTokenBy(followTokenId, movement.dx, movement.dy);
+          return;
+        }
         moveTokens(selectedMoves);
         return;
       }
@@ -770,6 +790,8 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     canManageBattleMap,
+    followTokenId,
+    moveOwnedTokenBy,
     moveSessionTokenBy,
     moveTokens,
     removeTokens,
@@ -836,6 +858,20 @@ function App() {
       setSessionFeedback(null);
       sessionFeedbackTimeoutRef.current = null;
     }, 3600);
+  };
+
+  const toggleActiveSceneLight = async () => {
+    const sceneId = state.activeSceneId;
+    const sceneVersion = state.activeSceneVersion;
+    if (!canManageBattleMap || !sceneId || !sceneVersion || isBoardLightPending) return;
+    setIsBoardLightPending(true);
+    try {
+      await sceneApi.update(sceneId, sceneVersion, { isFullyLit: !state.isBoardFullyLit });
+    } catch (error) {
+      showSessionFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Luce della scena non aggiornata.' });
+    } finally {
+      setIsBoardLightPending(false);
+    }
   };
 
   const handleSuspendSession = async () => {
@@ -999,7 +1035,7 @@ function App() {
                     <span>Stato</span>
                     <strong>
                       {state.sessionMode === 'exploration'
-                        ? 'Esplorazione'
+                        ? 'Dungeon'
                         : !state.isRoundStarted
                           ? 'Attesa Iniziativa'
                         : isPlayersTurn
@@ -1093,13 +1129,6 @@ function App() {
                   <ResumeIcon />
                 </button>
               ) : null}
-              <button
-                type="button"
-                className="secondary-button secondary-button--small"
-                onClick={() => void logout()}
-              >
-                Logout
-              </button>
             </div>
             {sessionFeedback ? (
               <p
@@ -1315,7 +1344,7 @@ function App() {
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => setBoardBackgroundHidden(!state.isBoardBackgroundHidden)}
+                onClick={() => void setBoardBackgroundHidden(!state.isBoardBackgroundHidden)}
               >
                 {state.isBoardBackgroundHidden ? <><MapIcon /> Mostra sfondo board</> : <><MoonIcon /> Nascondi sfondo board</>}
               </button>
@@ -1384,23 +1413,6 @@ function App() {
               </div>
             </div>
             <div className="action-card">
-              <div className="action-card__block">
-                <p className="action-card__label">Buio della mappa</p>
-                <p className="action-card__meta">
-                  {state.isBoardFullyLit
-                    ? 'La mappa e completamente illuminata per i player.'
-                    : 'I player vedono solo scurovisione e luci attive.'}
-                </p>
-                <button
-                  type="button"
-                  className={state.isBoardFullyLit ? 'primary-button' : 'secondary-button'}
-                  onClick={() => setBoardFullyLit(!state.isBoardFullyLit)}
-                  aria-pressed={state.isBoardFullyLit}
-                >
-                  {state.isBoardFullyLit ? 'Riattiva buio' : 'Illumina tutto'}
-                </button>
-              </div>
-
               <div className="action-card__block">
                 <p className="action-card__label">Luci puntuali</p>
                 <p className="action-card__meta">
@@ -1650,16 +1662,40 @@ function App() {
             className="sidebar__content"
             data-state={expandedSidebarPresence.isVisible ? 'open' : 'closed'}
           >
+            <div className="workspace-account">
+              <span className="workspace-account__name" title={user.displayName}>{user.displayName}</span>
+              <button type="button" className="secondary-button secondary-button--small"
+                onClick={() => void logout()} disabled={isSubmitting}>Logout</button>
+            </div>
             <div className="workspace-tools">
               {renderSidebarSection('session')}
               {canManageBattleMap ? renderSidebarSection('actions') : null}
               {canManageBattleMap ? renderSidebarSection('lighting') : null}
               {canManageBattleMap ? renderSidebarSection('movement') : null}
             </div>
-            <div className="workspace-tabs" role="tablist" aria-label="Pannello sessione">
-              {([
-                ['chat', 'Chat + Dadi', <ChatDiceIcon key="chat" />], ['initiative', 'Turni di iniziativa', <CrossedSwordsIcon key="initiative" size="1.1em" />], ['characters', 'Personaggi', <PawnIcon key="characters" />], ['settings', 'Impostazioni', <GearIcon key="settings" />], ['modules', 'Moduli', <KeyboardIcon key="modules" />],
-              ] as Array<[WorkspaceTabId, string, ReactNode]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
+            <div className={`workspace-tabs ${canManageBattleMap ? 'workspace-tabs--master' : ''}`}>
+              {canManageBattleMap ? (
+                <button
+                  type="button"
+                  className={isSceneCatalogModalOpen ? 'workspace-tab workspace-tab--active' : 'workspace-tab'}
+                  aria-haspopup="dialog"
+                  aria-expanded={isSceneCatalogModalOpen}
+                  onClick={() => setIsSceneCatalogModalOpen(true)}
+                  title="Preparazione scene"
+                  aria-label="Apri preparazione scene"
+                >
+                  <span aria-hidden="true"><MapIcon /></span>
+                </button>
+              ) : null}
+              <div className="workspace-tabs__tablist" role="tablist" aria-label="Pannello sessione">
+                {([
+                  ['chat', 'Chat + Dadi', <ChatDiceIcon key="chat" />],
+                  ['initiative', 'Turni di iniziativa', <CrossedSwordsIcon key="initiative" size="1.1em" />],
+                  ['characters', 'Personaggi', <PawnIcon key="characters" />],
+                  ['settings', 'Impostazioni', <GearIcon key="settings" />],
+                  ['modules', 'Moduli', <KeyboardIcon key="modules" />],
+                ] as Array<[WorkspaceTabId, string, ReactNode]>).map(([id, label, icon]) => <button key={id} id={`tab-${id}`} role="tab" type="button" aria-selected={workspaceTab === id} aria-controls={`panel-${id}`} className={workspaceTab === id ? 'workspace-tab workspace-tab--active' : 'workspace-tab'} onClick={() => setWorkspaceTab(id)} title={label} aria-label={label}><span aria-hidden="true">{icon}</span></button>)}
+              </div>
             </div>
             <div id={`panel-${workspaceTab}`} role="tabpanel" aria-labelledby={`tab-${workspaceTab}`} className="workspace-tabpanel">
               {workspaceTab === 'chat' ? <section className="sidebar__section dice-log"><div ref={diceLogFeedRef} className="dice-log__feed" aria-live="polite">{state.diceLogs.length ? [...state.diceLogs].reverse().map((log) => <DiceLogEntry key={log.id} log={log} characterSheets={characterSheets} isExpanded={expandedDiceLogId === log.id} onToggle={() => setExpandedDiceLogId(expandedDiceLogId === log.id ? null : log.id)} onRoll={(request) => void rollAndReport(request)} />) : <p className="dice-log__empty">Il registro dei dadi apparirà qui.</p>}</div></section> : renderSidebarSection(workspaceTab)}
@@ -1671,6 +1707,7 @@ function App() {
 
       <main className="app-main">
         <Board
+          sceneId={state.activeSceneId}
           onPresentationHostChange={setStandardBoardHost}
           onMapInteractionChange={handleStandardBoardInteraction}
           tokens={visibleBoardTokens}
@@ -1679,7 +1716,15 @@ function App() {
           selectedTokenIds={selectedTokenIds}
           editableTokenIds={editableTokenIds}
           focusRequest={focusRequest}
+          followTokenId={followTokenId}
           isBackgroundHidden={state.isBoardBackgroundHidden}
+          isBoardFullyLit={state.isBoardFullyLit}
+          onToggleBoardLight={canManageBattleMap && state.activeSceneId ? toggleActiveSceneLight : undefined}
+          isBoardLightPending={isBoardLightPending}
+          background={state.activeSceneBackground}
+          drawings={state.activeSceneDrawings}
+          elements={state.activeSceneElements}
+          dimensions={state.boardDimensions}
           vision={playerVision}
           lightSources={state.lightSources}
           visionBlockers={visionBlockers}
@@ -1752,6 +1797,7 @@ function App() {
           className={`board-fullscreen-overlay board-fullscreen-overlay--${boardFullscreenPhase}`}
         >
           <Board
+            sceneId={state.activeSceneId}
             onPresentationHostChange={setFullscreenBoardHost}
             onMapInteractionChange={handleFullscreenBoardInteraction}
             tokens={visibleBoardTokens}
@@ -1760,8 +1806,16 @@ function App() {
             selectedTokenIds={selectedTokenIds}
             editableTokenIds={editableTokenIds}
             focusRequest={focusRequest}
+            followTokenId={followTokenId}
             isFullscreen
             isBackgroundHidden={state.isBoardBackgroundHidden}
+            isBoardFullyLit={state.isBoardFullyLit}
+            onToggleBoardLight={canManageBattleMap && state.activeSceneId ? toggleActiveSceneLight : undefined}
+            isBoardLightPending={isBoardLightPending}
+            background={state.activeSceneBackground}
+            drawings={state.activeSceneDrawings}
+            elements={state.activeSceneElements}
+            dimensions={state.boardDimensions}
             vision={playerVision}
             lightSources={state.lightSources}
             visionBlockers={visionBlockers}
@@ -1937,6 +1991,18 @@ function App() {
           ) : null}
         </div>
       </div>
+
+      <Modal
+        title="Preparazione scene"
+        isOpen={canManageBattleMap && isSceneCatalogModalOpen}
+        onClose={() => setIsSceneCatalogModalOpen(false)}
+        className="modal-card--scene-catalog"
+      >
+        <SceneCatalogPanel
+          isActiveSceneBackgroundHidden={state.isBoardBackgroundHidden}
+          onActiveSceneBackgroundVisibilityChange={setBoardBackgroundHidden}
+        />
+      </Modal>
 
       <Modal
         title="Note condivise"

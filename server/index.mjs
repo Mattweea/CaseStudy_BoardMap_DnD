@@ -1,5 +1,7 @@
 import Fastify from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { normalizeSceneDrawings, normalizeSceneElements } from '../shared/scene-model.mjs';
+import { collectMovementBlockers, footprintsOverlap } from '../shared/scene-blockers.mjs';
 import { normalizeDiceLogDetail } from '../shared/dice-log-normalization.mjs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -13,6 +15,19 @@ import { openDatabase } from '../database/connection.mjs';
 import { bootstrapRoster, AuthService } from './auth-service.mjs';
 import { UserRepository } from './user-repository.mjs';
 import { bootstrapCharacterSheets } from './character-sheet-bootstrap.mjs';
+import { bootstrapScenes } from './scene-bootstrap.mjs';
+import { SceneRepository } from './scene-repository.mjs';
+import { registerSceneRoutes } from './scene-routes.mjs';
+import { SceneService } from './scene-service.mjs';
+import { EncounterPlacementRuntime } from './encounter-placement-runtime.mjs';
+import { PartyTransferError, planPartyTransfer } from './party-transfer.mjs';
+import {
+  attachActiveSceneMetadata,
+  buildSceneStateView,
+  installActiveSceneProjection,
+  prepareSceneTransitionState,
+  prepareResumedSceneState,
+} from './active-scene-projection.mjs';
 import { CharacterSheetPolicy } from './character-sheet-policy.mjs';
 import { broadcastCharacterSheetEvent as broadcastSheetEvent } from './character-sheet-events.mjs';
 import { CharacterSheetRepository } from './character-sheet-repository.mjs';
@@ -22,9 +37,11 @@ import { rollCharacterSheetTarget } from './character-sheet-roll-resolver.mjs';
 import { createAuthoritativeRoll } from './authoritative-roll.mjs';
 import { canUserSeeDiceLog, visibleDiceLogsForUser } from './dice-log-visibility.mjs';
 import { PortraitStorage } from './portrait-storage.mjs';
+import { SceneBackgroundStorage } from './scene-background-storage.mjs';
 import { findCharacterTokenForOwner, rollInitiative } from './initiative-roll.mjs';
 import { insertInitiativeEntry } from '../shared/initiative-order.mjs';
-import { isValidCellsValue, pathCost } from '../shared/grid-movement.mjs';
+import { isValidCellsValue, pathCost, pathStepCount, MAX_MOVEMENT_PATH_STEPS } from '../shared/grid-movement.mjs';
+import { SCENE_LIMITS } from '../shared/scene-model.mjs';
 import { abilityModifier } from '../shared/dnd-rules.mjs';
 import {
   conditionCatalogFor,
@@ -48,6 +65,7 @@ const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_DATA_DIR = path.join(SERVER_DIR, 'data');
 const SESSION_SNAPSHOT_PATH = path.join(SESSION_DATA_DIR, 'last-session.json');
 const PORTRAIT_STORAGE_PATH = path.join(SESSION_DATA_DIR, 'portraits');
+const SCENE_BACKGROUND_STORAGE_PATH = path.join(SESSION_DATA_DIR, 'scene-backgrounds');
 
 const DEFAULT_TOKEN_COLORS = {
   player: '#2f9e44',
@@ -90,6 +108,12 @@ function conditionReasonLabel(reason) {
 }
 
 const initialSharedState = {
+  activeSceneId: null,
+  activeSceneVersion: null,
+  activeSceneSummary: null,
+  activeSceneBackground: { kind: 'blank' },
+  activeSceneDrawings: [],
+  activeSceneElements: [],
   tokens: [],
   diceLogs: [],
   latestDicePreview: null,
@@ -104,6 +128,7 @@ const initialSharedState = {
   diagonalParityByTokenId: {},
   diagonalRule: 'standard',
   measurementUnit: { label: 'm', cellsValue: 1.5 },
+  boardDimensions: { columns: 30, rows: 30 },
   dashUsedByTokenId: {},
   extraMovementByTokenId: {},
   isBoardBackgroundHidden: false,
@@ -118,8 +143,13 @@ const INITIATIVE_ROLL_MODES = new Set(['normal', 'advantage', 'disadvantage']);
 // Dichiarato prima del primo `normalizeSharedState`: la normalizzazione delle voci d'iniziativa
 // lo consulta per ricavare il modificatore di Destrezza dalla scheda collegata a un token.
 let characterSheetService;
+let sceneService;
 let battleMapState = normalizeSharedState(initialSharedState);
 let battleMapVersion = 1;
+// Il runtime della scena attiva vive in battleMapState; questa mappa contiene solo scene inattive.
+const inactiveSceneTokens = new Map();
+const encounterPlacementRuntime = new EncounterPlacementRuntime();
+let partyTransferBeforePublish = null;
 let turnTransitionId = 0;
 let lastSessionSnapshot = null;
 const streamClients = new Set();
@@ -385,8 +415,63 @@ function normalizeSharedState(parsed) {
     isValidCellsValue(parsed.measurementUnit.cellsValue)
       ? { label: parsed.measurementUnit.label, cellsValue: parsed.measurementUnit.cellsValue }
       : { label: 'm', cellsValue: 1.5 };
+  const boardDimensions =
+    Number.isSafeInteger(parsed?.boardDimensions?.columns)
+    && parsed.boardDimensions.columns >= 0
+    && parsed.boardDimensions.columns <= 500
+    && Number.isSafeInteger(parsed?.boardDimensions?.rows)
+    && parsed.boardDimensions.rows >= 0
+    && parsed.boardDimensions.rows <= 500
+    && ((parsed.boardDimensions.columns === 0) === (parsed.boardDimensions.rows === 0))
+      ? { columns: parsed.boardDimensions.columns, rows: parsed.boardDimensions.rows }
+      : { columns: 30, rows: 30 };
 
   return {
+    activeSceneId: typeof parsed?.activeSceneId === 'string' ? parsed.activeSceneId : null,
+    activeSceneVersion:
+      Number.isSafeInteger(parsed?.activeSceneVersion) && parsed.activeSceneVersion > 0
+        ? parsed.activeSceneVersion
+        : null,
+    activeSceneSummary:
+      parsed?.activeSceneSummary
+      && typeof parsed.activeSceneSummary.id === 'string'
+      && typeof parsed.activeSceneSummary.name === 'string'
+      && Number.isSafeInteger(parsed.activeSceneSummary.version)
+      && parsed.activeSceneSummary.version > 0
+        ? {
+            id: parsed.activeSceneSummary.id,
+            name: parsed.activeSceneSummary.name,
+            version: parsed.activeSceneSummary.version,
+            isActive: parsed.activeSceneSummary.isActive === true,
+          }
+        : null,
+    activeSceneDrawings: (() => {
+      try { return normalizeSceneDrawings(parsed?.activeSceneDrawings ?? []); }
+      catch { return []; }
+    })(),
+    activeSceneElements: (() => {
+      try { return normalizeSceneElements(parsed?.activeSceneElements ?? [], boardDimensions); }
+      catch { return []; }
+    })(),
+    activeSceneBackground:
+      parsed?.activeSceneBackground?.kind === 'image'
+      && typeof parsed.activeSceneBackground.assetId === 'string'
+      && ['image/jpeg', 'image/png', 'image/webp'].includes(parsed.activeSceneBackground.mediaType)
+      && typeof parsed.activeSceneBackground.etag === 'string'
+      && /^[a-f0-9]{64}$/.test(parsed.activeSceneBackground.etag)
+      && typeof parsed.activeSceneBackground.updatedAt === 'string'
+      && !Number.isNaN(Date.parse(parsed.activeSceneBackground.updatedAt))
+      && Number.isSafeInteger(parsed.activeSceneBackground.byteLength)
+      && parsed.activeSceneBackground.byteLength > 0
+        ? {
+            kind: 'image',
+            assetId: parsed.activeSceneBackground.assetId,
+            mediaType: parsed.activeSceneBackground.mediaType,
+            byteLength: parsed.activeSceneBackground.byteLength,
+            etag: parsed.activeSceneBackground.etag,
+            updatedAt: parsed.activeSceneBackground.updatedAt,
+          }
+        : { kind: 'blank' },
     tokens: applyVehicleAwareUpdates(tokens),
     diceLogs: Array.isArray(parsed?.diceLogs)
       ? parsed.diceLogs.flatMap((log) => (log && typeof log === 'object' && typeof log.authorUserId === 'string' &&
@@ -440,6 +525,7 @@ function normalizeSharedState(parsed) {
     diagonalParityByTokenId,
     diagonalRule,
     measurementUnit,
+    boardDimensions,
     dashUsedByTokenId:
       parsed?.dashUsedByTokenId && typeof parsed.dashUsedByTokenId === 'object'
         ? Object.fromEntries(
@@ -645,31 +731,17 @@ function validateSharedState(nextState) {
   return null;
 }
 
-function isMovementBlockingToken(token) {
-  return token.blocksMovement === true;
-}
-
 function canTokenIgnoreObstacles(token, user) {
   return user?.role === 'master' || token.type === 'vehicle';
 }
 
-function findBlockingObstacle(tokens, movingTokenId, position, footprint) {
-  return tokens.find((token) => {
-    if (token.id === movingTokenId || !isMovementBlockingToken(token)) {
-      return false;
-    }
-
-    const obstacleFootprint = getTokenFootprint(token);
-    return !(
-      position.x + footprint.width - 1 < token.position.x ||
-      token.position.x + obstacleFootprint.width - 1 < position.x ||
-      position.y + footprint.height - 1 < token.position.y ||
-      token.position.y + obstacleFootprint.height - 1 < position.y
-    );
-  }) ?? null;
+function findBlockingObstacle(blockers, movingTokenId, position, footprint) {
+  return blockers.find((blocker) =>
+    !(blocker.source === 'token' && blocker.id === movingTokenId)
+    && footprintsOverlap(position, footprint, blocker)) ?? null;
 }
 
-function findBlockedMovement(tokens, movingToken, from, to) {
+function findBlockedMovement(blockers, movingToken, from, to) {
   const footprint = getTokenFootprint(movingToken);
   const stepX = Math.sign(to.x - from.x);
   const stepY = Math.sign(to.y - from.y);
@@ -685,7 +757,7 @@ function findBlockedMovement(tokens, movingToken, from, to) {
       currentY += stepY;
     }
 
-    const obstacle = findBlockingObstacle(tokens, movingToken.id, { x: currentX, y: currentY }, footprint);
+    const obstacle = findBlockingObstacle(blockers, movingToken.id, { x: currentX, y: currentY }, footprint);
     if (obstacle) {
       return obstacle;
     }
@@ -701,7 +773,9 @@ function isValidWaypoint(point) {
     Number.isInteger(point.x) &&
     Number.isInteger(point.y) &&
     point.x >= 0 &&
-    point.y >= 0
+    point.y >= 0 &&
+    point.x <= SCENE_LIMITS.maxCoordinateMagnitude &&
+    point.y <= SCENE_LIMITS.maxCoordinateMagnitude
   );
 }
 
@@ -812,8 +886,12 @@ function getTurnNotice(user) {
 }
 
 function nextSnapshot(user = null) {
+  const sanitizedState = sanitizeStateForUser(battleMapState, user);
   return {
-    state: { ...sanitizeStateForUser(battleMapState, user), turnNotice: getTurnNotice(user) },
+    state: {
+      ...buildSceneStateView(sanitizedState, user, sceneService),
+      turnNotice: getTurnNotice(user),
+    },
     version: battleMapVersion,
   };
 }
@@ -910,6 +988,136 @@ function broadcastSnapshot() {
   });
 }
 
+function refreshActiveSceneProjection() {
+  const scene = sceneService?.getActiveScene?.() ?? null;
+  battleMapState = normalizeSharedState(
+    installActiveSceneProjection({ ...battleMapState,
+      tokens: encounterPlacementRuntime.project(scene, battleMapState.tokens) }, scene),
+  );
+  encounterPlacementRuntime.remember(scene);
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+}
+
+function validateScenePreparation(scene) {
+  const runtime = scene.id === battleMapState.activeSceneId ? battleMapState.tokens : inactiveSceneTokens.get(scene.id) ?? [];
+  const tokens = encounterPlacementRuntime.project(scene, runtime);
+  const dimensions = scene.document.board.dimensions;
+  if (tokens.some((token) => {
+    const footprint = getTokenFootprint(token);
+    return token.position.x < 0 || token.position.y < 0
+      || token.position.x + footprint.width > (dimensions.columns || SCENE_LIMITS.maxCoordinateMagnitude)
+      || token.position.y + footprint.height > (dimensions.rows || SCENE_LIMITS.maxCoordinateMagnitude);
+  })) throw new TypeError('La configurazione esclude un token live dai confini della scena.');
+  const candidate = normalizeSharedState(installActiveSceneProjection({ ...battleMapState, tokens }, scene));
+  const error = validateSharedState(candidate) ?? validateActiveTokenIdentity(candidate.tokens, scene.id);
+  if (error) throw new TypeError(error.message);
+}
+
+function prepareActiveSceneTransition(targetScene) {
+  if (battleMapState.isRoundStarted) {
+    return { status: 409, message: 'Non puoi cambiare scena mentre un round e attivo.' };
+  }
+  try {
+    const targetTokens = targetScene.id === battleMapState.activeSceneId
+      ? battleMapState.tokens
+      : inactiveSceneTokens.get(targetScene.id) ?? [];
+    const state = normalizeSharedState(prepareSceneTransitionState({
+        ...battleMapState,
+        tokens: encounterPlacementRuntime.project(targetScene, structuredClone(targetTokens)),
+        initiatives: [],
+        activeTurnTokenId: null,
+        movementUsedByTokenId: {},
+        diagonalParityByTokenId: {},
+        dashUsedByTokenId: {},
+        extraMovementByTokenId: {},
+      }, targetScene));
+    const invalid = validateSharedState(state) ?? validateActiveTokenIdentity(state.tokens, targetScene.id);
+    return invalid ?? { status: 200, state };
+  } catch (error) {
+    return { status: 400, message: error?.message ?? 'La scena di destinazione non e valida.' };
+  }
+}
+
+function installPreparedSceneTransition(_scene, prepared) {
+  if (!prepared?.state) throw new Error('Transizione scena non preparata.');
+  const previousSceneId = battleMapState.activeSceneId;
+  if (previousSceneId && previousSceneId !== prepared.state.activeSceneId) {
+    inactiveSceneTokens.set(previousSceneId, structuredClone(battleMapState.tokens));
+    inactiveSceneTokens.delete(prepared.state.activeSceneId);
+  }
+  battleMapState = prepared.state;
+  encounterPlacementRuntime.remember(_scene);
+  masterUndoStack.length = 0;
+  playerUndoStackByUserId.clear();
+  turnTransitionId += 1;
+  bumpBattleMapVersion();
+  broadcastSnapshot();
+}
+
+function preparePartyTransfer(body) {
+  if (battleMapState.isRoundStarted) throw new PartyTransferError('Termina il round prima di trasferire il party.', 409);
+  const sourceId = typeof body?.sourceSceneId === 'string' ? body.sourceSceneId : '';
+  const active = sceneService?.getActiveScene?.();
+  if (!active || !sourceId || sourceId === active.id) {
+    throw new PartyTransferError('Scegli una scena sorgente diversa da quella attiva.');
+  }
+  const source = sceneService.getScene(sourceId);
+  if (!source) throw new PartyTransferError('Scena sorgente non trovata.', 404);
+  if (body.sourceVersion !== source.version || body.targetVersion !== active.version
+    || (body.stateVersion !== undefined && body.stateVersion !== battleMapVersion)) {
+    throw new PartyTransferError('Le scene o il runtime sono cambiati. Aggiorna la preview.', 409);
+  }
+  const plan = planPartyTransfer({
+    sourceTokens: inactiveSceneTokens.get(sourceId) ?? [],
+    targetTokens: battleMapState.tokens,
+    targetScene: active,
+    anchor: body.anchor,
+    profiles: CHARACTER_PROFILES,
+    getTokenFootprint,
+  });
+  const nextState = normalizeSharedState({
+    ...battleMapState,
+    tokens: applyVehicleAwareUpdates([...battleMapState.tokens, ...plan.transferred]),
+  });
+  const validationError = validateSharedState(nextState);
+  if (validationError) throw new PartyTransferError(validationError.message, 409);
+  return { source, active, plan, nextState };
+}
+
+function preparePartySceneTransition(body) {
+  if (battleMapState.isRoundStarted) throw new PartyTransferError('Termina il round prima di cambiare scena.', 409);
+  const source = sceneService?.getActiveScene?.();
+  const targetId = typeof body?.targetSceneId === 'string' ? body.targetSceneId : '';
+  if (!source || !targetId || targetId === source.id) {
+    throw new PartyTransferError('Scegli una scena di destinazione diversa da quella attiva.');
+  }
+  const target = sceneService.getScene(targetId);
+  if (!target) throw new PartyTransferError('Scena di destinazione non trovata.', 404);
+  if (body.sourceVersion !== source.version || body.targetVersion !== target.version
+    || (body.stateVersion !== undefined && body.stateVersion !== battleMapVersion)) {
+    throw new PartyTransferError('Le scene o il runtime sono cambiati. Aggiorna la preview.', 409);
+  }
+  const targetTokens = encounterPlacementRuntime.project(target, inactiveSceneTokens.get(target.id) ?? []);
+  const plan = planPartyTransfer({
+    sourceTokens: battleMapState.tokens,
+    targetTokens,
+    targetScene: target,
+    anchor: body.anchor,
+    profiles: CHARACTER_PROFILES,
+    getTokenFootprint,
+  });
+  const prepared = prepareActiveSceneTransition(target);
+  if (prepared.status !== 200) throw new PartyTransferError(prepared.message, prepared.status);
+  const nextState = normalizeSharedState({
+    ...prepared.state,
+    tokens: applyVehicleAwareUpdates([...targetTokens, ...plan.transferred]),
+  });
+  const validationError = validateSharedState(nextState);
+  if (validationError) throw new PartyTransferError(validationError.message, 409);
+  return { source, target, plan, nextState };
+}
+
 function broadcastCharacterSheetEvent(event, sheet) {
   broadcastSheetEvent(streamClients, event, sheet, characterSheetPolicy);
 }
@@ -921,7 +1129,7 @@ const TEMPLATE_SHAPES = new Set(['circle', 'cone', 'line']);
 // riconnessione dopo la loro scomparsa non ne trova traccia perché non esistono al di fuori di
 // questa trasmissione una tantum.
 function broadcastEphemeralEvent(type, payload, { filterByOriginToken = null } = {}) {
-  const event = { type, ...payload };
+  const event = { type, sceneId: battleMapState.activeSceneId, ...payload };
   streamClients.forEach((client) => {
     if (filterByOriginToken && !isTokenVisibleToUser(filterByOriginToken, client.user)) {
       return;
@@ -1027,6 +1235,22 @@ function replaceBattleMapState(nextState) {
   }, { recordMasterUndo: true, validate: true });
 }
 
+function validateActiveTokenIdentity(tokens, ownSceneId = battleMapState.activeSceneId) {
+  const inactive = [...inactiveSceneTokens.entries()].filter(([id]) => id !== ownSceneId).flatMap(([, items]) => items);
+  if (ownSceneId !== battleMapState.activeSceneId) inactive.push(...battleMapState.tokens);
+  const inactiveIds = new Set(inactive.map((token) => token.id));
+  if (tokens.some((token) => inactiveIds.has(token.id))) {
+    return { status: 409, message: 'Un ID token è già presente in un’altra scena live.' };
+  }
+  const inactiveCharacters = inactive.filter((token) => token.type === 'player' && token.isFamiliar !== true);
+  if (tokens.some((token) => token.type === 'player' && token.isFamiliar !== true
+    && inactiveCharacters.some((other) => (token.ownerUserId && token.ownerUserId === other.ownerUserId)
+      || (token.characterKey && token.characterKey === other.characterKey)))) {
+    return { status: 409, message: 'Un personaggio è già presente in un’altra scena live.' };
+  }
+  return null;
+}
+
 function commitBattleMapState(nextState, options = {}) {
   const { recordMasterUndo = false, validate = true } = options;
 
@@ -1034,8 +1258,13 @@ function commitBattleMapState(nextState, options = {}) {
     pushMasterUndoState();
   }
 
-  const normalizedState = normalizeSharedState(nextState);
-  const validationError = validate ? validateSharedState(normalizedState) : null;
+  const normalizedState = attachActiveSceneMetadata(
+    normalizeSharedState(nextState),
+    sceneService?.getActiveScene?.() ?? null,
+  );
+  const validationError = validate
+    ? validateSharedState(normalizedState) ?? validateActiveTokenIdentity(normalizedState.tokens)
+    : null;
   if (validationError) {
     if (recordMasterUndo) {
       masterUndoStack.pop();
@@ -1062,11 +1291,12 @@ async function restoreLastSessionSnapshot() {
   }
 
   lastSessionSnapshot = snapshot;
-  battleMapState = normalizeSharedState({
-    ...snapshot.state,
-    diceLogs: battleMapState.diceLogs,
-    latestDicePreview: battleMapState.latestDicePreview,
-  });
+  inactiveSceneTokens.clear();
+  masterUndoStack.length = 0;
+  playerUndoStackByUserId.clear();
+  battleMapState = normalizeSharedState(prepareResumedSceneState(
+    snapshot.state, battleMapState, sceneService?.getActiveScene?.() ?? null,
+  ));
   battleMapVersion = snapshot.version;
   broadcastSnapshot();
   return nextSnapshot();
@@ -1288,11 +1518,56 @@ function updateBattleMapSettings(updates) {
     nextMeasurementUnit = { label, cellsValue };
   }
 
+  let nextBoardDimensions = battleMapState.boardDimensions;
+  if (updates?.boardDimensions !== undefined) {
+    const columns = updates.boardDimensions?.columns;
+    const rows = updates.boardDimensions?.rows;
+    if (
+      !Number.isSafeInteger(columns) || columns < 0 || columns > 500
+      || !Number.isSafeInteger(rows) || rows < 0 || rows > 500
+      || ((columns === 0) !== (rows === 0))
+    ) return { status: 400, message: 'Inserisci dimensioni positive oppure 0 × 0 per una board illimitata.' };
+    const outsideToken = battleMapState.tokens.some((token) => {
+      const footprint = getTokenFootprint(token);
+      return token.position.x < 0 || token.position.y < 0
+        || (columns > 0 && token.position.x + footprint.width > columns)
+        || (rows > 0 && token.position.y + footprint.height > rows);
+    });
+    if (outsideToken) return { status: 400, message: 'La griglia non può escludere token già presenti.' };
+    nextBoardDimensions = { columns, rows };
+  }
+
+  const activeScene = sceneService?.getActiveScene?.() ?? null;
+  if (activeScene && typeof sceneService.updateScene === 'function') {
+    try {
+      sceneService.updateScene({
+        id: activeScene.id,
+        expectedVersion: activeScene.version,
+        name: activeScene.name,
+        sortOrder: activeScene.sortOrder,
+        document: {
+          ...activeScene.document,
+          board: {
+            ...activeScene.document.board,
+            diagonalRule: nextDiagonalRule,
+            measurementUnit: nextMeasurementUnit,
+            dimensions: nextBoardDimensions,
+          },
+        },
+      });
+      refreshActiveSceneProjection();
+      return nextSnapshot();
+    } catch (error) {
+      return { status: error?.statusCode ?? 500, message: error?.message ?? 'Impostazioni scena non salvate.' };
+    }
+  }
+
   return commitBattleMapState(
     {
       ...battleMapState,
       diagonalRule: nextDiagonalRule,
       measurementUnit: nextMeasurementUnit,
+      boardDimensions: nextBoardDimensions,
     },
     { recordMasterUndo: true, validate: false },
   );
@@ -1350,6 +1625,18 @@ function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
 
   if (waypoints[0].x !== token.position.x || waypoints[0].y !== token.position.y) {
     return { status: 400, message: 'Il percorso deve partire dalla posizione corrente del token.' };
+  }
+  if (pathStepCount(waypoints) > MAX_MOVEMENT_PATH_STEPS) {
+    return { status: 400, message: `Il percorso supera il limite di ${MAX_MOVEMENT_PATH_STEPS} caselle.` };
+  }
+
+  const movingFootprint = getTokenFootprint(token);
+  if (waypoints.some((point) =>
+    (battleMapState.boardDimensions.columns > 0
+      && point.x + movingFootprint.width > battleMapState.boardDimensions.columns)
+    || (battleMapState.boardDimensions.rows > 0
+      && point.y + movingFootprint.height > battleMapState.boardDimensions.rows))) {
+    return { status: 400, message: 'Il percorso esce dai confini della scena.' };
   }
 
   const destination = waypoints[waypoints.length - 1];
@@ -1417,9 +1704,12 @@ function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
   }
 
   if (!canTokenIgnoreObstacles(token, user)) {
+    const blockers = collectMovementBlockers(
+      battleMapState.tokens, battleMapState.activeSceneElements, getTokenFootprint,
+    );
     for (let index = 0; index < waypoints.length - 1; index += 1) {
       const blockingObstacle = findBlockedMovement(
-        battleMapState.tokens,
+        blockers,
         token,
         waypoints[index],
         waypoints[index + 1],
@@ -1995,6 +2285,7 @@ let userRepository;
 let authService;
 const characterSheetPolicy = new CharacterSheetPolicy();
 const portraitStorage = new PortraitStorage(PORTRAIT_STORAGE_PATH);
+const sceneBackgroundStorage = new SceneBackgroundStorage(SCENE_BACKGROUND_STORAGE_PATH);
 
 function parseCookies(headerValue) {
   if (!headerValue) {
@@ -2040,6 +2331,9 @@ function sanitizeUser(user) {
       (token) => token.ownerUserId === user.id && token.type === 'player' && token.isFamiliar !== true,
     ) ??
     battleMapState.tokens.find((token) => token.characterKey === profile?.key) ??
+    [...inactiveSceneTokens.values()].flat().find((token) =>
+      token.type === 'player' && token.isFamiliar !== true
+      && (token.ownerUserId === user.id || token.characterKey === profile?.key)) ??
     null;
 
   return {
@@ -2096,6 +2390,12 @@ function ensureCharacterTokenForUser(user) {
   const existingIndex = battleMapState.tokens.findIndex(
     (token) => token.ownerUserId === user.id || token.characterKey === profile.key,
   );
+
+  if (existingIndex === -1 && [...inactiveSceneTokens.values()].some((tokens) => tokens.some((token) =>
+    token.type === 'player' && token.isFamiliar !== true
+    && (token.ownerUserId === user.id || token.characterKey === profile.key)))) {
+    return;
+  }
 
   if (existingIndex === -1) {
     const spawnToken = createCharacterToken(profile, user.id);
@@ -2302,6 +2602,92 @@ app.post('/api/auth/logout', async (request, reply) => {
   return { ok: true };
 });
 
+app.post('/api/scenes/party-transfer/preview', async (request, reply) => {
+  if (!requireMaster(request, reply)) return;
+  try {
+    const { source, active, plan } = preparePartyTransfer(request.body);
+    return {
+      sourceSceneId: source.id,
+      sourceVersion: source.version,
+      targetSceneId: active.id,
+      targetVersion: active.version,
+      stateVersion: battleMapVersion,
+      anchor: request.body.anchor,
+      placements: plan.transferred.map((token) => ({ tokenId: token.id, name: token.name, position: token.position })),
+    };
+  } catch (error) {
+    reply.code(error?.statusCode ?? 500);
+    return { message: error?.message ?? 'Preview del trasferimento non riuscita.' };
+  }
+});
+
+app.post('/api/scenes/party-transfer/commit', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) return;
+  try {
+    if (!Number.isSafeInteger(request.body?.stateVersion) || request.body.stateVersion < 1) {
+      throw new PartyTransferError('La versione della preview è obbligatoria.');
+    }
+    const { source, plan, nextState } = preparePartyTransfer(request.body);
+    partyTransferBeforePublish?.();
+    inactiveSceneTokens.set(source.id, structuredClone(plan.remaining));
+    battleMapState = nextState;
+    masterUndoStack.length = 0;
+    playerUndoStackByUserId.clear();
+    bumpBattleMapVersion();
+    broadcastSnapshot();
+    return nextSnapshot(user);
+  } catch (error) {
+    reply.code(error?.statusCode ?? 500);
+    return { message: error?.message ?? 'Trasferimento del party non riuscito.', ...nextSnapshot(user) };
+  }
+});
+
+app.post('/api/scenes/party-transition/preview', async (request, reply) => {
+  if (!requireMaster(request, reply)) return;
+  try {
+    const { source, target, plan } = preparePartySceneTransition(request.body);
+    return {
+      sourceSceneId: source.id,
+      sourceVersion: source.version,
+      targetSceneId: target.id,
+      targetVersion: target.version,
+      stateVersion: battleMapVersion,
+      anchor: request.body.anchor,
+      placements: plan.transferred.map((token) => ({ tokenId: token.id, name: token.name, position: token.position })),
+    };
+  } catch (error) {
+    reply.code(error?.statusCode ?? 500);
+    return { message: error?.message ?? 'Preview del cambio scena non riuscita.' };
+  }
+});
+
+app.post('/api/scenes/party-transition/commit', async (request, reply) => {
+  const user = requireMaster(request, reply);
+  if (!user) return;
+  try {
+    if (!Number.isSafeInteger(request.body?.stateVersion) || request.body.stateVersion < 1) {
+      throw new PartyTransferError('La versione della preview è obbligatoria.');
+    }
+    const { source, target, plan, nextState } = preparePartySceneTransition(request.body);
+    const remaining = structuredClone(plan.remaining);
+    partyTransferBeforePublish?.();
+    sceneService.activateScene({ id: target.id, expectedVersion: target.version });
+    inactiveSceneTokens.set(source.id, remaining);
+    inactiveSceneTokens.delete(target.id);
+    battleMapState = nextState;
+    masterUndoStack.length = 0;
+    playerUndoStackByUserId.clear();
+    turnTransitionId += 1;
+    bumpBattleMapVersion();
+    broadcastSnapshot();
+    return nextSnapshot(user);
+  } catch (error) {
+    reply.code(error?.statusCode ?? 500);
+    return { message: error?.message ?? 'Cambio scena con party non riuscito.', ...nextSnapshot(user) };
+  }
+});
+
 app.get('/api/battle-map/state', async (request, reply) => {
   const user = requireUser(request, reply);
   if (!user) {
@@ -2338,7 +2724,9 @@ app.put('/api/battle-map/state', async (request, reply) => {
     };
   }
 
-  return replaceBattleMapState(nextState);
+  const result = replaceBattleMapState(nextState);
+  if (result.status && result.status !== 200) reply.code(result.status);
+  return result;
 });
 
 app.post('/api/battle-map/dice-logs', async (request, reply) => {
@@ -2427,6 +2815,20 @@ function sendMutationResult(reply, user, result) {
   return result.skipped?.length ? { ...response, skipped: result.skipped } : response;
 }
 
+function requireCurrentPlayerScene(user, body, reply) {
+  if (user.role === 'master') return true;
+  // Snapshot legacy e harness isolati possono non avere ancora un'identità scena installata.
+  // Appena l'identità persistita esiste, entrambi i campi diventano obbligatori per i Player.
+  if (battleMapState.activeSceneId === null || battleMapState.activeSceneVersion === null) return true;
+  if (body?.sceneId === battleMapState.activeSceneId
+    && body?.sceneVersion === battleMapState.activeSceneVersion) return true;
+  reply.code(409).send({
+    message: 'La scena attiva è cambiata. Sincronizza e riprova.',
+    ...nextSnapshot(user),
+  });
+  return false;
+}
+
 app.delete('/api/battle-map/dice-logs', async (request, reply) => {
   const user = requireUser(request, reply);
   if (!user) {
@@ -2488,6 +2890,7 @@ app.post('/api/battle-map/turn/advance', async (request, reply) => {
   if (!user) {
     return;
   }
+  if (!requireCurrentPlayerScene(user, request.body, reply)) return;
 
   return sendMutationResult(reply, user, advanceTurn(user, request.body?.direction));
 });
@@ -2508,6 +2911,7 @@ app.post('/api/battle-map/initiative/roll', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   if (typeof body.tokenId !== 'string' || !body.tokenId) {
     reply.code(400);
     return { message: 'Payload tiro iniziativa non valido.', ...nextSnapshot(user) };
@@ -2531,6 +2935,7 @@ app.post('/api/battle-map/move', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
   if (!tokenId) {
     reply.code(400);
@@ -2589,6 +2994,7 @@ app.post('/api/battle-map/ping', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   const result = sendPing(user, body.position);
   if (result.status !== 200) {
     reply.code(result.status);
@@ -2604,7 +3010,9 @@ app.post('/api/battle-map/template', async (request, reply) => {
     return;
   }
 
-  const result = sendTemplateEvent(user, request.body ?? {});
+  const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
+  const result = sendTemplateEvent(user, body);
   if (result.status !== 200) {
     reply.code(result.status);
     return { message: result.message };
@@ -2620,6 +3028,7 @@ app.post('/api/battle-map/dash', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
   if (!tokenId) {
     reply.code(400);
@@ -2645,6 +3054,7 @@ app.post('/api/battle-map/token-update', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
   if (!tokenId || typeof body.updates !== 'object' || !body.updates) {
     reply.code(400);
@@ -2780,6 +3190,7 @@ app.post('/api/battle-map/extra-movement', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (!requireCurrentPlayerScene(user, body, reply)) return;
   const tokenId = typeof body.tokenId === 'string' ? body.tokenId : '';
   const amount = typeof body.amount === 'number' ? body.amount : 1;
   if (!tokenId) {
@@ -2804,6 +3215,7 @@ app.post('/api/battle-map/undo', async (request, reply) => {
   if (!user) {
     return;
   }
+  if (!requireCurrentPlayerScene(user, request.body, reply)) return;
 
   const result = undoLastAction(user);
   if (result.status !== 200) {
@@ -2897,13 +3309,40 @@ async function start() {
     emit: broadcastCharacterSheetEvent,
     projectToken: projectCharacterSheetToToken,
   });
+  await loadPersistedSessionMetadata();
+  try {
+    bootstrapScenes(database, { legacySnapshot: lastSessionSnapshot });
+    sceneService = new SceneService({
+      repository: new SceneRepository(database),
+      campaignId: 'local-campaign',
+      validateScene: validateScenePreparation,
+    });
+    sceneService.load();
+    battleMapState = normalizeSharedState(
+      installActiveSceneProjection({ ...battleMapState,
+        tokens: encounterPlacementRuntime.project(sceneService.getActiveScene(), battleMapState.tokens) }, sceneService.getActiveScene()),
+    );
+    encounterPlacementRuntime.remember(sceneService.getActiveScene());
+  } catch (error) {
+    database.close();
+    throw new Error(`Persistenza scene non pronta: ${error.message} Esegui npm run db:migrate.`);
+  }
   await portraitStorage.initialize();
+  await sceneBackgroundStorage.initialize();
   await registerCharacterSheetRoutes(app, { service: characterSheetService, portraitStorage, getUser: getSessionUser });
+  registerSceneRoutes(app, {
+    service: sceneService,
+    getUser: getSessionUser,
+    backgroundStorage: sceneBackgroundStorage,
+    onActiveSceneUpdated: refreshActiveSceneProjection,
+    prepareSceneActivation: prepareActiveSceneTransition,
+    onSceneActivated: installPreparedSceneTransition,
+    getRuntimeTokens: () => battleMapState.tokens,
+  });
   app.addHook('onClose', async () => {
     characterSheetService.flushAll();
     database.close();
   });
-  await loadPersistedSessionMetadata();
   await app.listen({ port: PORT, host: HOST });
   let isShuttingDown = false;
   const shutdown = async (signal) => {
@@ -2945,20 +3384,39 @@ export const __testing = {
     return sessionId;
   },
   setBattleMapState: (state) => {
-    battleMapState = normalizeSharedState(state);
+    inactiveSceneTokens.clear();
+    encounterPlacementRuntime.clear();
+    battleMapState = normalizeSharedState(
+      installActiveSceneProjection(state, sceneService?.getActiveScene?.() ?? null),
+    );
     battleMapVersion = 1;
+    encounterPlacementRuntime.remember(sceneService?.getActiveScene?.() ?? null);
   },
   getBattleMapState: () => battleMapState,
+  ensureCharacterTokenForUser,
   setCharacterSheetService: (service) => {
     characterSheetService = service;
   },
   // Un test costruisce un CharacterSheetService di scena e deve poterlo collegare al token come
   // fa `start()` in produzione, per esercitare la proiezione scheda -> token end-to-end.
   projectCharacterSheetToToken,
+  setSceneService: (service) => {
+    inactiveSceneTokens.clear();
+    encounterPlacementRuntime.clear();
+    sceneService = service;
+    battleMapState = normalizeSharedState(
+      installActiveSceneProjection(battleMapState, sceneService?.getActiveScene?.() ?? null),
+    );
+  },
+  refreshActiveSceneProjection,
+  validateScenePreparation,
+  setPartyTransferBeforePublish: (callback) => { partyTransferBeforePublish = callback; },
   sanitizeStateForUser,
   nextSnapshot,
   normalizeSharedState,
   getBattleMapVersion: () => battleMapVersion,
   applyRoundWrapState,
+  prepareActiveSceneTransition,
+  installPreparedSceneTransition,
   streamClients,
 };

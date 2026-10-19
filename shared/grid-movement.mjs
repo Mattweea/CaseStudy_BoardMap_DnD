@@ -6,6 +6,21 @@ function normalizeParity(diagonalParity) {
   return diagonalParity === 1 ? 1 : 0;
 }
 
+export const MAX_MOVEMENT_PATH_STEPS = 1000;
+
+export function pathStepCount(waypoints) {
+  if (!Array.isArray(waypoints) || waypoints.length < 2) return 0;
+  let steps = 0;
+  for (let index = 0; index < waypoints.length - 1; index += 1) {
+    steps += Math.max(
+      Math.abs(waypoints[index + 1].x - waypoints[index].x),
+      Math.abs(waypoints[index + 1].y - waypoints[index].y),
+    );
+    if (steps > MAX_MOVEMENT_PATH_STEPS) return steps;
+  }
+  return steps;
+}
+
 // Decompone un segmento in passi di una casella nelle otto direzioni adiacenti: prima i passi
 // diagonali necessari a coprire la differenza minore fra i due assi, poi i passi ortogonali
 // residui lungo l'asse più lungo. Restituisce le posizioni intermedie, dalla prima dopo `from`
@@ -48,7 +63,7 @@ export function decomposeSegment(from, to) {
 // `stepCostMultiplier` (predefinito 1, P0.8c) moltiplica il costo di ogni singolo passo dopo
 // l'alternanza diagonale, per il costo raddoppiato di chi si muove strisciando da prono. Il
 // parametro è opzionale e il default non cambia il risultato per nessun chiamante esistente.
-export function pathCost(waypoints, { rule = 'standard', diagonalParity = 0, stepCostMultiplier = 1 } = {}) {
+export function pathCost(waypoints, { rule = 'standard', diagonalParity = 0, stepCostMultiplier = 1, includeSteps = true } = {}) {
   let parity = normalizeParity(diagonalParity);
   const multiplier =
     typeof stepCostMultiplier === 'number' && Number.isFinite(stepCostMultiplier) && stepCostMultiplier > 0
@@ -56,7 +71,27 @@ export function pathCost(waypoints, { rule = 'standard', diagonalParity = 0, ste
       : 1;
 
   if (!Array.isArray(waypoints) || waypoints.length < 2) {
-    return { cells: 0, steps: [], nextDiagonalParity: parity };
+    return { cells: 0, steps: [], nextDiagonalParity: parity, exceedsLimit: false };
+  }
+  if (!includeSteps) {
+    let cells = 0;
+    for (let index = 0; index < waypoints.length - 1; index += 1) {
+      const dx = Math.abs(waypoints[index + 1].x - waypoints[index].x);
+      const dy = Math.abs(waypoints[index + 1].y - waypoints[index].y);
+      const diagonalCount = Math.min(dx, dy);
+      const orthogonalCount = Math.max(dx, dy) - diagonalCount;
+      if (rule === 'alternating') {
+        cells += diagonalCount + Math.floor((diagonalCount + parity) / 2);
+        parity = (parity + diagonalCount) % 2;
+      } else {
+        cells += diagonalCount;
+      }
+      cells += orthogonalCount;
+    }
+    return { cells: cells * multiplier, steps: [], nextDiagonalParity: parity, exceedsLimit: false };
+  }
+  if (pathStepCount(waypoints) > MAX_MOVEMENT_PATH_STEPS) {
+    return { cells: Number.POSITIVE_INFINITY, steps: [], nextDiagonalParity: parity, exceedsLimit: true };
   }
 
   let cells = 0;
@@ -78,7 +113,7 @@ export function pathCost(waypoints, { rule = 'standard', diagonalParity = 0, ste
     }
   }
 
-  return { cells, steps, nextDiagonalParity: parity };
+  return { cells, steps, nextDiagonalParity: parity, exceedsLimit: false };
 }
 
 export function isValidCellsValue(value) {

@@ -28,6 +28,8 @@ The frontend may include presentation-only notes, but identity and gameplay valu
 
 On successful adventurer login, the server finds a token by owner or character key. If none exists, it creates the canonical token at the first unoccupied position at or to the right of the configured spawn. If one exists, roster-owned fields are realigned while mutable game fields are preserved where applicable.
 
+Con runtime separati per scena, la ricerca del token canonico include anche le scene live inattive. Un login nella scena attiva non crea un secondo token se il personaggio è rimasto altrove; il trasferimento del party, deciso dal Master, conserva il suo ID e la ownership.
+
 Do not create duplicate canonical character tokens in a frontend-only flow.
 
 ## Persistent roster

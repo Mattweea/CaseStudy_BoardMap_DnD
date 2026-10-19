@@ -1,0 +1,162 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createDefaultSceneDocument } from '../shared/scene-model.mjs';
+import {
+  buildSceneStateView,
+  installActiveSceneProjection,
+  prepareSceneTransitionState,
+  prepareResumedSceneState,
+} from '../server/active-scene-projection.mjs';
+import { pathCost } from '../shared/grid-movement.mjs';
+
+function scene(id, name, version, boardOverrides = {}, marker = id) {
+  const document = createDefaultSceneDocument();
+  document.board = { ...document.board, ...boardOverrides };
+  document.elements = [{ id: `element-${marker}`, kind: 'rock', position: { x: 1, y: 1 }, widthCells: 1, heightCells: 1,
+    rotation: 0, blocksMovement: true, blocksVision: false }];
+  return { id, name, version, document };
+}
+
+test('active scene projection keeps live runtime and adapts board configuration to legacy fields', () => {
+  const active = scene('scene-a', 'Sala A', 4, {
+    diagonalRule: 'alternating',
+    measurementUnit: { label: 'ft', cellsValue: 5 },
+    isBackgroundHidden: true,
+    isFullyLit: true,
+    lightSources: [{ id: 'torch', position: { x: 3, y: 4 }, radiusCells: 6 }],
+  });
+  const tokens = [{ id: 'live-token', position: { x: 8, y: 9 } }];
+
+  const projected = installActiveSceneProjection({ tokens, sharedNotes: 'live' }, active);
+
+  assert.equal(projected.activeSceneId, 'scene-a');
+  assert.equal(projected.activeSceneVersion, 4);
+  assert.deepEqual(projected.activeSceneSummary, {
+    id: 'scene-a', name: 'Sala A', version: 4, isActive: true,
+  });
+  assert.equal(projected.diagonalRule, 'alternating');
+  assert.deepEqual(projected.measurementUnit, { label: 'ft', cellsValue: 5 });
+  assert.deepEqual(projected.boardDimensions, { columns: 30, rows: 30 });
+  assert.equal(projected.isBoardBackgroundHidden, true);
+  assert.equal(projected.isBoardFullyLit, true);
+  assert.equal(projected.lightSources[0].id, 'torch');
+  assert.equal(projected.tokens, tokens);
+  assert.equal(projected.sharedNotes, 'live');
+  assert.deepEqual(projected.activeSceneElements, active.document.elements);
+  assert.equal('elements' in projected, false);
+});
+
+test('legacy state without activeSceneId receives the persisted active identity and safe projection', () => {
+  const active = scene('initial-scene', 'Scena iniziale', 1);
+  const projected = installActiveSceneProjection({ tokens: [] }, active);
+
+  assert.equal(projected.activeSceneId, 'initial-scene');
+  assert.equal(projected.activeSceneVersion, 1);
+  assert.deepEqual(projected.measurementUnit, { label: 'm', cellsValue: 1.5 });
+  assert.deepEqual(projected.lightSources, []);
+});
+
+test('resume discards foreign-scene tokens and their combat references', () => {
+  const active = scene('scene-new', 'Nuova', 1);
+  const snapshot = { activeSceneId: 'scene-old', tokens: [{ id: 'old' }], sessionMode: 'combat',
+    isRoundStarted: true, initiatives: [{ tokenId: 'old', value: 12 }], activeTurnTokenId: 'old',
+    movementUsedByTokenId: { old: 2 }, diceLogs: [{ id: 'saved' }] };
+  const resumed = prepareResumedSceneState(snapshot, { diceLogs: [{ id: 'current' }], latestDicePreview: null }, active);
+  assert.equal(resumed.activeSceneId, active.id);
+  assert.deepEqual(resumed.tokens, []);
+  assert.deepEqual(resumed.initiatives, []);
+  assert.equal(resumed.activeTurnTokenId, null);
+  assert.equal(resumed.isRoundStarted, false);
+  assert.deepEqual(resumed.movementUsedByTokenId, {});
+  assert.deepEqual(resumed.diceLogs, [{ id: 'current' }]);
+});
+
+test('active image background exposes only its authenticated scene URL', () => {
+  const active = scene('scene-image', 'Con sfondo', 2);
+  active.document.background = {
+    kind: 'image', assetId: 'asset-1', mediaType: 'image/png', byteLength: 12,
+    etag: 'b'.repeat(64), updatedAt: '2026-09-28T10:00:00.000Z',
+    scale: 1.2, offsetX: -32, offsetY: 64,
+  };
+  const projected = installActiveSceneProjection({ tokens: [] }, active);
+  assert.equal(projected.activeSceneBackground.kind, 'image');
+  assert.equal(projected.activeSceneBackground.url, `/api/scenes/${active.id}/background?v=${'b'.repeat(64)}`);
+  assert.equal(projected.activeSceneBackground.scale, 1.2);
+  assert.equal(projected.activeSceneBackground.offsetX, -32);
+  assert.equal(projected.activeSceneBackground.offsetY, 64);
+  assert.equal('fileName' in projected.activeSceneBackground, false);
+});
+
+test('scene scale switches atomically and image calibration does not alter cell distance', () => {
+  const metric = scene('metric', 'Metrica', 1, { measurementUnit: { label: 'm', cellsValue: 1.5 }, dimensions: { columns: 30, rows: 30 } });
+  const imperial = scene('imperial', 'Imperiale', 1, { measurementUnit: { label: 'ft', cellsValue: 5 }, dimensions: { columns: 48, rows: 36 } });
+  imperial.document.background = {
+    kind: 'image', assetId: 'asset-grid', mediaType: 'image/png', byteLength: 12,
+    etag: 'c'.repeat(64), updatedAt: '2026-09-28T10:00:00.000Z', scale: 3, offsetX: 120, offsetY: -20,
+  };
+  const metricProjection = installActiveSceneProjection({}, metric);
+  const imperialProjection = installActiveSceneProjection({}, imperial);
+  assert.deepEqual(metricProjection.measurementUnit, { label: 'm', cellsValue: 1.5 });
+  assert.deepEqual(imperialProjection.measurementUnit, { label: 'ft', cellsValue: 5 });
+  assert.deepEqual(imperialProjection.boardDimensions, { columns: 48, rows: 36 });
+  assert.equal(pathCost([{ x: 0, y: 0 }, { x: 3, y: 3 }], { rule: imperialProjection.diagonalRule }).cells, 3);
+});
+
+test('Dungeon scene transition preserves compatible runtime while replacing the scene projection', () => {
+  const target = scene('dungeon-target', 'Cripta', 3, { dimensions: { columns: 42, rows: 24 } });
+  const state = { sessionMode: 'exploration', isRoundStarted: false, tokens: [{ id: 'party' }], sharedNotes: 'live' };
+  const transitioned = prepareSceneTransitionState(state, target);
+  assert.equal(transitioned.activeSceneId, target.id);
+  assert.deepEqual(transitioned.boardDimensions, { columns: 42, rows: 24 });
+  assert.equal(transitioned.tokens, state.tokens);
+  assert.equal(transitioned.sharedNotes, 'live');
+});
+
+test('roll-phase scene transition clears combat references and movement accounting', () => {
+  const target = scene('combat-target', 'Arena nuova', 2);
+  const transitioned = prepareSceneTransitionState({
+    sessionMode: 'combat', isRoundStarted: false,
+    initiatives: [{ tokenId: 'old', value: 12 }], activeTurnTokenId: 'old', roundNumber: 4,
+    movementUsedByTokenId: { old: 3 }, diagonalParityByTokenId: { old: 1 },
+    dashUsedByTokenId: { old: true }, extraMovementByTokenId: { old: 2 },
+  }, target);
+  assert.equal(transitioned.sessionMode, 'combat');
+  assert.equal(transitioned.isRoundStarted, false);
+  assert.deepEqual(transitioned.initiatives, []);
+  assert.equal(transitioned.activeTurnTokenId, null);
+  assert.equal(transitioned.roundNumber, 1);
+  assert.deepEqual(transitioned.movementUsedByTokenId, {});
+  assert.deepEqual(transitioned.diagonalParityByTokenId, {});
+  assert.deepEqual(transitioned.dashUsedByTokenId, {});
+  assert.deepEqual(transitioned.extraMovementByTokenId, {});
+});
+
+test('role views expose only summaries to the Master and only active identity to a Player', () => {
+  const active = scene('scene-a', 'Sala A', 2, {}, 'active-asset');
+  active.document.board.isFullyLit = true;
+  const inactive = scene('scene-b', 'Sala B', 7, {}, 'INACTIVE-ASSET-MARKER');
+  active.document.drawings = [{ id: 'visible-stroke', color: '#ffffff', widthCells: 0.12, points: [{ x: 1, y: 2 }] }];
+  inactive.document.drawings = [{ id: 'secret-stroke', color: '#ffffff', widthCells: 0.12, points: [{ x: 3, y: 4 }] }];
+  const service = {
+    getActiveScene: () => structuredClone(active),
+    getCatalog: () => structuredClone([active, inactive]),
+  };
+  const state = installActiveSceneProjection({ tokens: [] }, active);
+
+  const master = buildSceneStateView(state, { role: 'master' }, service);
+  const player = buildSceneStateView(state, { role: 'adventurer' }, service);
+  assert.equal(master.isBoardFullyLit, true);
+  assert.equal(player.isBoardFullyLit, true);
+
+  assert.deepEqual(master.sceneCatalog, [
+    { id: 'scene-a', name: 'Sala A', version: 2, isActive: true },
+    { id: 'scene-b', name: 'Sala B', version: 7, isActive: false },
+  ]);
+  assert.equal('sceneCatalog' in player, false);
+  assert.equal(player.activeSceneId, 'scene-a');
+  assert.deepEqual(player.activeSceneDrawings, active.document.drawings);
+  assert.deepEqual(player.activeSceneElements, active.document.elements);
+  assert.equal(JSON.stringify(master).includes('INACTIVE-ASSET-MARKER'), false);
+  assert.equal(JSON.stringify(player).includes('Sala B'), false);
+  assert.equal(JSON.stringify(player).includes('secret-stroke'), false);
+});

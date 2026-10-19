@@ -78,7 +78,7 @@ export function InitiativeRollModal({
   return (
     <Modal title="Gestisci l'iniziativa" isOpen={isOpen} onClose={onClose}>
       {!isCombat ? (
-        <p className="empty-state">Esplorazione: avvia il combattimento per tirare o inserire l'iniziativa.</p>
+        <p className="empty-state">Dungeon: passa a Combattimento per tirare o inserire l'iniziativa.</p>
       ) : null}
       {feedback ? <p className="initiative-roster__feedback" role="alert">{feedback}</p> : null}
       <div className="initiative-roster">

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BlockIcon, BookIcon, CircleTemplateIcon, CloseIcon, CollapseIcon, ConeTemplateIcon, ExpandIcon, LineTemplateIcon, MapIcon,
-  PingIcon, RulerIcon, SearchIcon, SparkIcon,
+  MoonIcon, PingIcon, RulerIcon, SearchIcon, SparkIcon, SunIcon,
 } from './UiIcons';
 import type { CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
@@ -9,12 +9,16 @@ import { BOARD_CONFIG } from '../constants/board';
 import type {
   DiagonalParity,
   DiagonalRule,
+  BoardDimensions,
   EphemeralPing,
   EphemeralTemplate,
   GridPosition,
   LightSource,
   MeasurementUnit,
   MovementNotice,
+  SceneBackground,
+  SceneDrawing,
+  SceneElement,
   TemplateShape,
   TokenCondition,
   TokenMovementBudget,
@@ -25,7 +29,6 @@ import {
   applyZoomDelta,
   boardPixelSize,
   classifyWheelBurst,
-  clampCamera,
   clampZoom,
   getTokenFootprint,
   gridRowToLabel,
@@ -36,12 +39,16 @@ import {
   type WheelBurstState,
 } from '../utils/board';
 import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
-import { cellsToUnit, pathCost } from '../../shared/grid-movement';
+import { cellsToUnit, pathCost, pathStepCount, MAX_MOVEMENT_PATH_STEPS } from '../../shared/grid-movement';
 import { effectiveSpeed } from '../../shared/token-conditions.mjs';
 import { auraRect } from '../../shared/token-auras.mjs';
 import { conditionLabel } from '../utils/tokens';
+import { cameraFollowingPosition, clampCamera as clampSceneCamera, walkingTokenPosition } from '../utils/boardCamera';
+import { collectMovementBlockers, footprintsOverlap, type SceneBlocker } from '../../shared/scene-blockers';
+import { sceneBackgroundViewportTransform } from '../../shared/scene-background-calibration';
 import { Token } from './Token';
 import { TokenRadialMenu } from './TokenRadialMenu';
+import { SceneElementArt } from './SceneElementArt';
 
 function formatNumber(value: number): string {
   return value % 1 === 0 ? String(value) : value.toFixed(1);
@@ -67,22 +74,31 @@ function formatRulerMeasurement(cells: number, unit: MeasurementUnit): string {
 }
 
 interface BoardProps {
+  sceneId: string | null;
   tokens: UnitToken[];
   portraitUrlsByOwnerId?: Record<string, string>;
   zoom: number;
   selectedTokenIds: string[];
   editableTokenIds?: string[];
   focusRequest: { tokenId: string; nonce: number } | null;
+  followTokenId?: string | null;
   isFullscreen?: boolean;
   isBackgroundHidden?: boolean;
+  isBoardFullyLit?: boolean;
+  onToggleBoardLight?: () => void;
+  isBoardLightPending?: boolean;
+  background?: SceneBackground;
+  drawings?: SceneDrawing[];
+  elements?: SceneElement[];
+  dimensions?: BoardDimensions;
   vision?: {
     enabled: boolean;
     radiusCells: number;
     sourceToken: UnitToken;
-    blockers: UnitToken[];
+    blockers: SceneBlocker[];
   } | null;
   lightSources?: LightSource[];
-  visionBlockers?: UnitToken[];
+  visionBlockers?: SceneBlocker[];
   canManageTokens?: boolean;
   movableTokenIds?: string[];
   lightPlacement?: {
@@ -380,26 +396,8 @@ type InteractionState =
 
 // Stesso footprint AABB usato da findBlockedMovement lato server, riprodotto qui solo per
 // l'avviso ottimistico durante il trascinamento: il server resta l'unica autorità sull'esito.
-function isMovementBlockingToken(token: UnitToken): boolean {
-  return token.blocksMovement === true;
-}
-
-function footprintsOverlap(
-  position: GridPosition,
-  footprint: { width: number; height: number },
-  other: UnitToken,
-): boolean {
-  const otherFootprint = getTokenFootprint(other);
-  return !(
-    position.x + footprint.width - 1 < other.position.x ||
-    other.position.x + otherFootprint.width - 1 < position.x ||
-    position.y + footprint.height - 1 < other.position.y ||
-    other.position.y + otherFootprint.height - 1 < position.y
-  );
-}
-
 function isSegmentBlocked(
-  allTokens: UnitToken[],
+  blockers: SceneBlocker[],
   movingTokenId: string,
   footprint: { width: number; height: number },
   from: GridPosition,
@@ -415,12 +413,9 @@ function isSegmentBlocked(
     if (x !== to.x) x += stepX;
     if (y !== to.y) y += stepY;
 
-    const blocked = allTokens.some(
-      (candidate) =>
-        candidate.id !== movingTokenId &&
-        isMovementBlockingToken(candidate) &&
-        footprintsOverlap({ x, y }, footprint, candidate),
-    );
+    const blocked = blockers.some((candidate) =>
+      !(candidate.source === 'token' && candidate.id === movingTokenId)
+      && footprintsOverlap({ x, y }, footprint, candidate));
     if (blocked) {
       return true;
     }
@@ -451,13 +446,13 @@ function segmentCosts(
 }
 
 function isPathBlocked(
-  allTokens: UnitToken[],
+  blockers: SceneBlocker[],
   movingTokenId: string,
   footprint: { width: number; height: number },
   waypoints: GridPosition[],
 ): boolean {
   for (let index = 0; index < waypoints.length - 1; index += 1) {
-    if (isSegmentBlocked(allTokens, movingTokenId, footprint, waypoints[index], waypoints[index + 1])) {
+    if (isSegmentBlocked(blockers, movingTokenId, footprint, waypoints[index], waypoints[index + 1])) {
       return true;
     }
   }
@@ -466,14 +461,23 @@ function isPathBlocked(
 }
 
 export function Board({
+  sceneId,
   tokens,
   portraitUrlsByOwnerId = {},
-  zoom,
+  zoom: requestedZoom,
   selectedTokenIds,
   editableTokenIds = [],
   focusRequest,
+  followTokenId = null,
   isFullscreen = false,
   isBackgroundHidden = false,
+  isBoardFullyLit = false,
+  onToggleBoardLight,
+  isBoardLightPending = false,
+  background = { kind: 'blank' },
+  drawings = [],
+  elements = [],
+  dimensions = { columns: 30, rows: 30 },
   vision = null,
   lightSources = [],
   visionBlockers = [],
@@ -629,14 +633,30 @@ export function Board({
   useEffect(() => {
     cameraRef.current = camera;
   }, [camera]);
-  const zoomRef = useRef(zoom);
-  useEffect(() => {
-    zoomRef.current = zoom;
-  }, [zoom]);
+  const zoomRef = useRef(requestedZoom);
   const [viewportCells, setViewportCells] = useState<{ columns: number; rows: number }>({
     columns: BOARD_CONFIG.minVisibleColumns,
     rows: BOARD_CONFIG.minVisibleRows,
   });
+  const [viewportPixels, setViewportPixels] = useState({ width: 0, height: 0 });
+  const fullBoardPixelSize = boardPixelSize(dimensions.columns, dimensions.rows);
+  const isUnlimitedBoard = dimensions.columns === 0 && dimensions.rows === 0;
+  const minimumViewportZoom = isUnlimitedBoard
+    ? BOARD_CONFIG.minZoom
+    : viewportPixels.width > 0
+    ? clampZoom(viewportPixels.width / fullBoardPixelSize.width)
+    : BOARD_CONFIG.minZoom;
+  // La larghezza limita lo zoom out; l'altezza resta esplorabile con il pan.
+  // Applica il limite anche a preferenze salvate e cambi di viewport/scena.
+  const zoom = clampZoom(requestedZoom, minimumViewportZoom);
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+  const visibleViewport = useMemo(() => ({
+    columns: Math.max(0, viewportPixels.width) / (BOARD_CONFIG.cellSize * zoom),
+    rows: Math.max(0, viewportPixels.height) / (BOARD_CONFIG.cellSize * zoom),
+  }), [viewportPixels.width, viewportPixels.height, zoom]);
+  const consumedFocusRef = useRef(focusRequest);
   const movableTokenIdSet = useMemo(() => new Set(movableTokenIds), [movableTokenIds]);
   const editableTokenIdSet = useMemo(() => new Set(editableTokenIds), [editableTokenIds]);
   const obstacleClusters = useMemo(() => buildObstacleClusters(tokens), [tokens]);
@@ -742,15 +762,26 @@ export function Board({
       const height = entry.contentRect.height - BOARD_GUTTER;
       const screenCell = BOARD_CONFIG.cellSize * zoom;
 
+      setViewportPixels({ width, height });
       setViewportCells({
-        columns: Math.max(BOARD_CONFIG.minVisibleColumns, Math.ceil(width / screenCell) + 2),
-        rows: Math.max(BOARD_CONFIG.minVisibleRows, Math.ceil(height / screenCell) + 2),
+        columns: dimensions.columns === 0 ? Math.max(1, Math.ceil(width / screenCell) + 2)
+          : Math.min(dimensions.columns, Math.max(1, Math.ceil(width / screenCell) + 2)),
+        rows: dimensions.rows === 0 ? Math.max(1, Math.ceil(height / screenCell) + 2)
+          : Math.min(dimensions.rows, Math.max(1, Math.ceil(height / screenCell) + 2)),
       });
     });
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [zoom]);
+  }, [dimensions.columns, dimensions.rows, zoom]);
+
+  useEffect(() => {
+    if (visibleViewport.columns <= 0 || visibleViewport.rows <= 0) return;
+    setCamera((current) => {
+      const next = clampSceneCamera(current, dimensions, visibleViewport);
+      return next.x === current.x && next.y === current.y ? current : next;
+    });
+  }, [dimensions, visibleViewport]);
 
   // La sorgente (rotella o trackpad) si riconosce dalla forma del delta, indipendentemente da
   // `ctrlKey` — il pinch del trackpad arriva anch'esso come `wheel` con `ctrlKey: true`, ma ha
@@ -786,8 +817,12 @@ export function Board({
       }
 
       if (accum.action === 'zoom') {
-        const nextZoom = applyZoomDelta(zoomRef.current, accum.deltaY, accum.factor);
-        const nextCamera = zoomAtPoint(cameraRef.current, zoomRef.current, nextZoom, accum.pointer);
+        const nextZoom = clampZoom(applyZoomDelta(zoomRef.current, accum.deltaY, accum.factor), minimumViewportZoom);
+        const nextCamera = clampSceneCamera(
+          zoomAtPoint(cameraRef.current, zoomRef.current, nextZoom, accum.pointer),
+          dimensions,
+          { columns: viewportPixels.width / (BOARD_CONFIG.cellSize * nextZoom), rows: viewportPixels.height / (BOARD_CONFIG.cellSize * nextZoom) },
+        );
         onZoomChange(nextZoom);
         setCamera(nextCamera);
         return;
@@ -797,10 +832,10 @@ export function Board({
       const deltaX = accum.action === 'pan-y' ? 0 : accum.deltaX;
       const deltaY = accum.action === 'pan-x' ? 0 : accum.deltaY;
       setCamera(
-        clampCamera({
+        clampSceneCamera({
           x: cameraRef.current.x + deltaX / screenCell,
           y: cameraRef.current.y + deltaY / screenCell,
-        }),
+        }, dimensions, visibleViewport),
       );
     };
 
@@ -859,12 +894,24 @@ export function Board({
       }
       wheelAccumRef.current = null;
     };
-  }, [onZoomChange]);
+  }, [dimensions, minimumViewportZoom, onZoomChange, viewportPixels, visibleViewport]);
 
-  const { width, height } = boardPixelSize(viewportCells.columns, viewportCells.rows);
+  const renderedColumns = isUnlimitedBoard ? viewportCells.columns : Math.max(0, Math.min(viewportCells.columns, dimensions.columns - camera.x));
+  const renderedRows = isUnlimitedBoard ? viewportCells.rows : Math.max(0, Math.min(viewportCells.rows, dimensions.rows - camera.y));
+  const viewportPixelSize = boardPixelSize(renderedColumns, renderedRows);
+  // Ogni layer della viewport usa coordinate gia moltiplicate per lo zoom. Anche lo stage deve
+  // quindi crescere allo stesso modo: una superficie non scalata taglierebbe sfondo, griglia e
+  // SVG sul bordo destro/inferiore quando zoom > 1.
+  const width = viewportPixelSize.width * zoom;
+  const height = viewportPixelSize.height * zoom;
+  const backgroundTransform = background.kind === 'image'
+    ? sceneBackgroundViewportTransform(background, camera, zoom, BOARD_CONFIG.cellSize)
+    : null;
 
   useEffect(() => {
-    if (!focusRequest) {
+    if (!focusRequest || visibleViewport.columns <= 0 || visibleViewport.rows <= 0
+      || (consumedFocusRef.current?.nonce === focusRequest.nonce
+        && consumedFocusRef.current?.tokenId === focusRequest.tokenId)) {
       return;
     }
 
@@ -874,13 +921,14 @@ export function Board({
     }
 
     const footprint = getTokenFootprint(token);
+    consumedFocusRef.current = focusRequest;
     setCamera(
-      clampCamera({
-        x: token.position.x - Math.floor((viewportCells.columns - footprint.width) / 2),
-        y: token.position.y - Math.floor((viewportCells.rows - footprint.height) / 2),
-      }),
+      clampSceneCamera({
+        x: token.position.x - Math.floor((visibleViewport.columns - footprint.width) / 2),
+        y: token.position.y - Math.floor((visibleViewport.rows - footprint.height) / 2),
+      }, dimensions, visibleViewport),
     );
-  }, [focusRequest, tokens, viewportCells.columns, viewportCells.rows]);
+  }, [dimensions, focusRequest, tokens, visibleViewport]);
 
   const planInteraction = interaction?.mode === 'plan' ? interaction : null;
   const isMapInteractionActive = planInteraction !== null || isRulerActive || activeTemplateShape !== null;
@@ -962,7 +1010,7 @@ export function Board({
     if (!rulerPath) {
       return null;
     }
-    return pathCost(rulerPath, { rule: diagonalRule, diagonalParity: 0 });
+    return pathCost(rulerPath, { rule: diagonalRule, diagonalParity: 0, includeSteps: false });
   }, [rulerPath, diagonalRule]);
 
   const planTargetToken = planInteraction ? tokens.find((token) => token.id === planInteraction.tokenId) ?? null : null;
@@ -991,17 +1039,20 @@ export function Board({
       stepCostMultiplier: planStepCostMultiplier,
     });
   }, [planPath, diagonalRule, planBudget, planStepCostMultiplier]);
+  const planExceedsStepLimit = planPath ? pathStepCount(planPath) > MAX_MOVEMENT_PATH_STEPS : false;
   const planConditionText = planIsCrawling
     ? 'Stai strisciando: il percorso costa il doppio.'
     : planEffectiveSpeed?.reason
       ? `Velocità ridotta: ${planEffectiveSpeed.reason === 'exhaustion' ? 'Indebolimento' : conditionLabel(planEffectiveSpeed.reason as Parameters<typeof conditionLabel>[0])}.`
       : null;
   const planIsBlocked = useMemo(() => {
-    if (!planPath || !planTargetToken) {
+    if (!planPath || !planTargetToken || canManageTokens || planTargetToken.type === 'vehicle'
+      || (planPathCost?.exceedsLimit ?? false)) {
       return false;
     }
-    return isPathBlocked(tokens, planTargetToken.id, getTokenFootprint(planTargetToken), planPath);
-  }, [planPath, planTargetToken, tokens]);
+    const blockers = collectMovementBlockers(tokens, elements, getTokenFootprint);
+    return isPathBlocked(blockers, planTargetToken.id, getTokenFootprint(planTargetToken), planPath);
+  }, [planPath, planPathCost?.exceedsLimit, planTargetToken, tokens, elements, canManageTokens]);
   const planExceedsBudget =
     planBudget?.totalCells != null && planPathCost ? planBudget.usedCells + planPathCost.cells > planBudget.totalCells : false;
 
@@ -1013,7 +1064,9 @@ export function Board({
     : null;
   const planWarningText = !planInteraction
     ? null
-    : planIsBlocked
+    : planExceedsStepLimit
+      ? `Percorso troppo lungo: il limite è ${MAX_MOVEMENT_PATH_STEPS} caselle.`
+      : planIsBlocked
       ? 'Percorso bloccato: un segmento attraversa un ostacolo.'
       : planExceedsBudget
         ? 'Fuori budget: il percorso supera il movimento rimasto in questo turno.'
@@ -1022,12 +1075,10 @@ export function Board({
           : null;
   const planMeasureText =
     planPathCost && planPath && planPath.length > 1
-      ? // La distanza percorsa e' il numero di caselle attraversate (`steps.length`), non il costo
-        // (`cells`): quando si striscia il costo raddoppia ma la distanza fisica resta la stessa,
-        // altrimenti l'etichetta mostrerebbe il doppio dei metri realmente percorsi. Lo stesso vale
-        // per il residuo: il budget che avanza è in unità di costo, quindi va diviso per il
-        // moltiplicatore per dire quante caselle fisiche restano davvero percorribili.
-        `Percorso ${formatRulerMeasurement(planPathCost.steps.length, measurementUnit)}${
+      ? planPathCost.exceedsLimit
+        ? `Percorso oltre il limite di ${MAX_MOVEMENT_PATH_STEPS} caselle`
+        : // La distanza fisica è il numero di passi; il costo può raddoppiare strisciando.
+          `Percorso ${formatRulerMeasurement(planPathCost.steps.length, measurementUnit)}${
           planBudget?.totalCells != null
             ? `, residuo ${formatRulerMeasurement(
                 Math.floor(
@@ -1040,7 +1091,7 @@ export function Board({
         }`
       : null;
   const toolHintText = isRulerActive
-    ? 'Righello: ogni click aggiunge un waypoint, Esc chiude la misura.'
+      ? 'Righello: ogni click aggiunge un waypoint, Esc chiude la misura.'
     : isPingToolActive
       ? 'Ping: un click segnala il punto a tutti i partecipanti.'
       : activeTemplateShape
@@ -1068,6 +1119,25 @@ export function Board({
   // pianificazione: per questo vive separato da planPath, con la stessa durata dell'animazione.
   const [walkTrackPaths, setWalkTrackPaths] = useState<Record<string, GridPosition[]>>({});
   const processedTokenWalkEventIdsRef = useRef<Set<string>>(new Set());
+  const followContextRef = useRef({ followTokenId, tokens, dimensions, visibleViewport });
+  useEffect(() => {
+    followContextRef.current = { followTokenId, tokens, dimensions, visibleViewport };
+  }, [followTokenId, tokens, dimensions, visibleViewport]);
+
+  useEffect(() => {
+    setCamera(INITIAL_CAMERA);
+    setInteraction(null);
+    setActiveTool(null);
+    setRulerWaypoints([]);
+    setRulerHoverCell(null);
+    setLightPreviewCell(null);
+    walkAnimationsRef.current = {};
+    // Gli eventi già presenti al mount (anche aprendo fullscreen) non sono nuove camminate.
+    processedTokenWalkEventIdsRef.current = new Set(tokenWalkEvents.map((event) => event.id));
+    consumedFocusRef.current = focusRequest;
+    setWalkAnimatedPositions({});
+    setWalkTrackPaths({});
+  }, [sceneId]);
 
   // Rettangoli secondo la griglia del PHB (design, decisione 6): l'ingombro del token allargato
   // del raggio su ogni lato, sempre, anche con la variante 5-10-5 per il movimento. Durante il
@@ -1143,6 +1213,7 @@ export function Board({
       if (tokenIds.length > 0) {
         const now = performance.now();
         const nextPositions: Record<string, GridPosition> = {};
+        const framePositions: Record<string, GridPosition> = {};
         const stillRunning: typeof animations = {};
         const finishedTokenIds: string[] = [];
 
@@ -1155,18 +1226,27 @@ export function Board({
           const localT = segments === 0 ? 1 : scaled - index;
           const from = animation.points[index];
           const to = animation.points[index + 1] ?? from;
+          framePositions[tokenId] = {
+            x: from.x + (to.x - from.x) * localT,
+            y: from.y + (to.y - from.y) * localT,
+          };
           // Un'animazione conclusa esce anche dalle posizioni mostrate: il token torna a seguire la
           // posizione dello stato condiviso. Lasciarla lì bloccava il token sull'ultimo arrivo,
           // ignorando ogni aggiornamento successivo senza animazione (undo, rifiuto, mosse di gruppo).
           if (t < 1) {
-            nextPositions[tokenId] = {
-              x: from.x + (to.x - from.x) * localT,
-              y: from.y + (to.y - from.y) * localT,
-            };
+            nextPositions[tokenId] = framePositions[tokenId];
             stillRunning[tokenId] = animation;
           } else {
             finishedTokenIds.push(tokenId);
           }
+        }
+
+        const context = followContextRef.current;
+        const followed = context.tokens.find((token) => token.id === context.followTokenId);
+        const followedPosition = followed && walkingTokenPosition(followed, context.tokens, framePositions);
+        if (followed && followedPosition) {
+          setCamera((current) => cameraFollowingPosition(current, followedPosition,
+            getTokenFootprint(followed), context.visibleViewport, context.dimensions));
         }
 
         walkAnimationsRef.current = stillRunning;
@@ -1193,13 +1273,13 @@ export function Board({
   // errore invece di un rifiuto.
   useEffect(() => {
     for (const event of tokenWalkEvents) {
-      if (processedTokenWalkEventIdsRef.current.has(event.id)) {
+      if (event.sceneId !== sceneId || processedTokenWalkEventIdsRef.current.has(event.id)) {
         continue;
       }
       processedTokenWalkEventIdsRef.current.add(event.id);
       startWalkAnimation(event.tokenId, walkPathPoints(event.waypoints), WALK_PACE, event.showTrack);
     }
-  }, [tokenWalkEvents]);
+  }, [sceneId, tokenWalkEvents]);
 
   const confirmPlan = (plan: PlanInteraction) => {
     // La destinazione e' la casella sotto il puntatore, non un waypoint da cliccare.
@@ -1398,10 +1478,10 @@ export function Board({
         const cellsY = deltaY / (BOARD_CONFIG.cellSize * zoom);
 
         setCamera(
-          clampCamera({
+          clampSceneCamera({
             x: interaction.startCamera.x - cellsX,
             y: interaction.startCamera.y - cellsY,
-          }),
+          }, dimensions, visibleViewport),
         );
         return;
       }
@@ -1580,7 +1660,7 @@ export function Board({
       window.removeEventListener('pointercancel', completeInteraction);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [camera, interaction, obstaclePlacement, onDrawTemplate, onMoveTokens, onSelectionChange, selectedTokenIds, tokens, zoom]);
+  }, [camera, dimensions, interaction, obstaclePlacement, onDrawTemplate, onMoveTokens, onSelectionChange, selectedTokenIds, tokens, visibleViewport, zoom]);
 
   // Righello, ping e sagome sono indipendenti dai permessi sui token: quando uno di questi
   // strumenti è attivo intercetta il click prima della selezione o del trascinamento normale,
@@ -2056,10 +2136,14 @@ export function Board({
   // Pulsanti +/-: stesso passo moltiplicativo dei gesti (D3), ancorato al centro della visuale
   // invece che al puntatore, perché il click non ne ha uno (D4).
   const handleZoomButtonClick = (factor: number) => {
-    const nextZoom = clampZoom(zoom * factor);
+    const nextZoom = clampZoom(zoom * factor, minimumViewportZoom);
     const stageRect = stageRef.current?.getBoundingClientRect();
     const pointer = stageRect ? { x: stageRect.width / 2, y: stageRect.height / 2 } : { x: 0, y: 0 };
-    const nextCamera = zoomAtPoint(camera, zoom, nextZoom, pointer);
+    const nextCamera = clampSceneCamera(
+      zoomAtPoint(camera, zoom, nextZoom, pointer),
+      dimensions,
+      { columns: viewportPixels.width / (BOARD_CONFIG.cellSize * nextZoom), rows: viewportPixels.height / (BOARD_CONFIG.cellSize * nextZoom) },
+    );
     onZoomChange(nextZoom);
     setCamera(nextCamera);
   };
@@ -2123,7 +2207,9 @@ export function Board({
 
       <div
         ref={shellRef}
-        className={`board-shell ${isBackgroundHidden ? 'board-shell--hidden-map' : ''}`}
+        data-camera-x={camera.x}
+        data-camera-y={camera.y}
+        className={`board-shell ${isBackgroundHidden ? 'board-shell--hidden-map' : background.kind === 'image' ? 'board-shell--image-map' : 'board-shell--blank-map'}`}
         onContextMenuCapture={(event) => {
           // Il pointerdown ha già chiuso il piano quando arriva `contextmenu`; il ref conserva
           // l'origine del gesto fino al pointerdown seguente. La cattura precede anche i menu
@@ -2135,6 +2221,19 @@ export function Board({
         }}
       >
         <div className="board-zoom-controls">
+          {onToggleBoardLight ? (
+            <button
+              type="button"
+              className="board-zoom-button board-light-button"
+              onClick={onToggleBoardLight}
+              disabled={isBoardLightPending}
+              aria-pressed={isBoardFullyLit}
+              aria-label={isBoardFullyLit ? 'Mostra buio nella scena attiva' : 'Mostra luce nella scena attiva'}
+              title={isBoardFullyLit ? 'Scena attiva illuminata: mostra buio ai Player' : 'Scena attiva buia: mostra luce ai Player'}
+            >
+              {isBoardFullyLit ? <SunIcon /> : <MoonIcon />}
+            </button>
+          ) : null}
           <button
             type="button"
             className="board-zoom-button"
@@ -2297,6 +2396,44 @@ export function Board({
             onPointerMove={handleBoardPointerMove}
             onPointerLeave={() => setLightPreviewCell(null)}
           >
+            {!isBackgroundHidden && background.kind === 'image' && background.url && backgroundTransform ? (
+              <img
+                className="board-scene-background"
+                src={background.url}
+                alt=""
+                aria-hidden="true"
+                draggable={false}
+                style={{
+                  transform: `translate3d(${backgroundTransform.translateX}px, ${backgroundTransform.translateY}px, 0) scale(${backgroundTransform.scale})`,
+                }}
+              />
+            ) : null}
+            <div
+              className="board-grid"
+              aria-hidden="true"
+              style={{ backgroundSize: `${BOARD_CONFIG.cellSize * zoom}px ${BOARD_CONFIG.cellSize * zoom}px` }}
+            />
+            <svg className="board-drawing-layer" width={width} height={height} aria-hidden="true">
+              {drawings.map((drawing) => (
+                <path key={drawing.id}
+                  d={drawing.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${(point.x - camera.x) * BOARD_CONFIG.cellSize * zoom} ${(point.y - camera.y) * BOARD_CONFIG.cellSize * zoom}`).join(' ') + (drawing.points.length === 1 ? ` l 0.001 0` : '')}
+                  fill="none" stroke={drawing.color} strokeWidth={drawing.widthCells * BOARD_CONFIG.cellSize * zoom}
+                  strokeLinecap="round" strokeLinejoin="round" />
+              ))}
+            </svg>
+            <div className="board-scene-elements" aria-hidden="true">
+              {elements.map((element) => (
+                <div key={element.id} className="board-scene-element" style={{
+                  left: (element.position.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
+                  top: (element.position.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
+                  width: element.widthCells * BOARD_CONFIG.cellSize * zoom,
+                  height: element.heightCells * BOARD_CONFIG.cellSize * zoom,
+                  transform: `rotate(${element.rotation}deg)`,
+                }}>
+                  <SceneElementArt kind={element.kind} />
+                </div>
+              ))}
+            </div>
             {planInteraction && planEndCell ? (
               <div
                 className={`board-highlight ${
@@ -2455,7 +2592,7 @@ export function Board({
             ) : null}
 
             {orderedTokens.map((token) => {
-              const walkingPosition = walkAnimatedPositions[token.id];
+              const walkingPosition = walkingTokenPosition(token, tokens, walkAnimatedPositions);
               const isWalking = walkingPosition !== undefined;
               const worldPosition = isWalking ? walkingPosition : token.position;
               const footprint = getTokenFootprint(token);
@@ -2808,7 +2945,7 @@ export function Board({
                     x: (template.origin.x - camera.x + 0.5) * BOARD_CONFIG.cellSize * zoom,
                     y: (template.origin.y - camera.y + 0.5) * BOARD_CONFIG.cellSize * zoom,
                   };
-                  const sizeCells = pathCost([template.origin, template.target], { rule: diagonalRule }).cells;
+                  const sizeCells = pathCost([template.origin, template.target], { rule: diagonalRule, includeSteps: false }).cells;
                   const sizePx = Math.max(1, sizeCells) * BOARD_CONFIG.cellSize * zoom;
                   const angle = Math.atan2(template.target.y - template.origin.y, template.target.x - template.origin.x);
                   const labelPoint = {

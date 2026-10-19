@@ -19,6 +19,14 @@ Every token has a stable ID, name, grid position, color, initiative modifier, an
 - Adding `unconscious` to a creature also adds `prone` in the same operation if it is not already present, per the PHB. Removing `unconscious` does not remove `prone`.
 - `invisible` is a condition, not a visibility mechanism: an invisible token stays in every recipient's sanitized snapshot and is rendered semi-transparent, badge included. It is independent of `isInvisible`, the master's hide flag, which keeps its own separate meaning and sanitization rule below.
 
+Le definizioni monster/npc associate agli encounter sono configurazione, non una nuova categoria runtime. Un adapter puro produce un `UnitToken` di tipo `enemy` con ID dell'istanza/placement, geometria e proprietà canoniche; non assegna `ownerUserId` né `characterKey` e non crea schede PC. Creare una definizione non colloca token: serve un placement esplicito, che viene materializzato quando la scena è attiva.
+
+Le definizioni conservano manualmente solo nome, kind e le proprietà opzionali già lette dall'adapter: taglia, ingombro, colore, modificatore iniziativa, movimento, HP, invisibilità ed esclusione dall'iniziativa. Il placement fornisce posizione e ID dell'istanza; l'adapter deriva tipo `enemy`, affiliazione e default. Non esiste ancora una sorgente canonica monster/npc da collegare né una collocazione implicita.
+
+I placement monster/npc hanno posizione intera non negativa, ingombro opzionale di 1–40 celle per asse e `isHidden` booleano. L'ingombro omesso o nullo eredita quello della figura; `isHidden` governa l'invisibilità dell'istanza e inizialmente eredita il valore della figura quando non specificato. L'intero footprint deve rientrare nella scena finita o nei limiti di coordinate della scena illimitata. I link placement/encounter/figura e l'ID token restano stabili; la rimozione esplicita della collocazione non elimina la definizione. Hidden applica i filtri token correnti e non garantisce la segretezza completa del payload oltre il fog (P0.10).
+
+Gli HP della figura e la posizione del placement sono valori iniziali persistiti. Muovere o danneggiare l'istanza e applicare condizioni durante il gioco cambia soltanto il runtime; non aggiorna quei valori iniziali. Dopo un riavvio senza resume, i placement sono ricostruiti dalla preparazione, senza condizioni o contabilità del turno precedente. Il recupero automatico dell'ultimo stato della partita appartiene a P0.11.
+
 ## Visibility and ownership
 
 - `isInvisible` means hidden from non-owner adventurer snapshots, not merely transparent CSS. It is unrelated to the `invisible` condition described above.
@@ -30,6 +38,8 @@ Every token has a stable ID, name, grid position, color, initiative modifier, an
 ## Obstacles and groups
 
 Objects can block movement through `blocksMovement`. Connected obstacle pieces share `groupId`; group-aware movement and vision must preserve the collection's spatial relationship and avoid treating a target group as its own occluder.
+
+Gli elementi scenici restano distinti dai token e configurano `blocksMovement` e `blocksVision` separatamente. Il loro ingombro rettangolare in caselle si aggiunge agli ostacoli esistenti nei rispettivi sistemi; la rotazione è soltanto presentazionale. I documenti precedenti, privi dei flag, restano non bloccanti. La visuale P0.9c.4 è calcolata nel client e non fornisce la segretezza dei payload prevista per P0.10.
 
 Obstacle drawing or grouped movement must produce valid integer positions and stable group membership.
 

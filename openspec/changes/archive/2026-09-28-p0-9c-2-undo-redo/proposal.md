@@ -1,0 +1,22 @@
+# Proposal
+
+## Why
+
+Il Master deve correggere le operazioni di disegno senza ampliare la history globale o renderla parte dello stato persistente.
+
+## What Changes
+
+- Aggiunge undo/redo soltanto per add/erase drawing.
+- Mantiene stack limitati e isolati per scena.
+- Persiste il risultato ma non la cronologia.
+
+## Capabilities
+
+### Modified Capabilities
+
+- scene-authoring: aggiunge undo/redo ai disegni preparati dal Master.
+
+## Impact
+
+- Nuovo stato service in memoria e controlli Master.
+- Nessun cambiamento a history globale, elementi o token.

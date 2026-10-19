@@ -10,13 +10,19 @@ Define the lifecycle and compatibility rules for shared game state, user-specifi
 
 Zoom and other presentation-only UI state are not shared.
 
+## Scene model foundation
+
+The shared/scene-model.mjs module owns the runtime-neutral scene contract used by both Node and Vite. A scene has a stable identifier, trimmed name, positive concurrency version, and an explicitly versioned document. The document keeps background, board configuration, drawings, scene elements, entity references, prepared placements, and runtime tokens in separate sections. A background is either explicitly blank or references a managed JPEG, PNG, or WebP asset by identifier and verified metadata; it never contains an arbitrary remote URL or filesystem path. Image metadata also carries presentation-only calibration: scale defaults to `1`, signed pixel offsets default to `0`, and all three values are finite and bounded. Its normalizer supplies defaults for older partial documents and rejects unsupported versions, duplicate identifiers within one collection, orphan placement references, unsafe coordinates, invalid board values, invalid background metadata or calibration, non-JSON data, and documents over the declared size limit.
+
+Scene configuration and live runtime use distinct adapters. captureSceneConfiguration removes runtime tokens and unrelated live-session fields; projectSceneRuntime combines normalized configuration with an explicitly supplied runtime without mutating either input. Scene persistence stores only the captured configuration in SQLite and does not add fields to BattleMapSharedState, replace snapshot behavior, or make round, initiative, hit-point, movement, or dice-log recovery durable.
+
 ## Normalization
 
 Both client and server normalize incoming state because data can come from older snapshots, HTTP responses, optimistic updates, or untyped JavaScript.
 
 - Supply defaults for missing fields.
 - Drop or repair invalid references, such as initiatives for missing tokens.
-- Clamp grid dimensions, light radii, and other bounded numbers.
+- Clamp grid dimensions, light radii, and other bounded numbers. Board dimensions accept positive finite counts or exactly `0 × 0`; a mixed zero pair is invalid.
 - Rebuild bidirectional vehicle/occupant relationships from canonical vehicle occupant lists.
 - Preserve backward compatibility intentionally when a legacy field is still supported.
 - `DiceRollLog.dice` is additive. A legacy log without it remains valid; when present, the list is retained only if every die has a unique non-empty id, supported sides, in-range integer value, non-empty group id, and valid disposition. One malformed entry removes the whole detail list without discarding or reconstructing the compatible aggregate log.
@@ -63,6 +69,8 @@ Before an adventurer receives a snapshot:
 
 The master receives full state. Sanitization applies independently for HTTP and each SSE client.
 
+Scene isolation is narrower than complete secret filtering. An Adventurer snapshot contains only the active scene identity and projection and never contains `sceneCatalog`, inactive documents, or inactive asset URLs. Within the active projection, the existing token/dice sanitizers still apply; fog, lighting, drawings and scene elements are presentation data already delivered to the client and are not a P0.9 guarantee that every unrevealed secret is absent. Complete server-side fog/secrets remain the P0.10 boundary.
+
 ## Ephemeral events
 
 Ping, template-drawing, and token-walk events (`ephemeral-ping`, `ephemeral-template`, `ephemeral-template-end`, `token-walk`) are named SSE events on the same stream as the snapshot, on the model of `server/character-sheet-events.mjs`. They:
@@ -70,6 +78,7 @@ Ping, template-drawing, and token-walk events (`ephemeral-ping`, `ephemeral-temp
 - are never written to `battleMapState`, never bump `battleMapVersion`, and never appear in a snapshot, a suspend, or a resumed session;
 - derive their author from the authenticated session, never from a client-declared field;
 - for a template or a token-walk, are filtered per recipient using the same token-visibility predicate (`isTokenVisibleToUser`) that sanitizes the shared state for that user — keyed on whichever token (if any) occupies the template's origin cell, or on the moved token itself for `token-walk`; a ping has no such filter and reaches every connected client.
+- carry the current `sceneId`; clients discard a named event that arrives after its scene has ceased to be active.
 
 `token-walk` carries the exact waypoints of a move that `moveOwnedToken` just accepted, purely so every connected client can play the same walking animation instead of only seeing the token's final cell once the snapshot arrives; it is broadcast in addition to, never instead of, the normal snapshot broadcast for that move. `showTrack` is `false` for an `x`/`y` single-step request (keyboard or movement pad), so clients animate it without the path track.
 
@@ -91,7 +100,35 @@ SQLite is a separate persistence boundary:
 - Users, roles, campaigns, and character sheets are persisted in SQLite.
 - Character-sheet live state is versioned in the service, broadcast immediately, and flushed to SQLite with a short debounce plus explicit lifecycle flushes.
 - Portraits live under ignored server runtime storage and are served through authenticated routes rather than as public files.
-- Battle-map suspend/resume snapshots are not replaced by SQLite unless a future approved specification explicitly migrates that boundary.
+- Scene background binaries live under ignored `server/data/scene-backgrounds/`. Storage validates size and magic bytes, stages with a unique temporary name, atomically renames inside the confined root, and removes abandoned staging files during startup. A failed versioned SQLite write removes the new asset and leaves the previous scene reference intact; old assets are removed only after a successful commit.
+- The scene catalog, normalized scene configuration, optimistic version and active-scene reference are persisted in SQLite. Scene services persist before replacing their in-memory projection.
+- Gli encounter sono una collezione di configurazione del documento scena, con ID, nome, tipo descrittivo e descrizione; i placement preparati possono riferirsi a un encounter tramite `encounterId`. I documenti legacy senza la collezione normalizzano a `[]` e i placement legacy senza tale riferimento restano validi. Ogni CRUD encounter usa la versione della scena e persiste prima di aggiornare la proiezione in memoria; un encounter con placement collegati non è cancellato in cascade. La definizione resta privata al Master: una modifica sulla scena attiva aggiorna soltanto la versione/proiezione condivisa compatibile, non espone gli encounter al Player.
+- Le entità monster/npc riusano `entityReferences`: ogni nuova voce ha ID di riferimento, ID di definizione, `encounterId`, kind e nome. I riferimenti legacy senza `encounterId` rimangono leggibili; quelli associati richiedono un encounter esistente e kind supportato. Un placement collegato deve indicare lo stesso encounter della sua entità. Le mutazioni sono versionate e persistite prima della pubblicazione; rimuovere un'entità usata da placement è vietato e rimuovere un encounter elimina soltanto le sue entità non utilizzate. L'adapter token resta puro: è il runtime server della scena a materializzare i placement confermati, senza creare iniziativa o schede PC.
+- `EncounterPlacementRuntime` conserva in memoria l'ultima preparazione proiettata per scena. Ogni istanza usa l'ID del placement come ID del `UnitToken`; la riconciliazione aggiunge/rimuove le istanze e applica solo le proprietà iniziali cambiate dall'authoring. Le mutazioni live non riscrivono la preparazione; modifiche estranee alla scena non ripristinano HP, posizione, condizioni o token rimossi durante il gioco. La riconciliazione viene preparata e validata prima della persistenza; il riferimento di preparazione proiettata avanza soltanto dopo il commit/pubblicazione. Scene inattive vengono riconciliate all'attivazione, comprese le preview di trasferimento del party, senza modificare il runtime durante la preview. Questa memoria non costituisce recovery del runtime completo (P0.11).
+- Al riavvio, la scena attiva materializza i placement persistiti dai valori iniziali delle entità e dagli override di collocazione. HP modificati in gioco, condizioni, posizione live, turno, round e movimento consumato non riscrivono il documento scena. Un token rimosso soltanto dal runtime può quindi ricomparire dal placement preparato; per eliminare durevolmente la preparazione serve rimuovere quel placement. Il resume esplicito dello snapshot resta un percorso distinto, non una garanzia di recupero automatico P0.11.
+- E.3 aggiunge ai soli riferimenti monster/npc `tokenProperties` opzionale, validato con gli stessi limiti dell'adapter token. I documenti E.2 privi del campo restano validi. `entityId` è ancora un ID locale di definizione, non un link a un catalogo; create/update manuali non introducono URL o copie di schede PC. L'update conserva gli ID e persiste atomicamente con la versione della scena; per istanze già collocate, la riconciliazione E.4 applica soltanto le proprietà iniziali cambiate.
+- The Master catalog reads and mutates this persistence boundary through dedicated authorized routes. Its selected detail is local management state: reading or editing an inactive scene does not alter the persisted active-scene reference and does not broadcast it to Player clients.
+- Scene activation is a dedicated Master-only optimistic operation. The server validates the target and its version and rejects an active combat round before writing the active-scene reference. A storage failure leaves the in-memory identity and live projection unchanged. After persistence, it installs one prepared projection, advances the shared version once, clears cross-scene undo history, and broadcasts one role-specific snapshot.
+- `activeSceneId`, `activeSceneVersion`, `activeSceneSummary`, and `activeSceneBackground` identify the one persisted active
+  scene in shared snapshots. `activeSceneDrawings` contains only that scene's normalized strokes and defaults to `[]` for older snapshots.
+  `activeSceneElements` contiene solo gli arredi normalizzati della scena attiva e defaulta a `[]` per snapshot precedenti. Gli elementi hanno kind chiuso, posizione e ingombro interi in caselle, rotazione limitata; la normalizzazione elimina qualsiasi campo da token. Le scritture elementi passano dal documento scena versionato, non dal live-state undo o dalla history drawing.
+  `blocksMovement` e `blocksVision` sono booleani indipendenti del documento scena e defaultano a `false` per documenti precedenti. Soltanto gli elementi della proiezione attiva entrano nella validazione dei segmenti di movimento e nella visuale client; la rotazione resta presentazionale e non cambia l'ingombro usato dagli adapter.
+  A drawing mutation saves the document to SQLite with optimistic concurrency and refreshes the realtime projection only for the active scene; it does not enter live-state undo. A centralized projection adapter installs the scene's board
+  configuration into the legacy top-level fields consumed by current board code while retaining
+  live runtime tokens in memory. A legacy snapshot without active-scene metadata receives the
+  persisted active identity and configuration during installation.
+- `boardDimensions`, `measurementUnit`, and `diagonalRule` remain top-level compatibility fields for current consumers, but their authority is the active scene document. Master settings validate and persist a versioned scene update before refreshing and broadcasting these values. Board dimensions accept positive finite counts or `0 × 0`; legacy documents default to 30 × 30 cells, `1.5 m`, and the standard diagonal rule.
+- `isBoardFullyLit` is likewise a compatible top-level projection of the active scene's `board.isFullyLit`. The Master edits it through the selected scene's versioned preparation draft or the active board toggle; inactive edits do not alter or broadcast the live board. A missing scene value defaults to `false` (darkness enabled).
+- Image scale and offsets remain nested in the managed scene background and are projected only with the active background. Preview edits are client-local; confirmation is one optimistic scene write, is intentionally outside live-state undo, and refreshes the shared projection only when that scene is active.
+- Snapshot construction is role-specific: the Master receives metadata-only `sceneCatalog`
+  summaries plus the active projection; an Adventurer receives only the active identity and
+  sanitized projection. Complete inactive documents and assets never enter either repeated
+  battle-map broadcast. Renaming/versioning or replacing the background of the active scene refreshes the projection, increments
+  the shared version, and broadcasts; changes to an inactive scene remain catalog-local.
+- When the scene catalog is empty, startup creates one initial scene and imports only supported board configuration from the legacy suspend snapshot. Existing scenes prevent every later reimport; absent or malformed legacy data produces safe defaults.
+- Battle-map suspend/resume remains responsible for the current live snapshot. Scene persistence can reconstruct prepared creature instances but does not recover their live changes, runtime-only tokens, round, movement, initiative or logs; complete automatic live recovery remains a separate capability.
+- Durante il processo, `battleMapState.tokens` appartiene alla sola scena attiva e una mappa server in memoria conserva i token delle scene inattive. L'attivazione salva il runtime uscente e installa quello entrante (materializzato dai placement preparati alla prima visita), azzerando i riferimenti a token del vecchio tracker e delle contabilità di movimento; in roll phase conserva la modalità Combattimento ma riparte senza iniziative. Un round attivo blocca il cambio. Il login non ricrea un personaggio già presente in un'altra scena live. La preview del party è read-only. Nel flusso combinato, la sorgente è la scena attiva e la destinazione è quella inattiva selezionata: il commit prepara e valida entrambi i runtime prima di persistere il nuovo riferimento attivo, poi installa la nuova proiezione e trasmette un solo snapshot. Un errore prima dell'attivazione persistita lascia invariati identità e token. Il trasferimento svuota gli undo stack, poiché un undo monoscena potrebbe ripristinarne solo metà.
+- Le copie live inattive non sono in SQLite né nel singolo snapshot di sospensione corrente: un riavvio non le recupera automaticamente. Al resume, token di uno snapshot con identità scena diversa da quella attiva non vengono installati sulla scena corrente.
 
 ## Undo
 
@@ -103,6 +140,8 @@ SQLite is a separate persistence boundary:
 - A condition-change inverse action (`token-conditions`) carries only what that operation changed — the conditions it added, the conditions it removed, and, only when the operation set the exhaustion level, that level's previous value — so undoing removes what was added if still present, restores what was removed if still absent, and never touches a condition or exhaustion level changed by someone else in the meantime. The master's condition changes use snapshot undo like any other master mutation.
 - A stand-up inverse action (`stand-up`) carries the `chargedCells` that operation charged; undoing re-adds `prone` and subtracts that charge back out of the token's movement used for the round (never a plain reset to a remembered absolute value, since another movement may have happened since).
 - Aura switches patch the character sheet and are intentionally non-undoable in either role; a second switch corrects one without rolling back sheet history.
+- Active-scene grid dimensions, unit, and diagonal settings are versioned scene configuration and intentionally do not enter the live-state undo stack.
+- Scene drawing add/erase populate separate, process-local undo/redo command stacks keyed by scene ID, capped at 40 operations per scene. Undo/redo persists only the resulting drawing layer through the normal versioned scene write; the stacks never enter SQLite documents, battle-map snapshots, or the live-state undo stacks. A new accepted add/erase after undo clears that scene's redo stack; restart clears all drawing history but retains persisted strokes. Unrelated scene metadata and background edits do not create drawing-history entries. A drawing replacement outside the command path invalidates the affected scene's history.
 
 ## Verification
 

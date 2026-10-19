@@ -1,6 +1,23 @@
 import type { RolledDie } from '../../shared/dice-engine.mjs';
 
 export type { DieDisposition, RolledDie } from '../../shared/dice-engine.mjs';
+export type {
+  BlankSceneBackground,
+  SceneBoardConfig,
+  SceneConfigurationDocument,
+  SceneDocument,
+  SceneDrawing,
+  SceneElement,
+  SceneEncounter,
+  SceneEncounterEntityReference,
+  EncounterTokenProperties,
+  SceneEntityReference,
+  ScenePreparedPlacement,
+  SceneRuntime,
+  SceneRuntimeToken,
+  Scene,
+  SceneMetadata,
+} from '../../shared/scene-model.mjs';
 
 export type TokenType = 'player' | 'enemy' | 'object' | 'vehicle';
 export type UserRole = 'master' | 'adventurer';
@@ -60,16 +77,29 @@ export interface MeasurementUnit {
   cellsValue: number;
 }
 
+export interface BoardDimensions {
+  columns: number;
+  rows: number;
+}
+
 export interface LightSource {
   id: string;
   position: GridPosition;
   radiusCells: number;
 }
 
+export interface SceneSummary {
+  id: string;
+  name: string;
+  version: number;
+  isActive: boolean;
+}
+
 export type TemplateShape = 'circle' | 'cone' | 'line';
 
 export interface EphemeralPing {
   id: string;
+  sceneId: string;
   position: GridPosition;
   authorUserId: string;
   authorName: string;
@@ -77,6 +107,7 @@ export interface EphemeralPing {
 
 export interface EphemeralTemplate {
   id: string;
+  sceneId: string;
   shape: TemplateShape;
   origin: GridPosition;
   target: GridPosition;
@@ -87,6 +118,7 @@ export interface EphemeralTemplate {
 
 export interface TokenWalkEvent {
   id: string;
+  sceneId: string;
   tokenId: string;
   waypoints: GridPosition[];
   // Falso per un passo singolo da tastiera: animazione senza binario del percorso.
@@ -166,7 +198,29 @@ export interface CombatAnnouncement {
   message: string;
 }
 
+export type SceneBackground =
+  | { kind: 'blank' }
+  | {
+      kind: 'image';
+      assetId: string;
+      mediaType: 'image/jpeg' | 'image/png' | 'image/webp';
+      byteLength: number;
+      etag: string;
+      updatedAt: string;
+      scale: number;
+      offsetX: number;
+      offsetY: number;
+      url?: string;
+    };
+
 export interface BattleMapState {
+  activeSceneId: string | null;
+  activeSceneVersion: number | null;
+  activeSceneSummary: SceneSummary | null;
+  sceneCatalog?: SceneSummary[];
+  activeSceneBackground: SceneBackground;
+  activeSceneDrawings: import('../../shared/scene-model.mjs').SceneDrawing[];
+  activeSceneElements: import('../../shared/scene-model.mjs').SceneElement[];
   tokens: UnitToken[];
   zoom: number;
   diceLogs: DiceRollLog[];
@@ -184,6 +238,7 @@ export interface BattleMapState {
   diagonalParityByTokenId: Record<string, DiagonalParity>;
   diagonalRule: DiagonalRule;
   measurementUnit: MeasurementUnit;
+  boardDimensions: BoardDimensions;
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
   isBoardBackgroundHidden: boolean;
@@ -193,6 +248,14 @@ export interface BattleMapState {
 }
 
 export interface BattleMapSharedState {
+  activeSceneId: string | null;
+  activeSceneVersion: number | null;
+  activeSceneSummary: SceneSummary | null;
+  // Present only in the Master view. Player HTTP/SSE snapshots never carry inactive summaries.
+  sceneCatalog?: SceneSummary[];
+  activeSceneBackground: SceneBackground;
+  activeSceneDrawings: import('../../shared/scene-model.mjs').SceneDrawing[];
+  activeSceneElements: import('../../shared/scene-model.mjs').SceneElement[];
   tokens: UnitToken[];
   diceLogs: DiceRollLog[];
   latestDicePreview: DicePreviewState | null;
@@ -209,6 +272,7 @@ export interface BattleMapSharedState {
   diagonalParityByTokenId: Record<string, DiagonalParity>;
   diagonalRule: DiagonalRule;
   measurementUnit: MeasurementUnit;
+  boardDimensions: BoardDimensions;
   dashUsedByTokenId: Record<string, boolean>;
   extraMovementByTokenId: Record<string, number>;
   isBoardBackgroundHidden: boolean;

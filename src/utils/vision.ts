@@ -1,4 +1,5 @@
 import type { GridPosition, LightSource, UnitToken } from '../types';
+import type { SceneBlocker } from '../../shared/scene-blockers';
 import { getTokenFootprint } from './board';
 
 const FEET_PER_CELL = 5;
@@ -53,17 +54,25 @@ function tokenCellKeys(token: UnitToken): string[] {
   return keys;
 }
 
-function blockerCellKeys(blockers: UnitToken[], ignoredTokenIds: string[] = []): Set<string> {
+function blockerCellKeys(blockers: SceneBlocker[], ignoredTokenIds: string[] = []): Set<string> {
   const ignoredTokenIdSet = new Set(ignoredTokenIds);
 
   return new Set(
     blockers
-      .filter((token) => !ignoredTokenIdSet.has(token.id))
-      .flatMap((token) => tokenCellKeys(token)),
+      .filter((blocker) => blocker.source !== 'token' || !ignoredTokenIdSet.has(blocker.id))
+      .flatMap((blocker) => {
+        const keys: string[] = [];
+        for (let y = 0; y < blocker.heightCells; y += 1) {
+          for (let x = 0; x < blocker.widthCells; x += 1) {
+            keys.push(visibleCellKey({ x: blocker.position.x + x, y: blocker.position.y + y }));
+          }
+        }
+        return keys;
+      }),
   );
 }
 
-function selfOcclusionIgnoredTokenIds(sourceToken: UnitToken, targetToken: UnitToken, blockers: UnitToken[]): string[] {
+function selfOcclusionIgnoredTokenIds(sourceToken: UnitToken, targetToken: UnitToken, blockers: SceneBlocker[]): string[] {
   const ignoredIds = [sourceToken.id, targetToken.id];
 
   if (targetToken.blocksMovement === true && targetToken.groupId) {
@@ -145,7 +154,7 @@ function firstBlockedRayPoint(
 export function buildVisionPolygon(
   sourceToken: UnitToken,
   radiusCells: number,
-  blockers: UnitToken[] = [],
+  blockers: SceneBlocker[] = [],
 ): Array<{ x: number; y: number }> {
   return buildVisionPolygonFromPoint(tokenVisionCenter(sourceToken), radiusCells, blockers, [sourceToken.id]);
 }
@@ -153,7 +162,7 @@ export function buildVisionPolygon(
 export function buildVisionPolygonFromPoint(
   origin: { x: number; y: number },
   radiusCells: number,
-  blockers: UnitToken[] = [],
+  blockers: SceneBlocker[] = [],
   ignoredBlockerIds: string[] = [],
 ): Array<{ x: number; y: number }> {
   const blockersByCell = blockerCellKeys(blockers, ignoredBlockerIds);
@@ -176,7 +185,7 @@ export function buildVisionPolygonFromPoint(
 export function buildVisibleCellSet(
   sourceToken: UnitToken,
   radiusCells: number,
-  blockers: UnitToken[] = [],
+  blockers: SceneBlocker[] = [],
   viewport: { x: number; y: number; columns: number; rows: number },
 ): Set<string> {
   const origin = tokenVisionCenter(sourceToken);
@@ -199,7 +208,7 @@ export function isTokenInsideVision(
   sourceToken: UnitToken,
   targetToken: UnitToken,
   radiusCells: number,
-  blockers: UnitToken[] = [],
+  blockers: SceneBlocker[] = [],
 ): boolean {
   if (sourceToken.id === targetToken.id || targetToken.ownerUserId === sourceToken.ownerUserId) {
     return true;
@@ -221,7 +230,7 @@ export function isTokenInsideVision(
 export function isTokenInsideLight(
   light: LightSource,
   targetToken: UnitToken,
-  blockers: UnitToken[] = [],
+  blockers: SceneBlocker[] = [],
 ): boolean {
   const origin = { x: light.position.x + 0.5, y: light.position.y + 0.5 };
   const blockersByCell = blockerCellKeys(

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createDefaultSceneDocument } from '../shared/scene-model.mjs';
 
 process.env.BATTLE_MAP_TEST_MODE = '1';
 const { __testing } = await import('../server/index.mjs');
@@ -40,13 +41,44 @@ function withActiveTurn(state) {
 }
 
 async function move(user, body) {
+  const state = __testing.getBattleMapState();
   return __testing.app.inject({
     method: 'POST',
     url: '/api/battle-map/move',
     headers: sessionHeaders(user),
-    payload: body,
+    payload: {
+      ...(state.activeSceneId && state.activeSceneVersion
+        ? { sceneId: state.activeSceneId, sceneVersion: state.activeSceneVersion }
+        : {}),
+      ...body,
+    },
   });
 }
+
+test('player movement rejects missing, inactive and stale scene identities', async () => {
+  const activeScene = {
+    id: 'scene-current',
+    name: 'Scena corrente',
+    version: 4,
+    document: createDefaultSceneDocument(),
+  };
+  __testing.setSceneService({
+    getActiveScene: () => activeScene,
+  });
+  try {
+    __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()] }));
+    const payload = { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 1, y: 0 }] };
+    const missing = await __testing.app.inject({ method: 'POST', url: '/api/battle-map/move',
+      headers: sessionHeaders(PLAYER), payload });
+    assert.equal(missing.statusCode, 409);
+    assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
+    assert.equal((await move(PLAYER, { ...payload, sceneId: 'scene-old' })).statusCode, 409);
+    assert.equal((await move(PLAYER, { ...payload, sceneVersion: 3 })).statusCode, 409);
+    assert.equal((await move(PLAYER, payload)).statusCode, 200);
+  } finally {
+    __testing.setSceneService(null);
+  }
+});
 
 test('x/y and waypoints payloads produce the same result on a straight move', async () => {
   __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()] }));
@@ -81,6 +113,28 @@ test('an invalid waypoints payload is rejected with 400 and leaves the token in 
     assert.equal(response.statusCode, 400, JSON.stringify(body));
     assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
   }
+});
+
+test('movement cannot leave the active scene dimensions', async () => {
+  __testing.setBattleMapState({ tokens: [heroToken()], boardDimensions: { columns: 3, rows: 3 } });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 3, y: 0 }] });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /confini/);
+});
+
+test('unlimited board accepts movement beyond the former finite boundary', async () => {
+  __testing.setBattleMapState({ tokens: [heroToken()], boardDimensions: { columns: 0, rows: 0 } });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 35, y: 0 }] });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().state.tokens[0].position, { x: 35, y: 0 });
+});
+
+test('movement on an unlimited board rejects paths beyond the processing limit atomically', async () => {
+  __testing.setBattleMapState({ tokens: [heroToken()], boardDimensions: { columns: 0, rows: 0 } });
+  const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 1001, y: 0 }] });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().message, /limite/);
+  assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
 });
 
 test('an L-shaped path costs 6 cells under both diagonal rules', async () => {
@@ -159,6 +213,59 @@ test('the master ignores budget and obstacles when moving a token', async () => 
   });
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.json().state.tokens[0].position, { x: 3, y: 0 });
+});
+
+test('active scene elements block each path segment for a Player but not a Master', async () => {
+  const document = createDefaultSceneDocument();
+  document.elements = [{ id: 'rock-1', kind: 'rock', position: { x: 2, y: 0 }, widthCells: 2, heightCells: 1,
+    rotation: 90, blocksMovement: true, blocksVision: false }];
+  __testing.setSceneService({ getActiveScene: () => ({ id: 'scene-blockers', name: 'Ostacoli', version: 1, document }) });
+  try {
+    __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()] }));
+    const blocked = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 4, y: 0 }] });
+    assert.equal(blocked.statusCode, 400);
+    assert.match(blocked.json().message, /Roccia blocca il movimento/);
+    assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
+    assert.equal(__testing.getBattleMapState().movementUsedByTokenId['hero-1'] ?? 0, 0);
+    const master = await move(MASTER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 4, y: 0 }] });
+    assert.equal(master.statusCode, 200);
+    assert.deepEqual(master.json().state.tokens[0].position, { x: 4, y: 0 });
+  } finally {
+    __testing.setSceneService(null);
+  }
+});
+
+test('a scene element that blocks vision only does not block movement', async () => {
+  const document = createDefaultSceneDocument();
+  document.elements = [{ id: 'table-1', kind: 'table', position: { x: 1, y: 0 }, widthCells: 2, heightCells: 1,
+    rotation: 0, blocksMovement: false, blocksVision: true }];
+  __testing.setSceneService({ getActiveScene: () => ({ id: 'scene-blockers', name: 'Ostacoli', version: 1, document }) });
+  try {
+    __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()] }));
+    const response = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 3, y: 0 }] });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json().state.tokens[0].position, { x: 3, y: 0 });
+  } finally {
+    __testing.setSceneService(null);
+  }
+});
+
+test('an Adventurer-controlled vehicle retains its obstacle bypass with scene elements', async () => {
+  const document = createDefaultSceneDocument();
+  document.elements = [{ id: 'rock-vehicle', kind: 'rock', position: { x: 2, y: 0 }, widthCells: 1, heightCells: 1,
+    rotation: 0, blocksMovement: true, blocksVision: true }];
+  __testing.setSceneService({ getActiveScene: () => ({ id: 'scene-blockers', name: 'Ostacoli', version: 1, document }) });
+  try {
+    const vehicle = { id: 'vehicle-1', name: 'Moto', type: 'vehicle', size: 'large', vehicleKind: 'infernal-bike',
+      position: { x: 0, y: 0 }, widthCells: 2, heightCells: 1, color: '#554433', initiativeModifier: 0,
+      vehicleOccupantIds: ['hero-1'], conditions: [] };
+    __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken(), vehicle] }));
+    const response = await move(PLAYER, { tokenId: 'vehicle-1', waypoints: [{ x: 0, y: 0 }, { x: 3, y: 0 }] });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json().state.tokens.find((token) => token.id === 'vehicle-1').position, { x: 3, y: 0 });
+  } finally {
+    __testing.setSceneService(null);
+  }
 });
 
 test('undoing a move restores position, movement used and diagonal parity, and only for its own author', async () => {
@@ -257,15 +364,54 @@ test('the master-only settings route rejects non-master callers and invalid valu
   assert.equal(zeroCellsValue.statusCode, 400);
   assert.equal(__testing.getBattleMapState().measurementUnit.cellsValue, 1.5);
 
+  const invalidDimensions = await __testing.app.inject({
+    method: 'POST', url: '/api/battle-map/settings', headers: sessionHeaders(MASTER),
+    payload: { boardDimensions: { columns: 0, rows: 30 } },
+  });
+  assert.equal(invalidDimensions.statusCode, 400);
+  assert.deepEqual(__testing.getBattleMapState().boardDimensions, { columns: 30, rows: 30 });
+
   const valid = await __testing.app.inject({
     method: 'POST',
     url: '/api/battle-map/settings',
     headers: sessionHeaders(MASTER),
-    payload: { diagonalRule: 'alternating', measurementUnit: { label: 'ft', cellsValue: 5 } },
+    payload: { diagonalRule: 'alternating', measurementUnit: { label: 'ft', cellsValue: 5 }, boardDimensions: { columns: 40, rows: 35 } },
   });
   assert.equal(valid.statusCode, 200);
   assert.equal(valid.json().state.diagonalRule, 'alternating');
   assert.deepEqual(valid.json().state.measurementUnit, { label: 'ft', cellsValue: 5 });
+  assert.deepEqual(valid.json().state.boardDimensions, { columns: 40, rows: 35 });
+});
+
+test('grid settings persist on the active scene and project atomically', async () => {
+  let active = {
+    id: 'scene-grid', name: 'Griglia', version: 1, sortOrder: 0,
+    document: createDefaultSceneDocument(),
+  };
+  const service = {
+    getActiveScene: () => structuredClone(active),
+    getCatalog: () => [structuredClone(active)],
+    updateScene: (input) => {
+      assert.equal(input.expectedVersion, active.version);
+      active = { ...active, version: active.version + 1, document: structuredClone(input.document) };
+      return structuredClone(active);
+    },
+  };
+  __testing.setSceneService(service);
+  __testing.setBattleMapState({ tokens: [] });
+  try {
+    const response = await __testing.app.inject({
+      method: 'POST', url: '/api/battle-map/settings', headers: sessionHeaders(MASTER),
+      payload: { diagonalRule: 'alternating', measurementUnit: { label: 'ft', cellsValue: 5 }, boardDimensions: { columns: 48, rows: 32 } },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(active.version, 2);
+    assert.deepEqual(active.document.board.measurementUnit, { label: 'ft', cellsValue: 5 });
+    assert.deepEqual(response.json().state.boardDimensions, { columns: 48, rows: 32 });
+    assert.deepEqual(response.json().state.measurementUnit, { label: 'ft', cellsValue: 5 });
+  } finally {
+    __testing.setSceneService(null);
+  }
 });
 
 function fakeClient(user) {

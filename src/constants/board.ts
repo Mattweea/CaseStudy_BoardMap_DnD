@@ -1,6 +1,6 @@
 export const BOARD_CONFIG = {
   cellSize: 48,
-  minZoom: 0.6,
+  minZoom: 0.2,
   maxZoom: 2.2,
   minVisibleColumns: 30,
   minVisibleRows: 30,
