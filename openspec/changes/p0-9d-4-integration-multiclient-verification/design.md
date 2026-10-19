@@ -16,6 +16,8 @@ Le verifiche locali non dimostrano ordine degli eventi, sanitizzazione per ruolo
 
 Un Master e due Player attraversano almeno due scene, incluso reconnect.
 
+La prova automatica avvia il vero entrypoint Fastify su loopback e porta casuale, con tre login SQLite e connessioni SSE effettive. Copia solo i moduli sorgente in una directory temporanea, con dipendenze condivise in lettura: anche i percorsi runtime relativi al server, gli asset e lo snapshot legacy sono isolati. Non usa la partita corrente. La verifica visiva resta distinta, coperta dall'accettazione utente dei flussi precedenti e della collocazione E.4.
+
 ### 2. Riavvio con aspettative esplicite
 
 Configurazione e preparazione devono tornare; round, movimento e stato live non sono asseriti.

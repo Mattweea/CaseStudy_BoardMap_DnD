@@ -14,11 +14,11 @@ La milestone attraversa contratti condivisi e richiede una verifica integrata ch
 
 ### New Capabilities
 
-- multi-scene-session: comportamento realtime e operativo fra scene.
+Nessuna.
 
 ### Modified Capabilities
 
-Nessuna.
+- multi-scene-session: verifica integrata dei contratti multi-scena e dei confini di persistenza.
 
 ## Impact
 

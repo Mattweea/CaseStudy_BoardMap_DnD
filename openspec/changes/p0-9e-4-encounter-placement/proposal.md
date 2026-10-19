@@ -8,6 +8,7 @@ Il Master deve preparare sulla scena le entità di un encounter distinguendole d
 
 - Aggiunge placement collegati a encounter ed entity.
 - Riusa Board e trasformazioni token per posizione/preparazione.
+- Per istanze già collocate, riconcilia solo le proprietà iniziali cambiate dall'authoring; la definizione senza placement non crea token.
 - Applica lo stato nascosto corrente ma non promette segretezza server-side completa.
 
 ## Capabilities

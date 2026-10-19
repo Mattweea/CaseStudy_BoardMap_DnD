@@ -61,3 +61,4 @@ Share the frontend HTTPS URL, not the backend port. The default allowed-host lis
 - After server roster changes, restart the backend.
 - A restart without a prior suspend loses unsaved live state and all in-memory sessions.
 - Migration and persistence tests must use temporary database paths, never the developer database.
+- Tests that start the production server must isolate storage as well as SQLite: snapshot, portrait and background paths are relative to the server module. `test/multi-scene-session.test.mjs` copies only source modules into a temporary directory, shares installed dependencies through a read-only usage convention, binds loopback on a random port and closes its HTTP/SSE clients before stopping its own child process. It must never restart the developer server or copy the current runtime data. This test requires local socket and subprocess support; it does not require a browser.
