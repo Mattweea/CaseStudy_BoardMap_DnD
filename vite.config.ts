@@ -16,6 +16,11 @@ const backendPort =
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // I due audio autorizzati viaggiano con l'app, senza URL di asset separati nel build.
+    assetsInlineLimit: (file) =>
+      /[\\/]src[\\/]assets[\\/]audio[\\/](combat-start-dd|turn-notice-dd)\.mp3$/.test(file) ? true : undefined,
+  },
   server: {
     host: true,
     allowedHosts: [...defaultAllowedHosts, ...additionalAllowedHosts],
