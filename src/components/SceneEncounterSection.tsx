@@ -2,11 +2,12 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { SceneEncounter } from '../types';
 import type { EncounterEntityInput, PersistedScene } from '../utils/sceneApi';
 import { SceneEncounterEntitySection } from './SceneEncounterEntitySection';
+import { SceneEncounterPlacementSection, type EncounterPlacementActions, type PlacementPreview } from './SceneEncounterPlacementSection';
 
 type EncounterDraft = Omit<SceneEncounter, 'id'>;
 const EMPTY_DRAFT: EncounterDraft = { name: '', kind: 'narrative', description: '' };
 
-interface SceneEncounterSectionProps {
+interface SceneEncounterSectionProps extends EncounterPlacementActions {
   scene: PersistedScene;
   disabled: boolean;
   error: string | null;
@@ -15,10 +16,11 @@ interface SceneEncounterSectionProps {
   onRemove: (encounterId: string) => Promise<boolean>;
   onCreateEntity: (encounterId: string, entity: EncounterEntityInput) => Promise<boolean>;
   onUpdateEntity: (encounterId: string, referenceId: string, entity: EncounterEntityInput) => Promise<boolean>;
+  placementPreview: PlacementPreview;
 }
 
 export function SceneEncounterSection({ scene, disabled, error, onCreate, onUpdate, onRemove,
-  onCreateEntity, onUpdateEntity }: SceneEncounterSectionProps) {
+  onCreateEntity, onUpdateEntity, placementPreview, onCreatePlacement, onUpdatePlacement, onRemovePlacement }: SceneEncounterSectionProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EncounterDraft>(EMPTY_DRAFT);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -125,6 +127,9 @@ export function SceneEncounterSection({ scene, disabled, error, onCreate, onUpda
     </div>
     {selected ? <SceneEncounterEntitySection scene={scene} encounterId={selected.id} disabled={disabled}
       onCreate={onCreateEntity} onUpdate={onUpdateEntity} /> : null}
+    {selected ? <SceneEncounterPlacementSection scene={scene} encounterId={selected.id} disabled={disabled}
+      preview={placementPreview} onCreatePlacement={onCreatePlacement} onUpdatePlacement={onUpdatePlacement}
+      onRemovePlacement={onRemovePlacement} /> : null}
     {error ? <p className="scene-catalog__error" role="alert">{error}</p> : null}
   </section>;
 }

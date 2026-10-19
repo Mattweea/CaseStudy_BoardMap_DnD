@@ -10,9 +10,11 @@ Supported types are player, enemy, object, and vehicle. D&D size maps to a squar
 
 Every token has a stable ID, name, grid position, color, initiative modifier, and conditions. Optional fields describe ownership, roster identity, movement, affiliation, vehicle state, grouping, HP, visibility, familiarity, collision blocking, initiative exclusion, and auras.
 
-Le definizioni monster/npc associate agli encounter sono configurazione, non una nuova categoria runtime. Un adapter puro produce un `UnitToken` di tipo `enemy` con ID dell'istanza/placement, geometria e proprietà canoniche; non assegna `ownerUserId` né `characterKey` e non crea schede PC. E.2 non colloca token sulla board: E.4 userà l'adapter per materializzare placement confermati.
+Le definizioni monster/npc associate agli encounter sono configurazione, non una nuova categoria runtime. Un adapter puro produce un `UnitToken` di tipo `enemy` con ID dell'istanza/placement, geometria e proprietà canoniche; non assegna `ownerUserId` né `characterKey` e non crea schede PC. Creare una definizione non colloca token: serve un placement esplicito, che viene materializzato quando la scena è attiva.
 
 E.3 conserva manualmente solo nome, kind e le proprietà opzionali già lette dall'adapter: taglia, ingombro, colore, modificatore iniziativa, movimento, HP, invisibilità ed esclusione dall'iniziativa. Il placement fornirà posizione e ID dell'istanza; l'adapter deriva tipo `enemy`, affiliazione e default. Non esiste ancora una sorgente canonica monster/npc da collegare né una collocazione implicita.
+
+I placement monster/npc hanno posizione intera non negativa, ingombro opzionale di 1–40 celle per asse e `isHidden` booleano. L'ingombro omesso o nullo eredita quello della figura; `isHidden` governa l'invisibilità dell'istanza e inizialmente eredita il valore della figura quando non specificato. L'intero footprint deve rientrare nella scena finita o nei limiti di coordinate della scena illimitata. I link placement/encounter/figura e l'ID token restano stabili; la rimozione esplicita della collocazione non elimina la definizione. Hidden applica i filtri token correnti e non garantisce la segretezza completa del payload oltre il fog (P0.10).
 
 ## Visibility and ownership
 

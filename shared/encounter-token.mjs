@@ -27,6 +27,9 @@ export function projectEncounterEntityToken({ entity, placement, tokenProperties
   }
   const properties = normalizeEncounterTokenProperties({
     ...normalizeEncounterTokenProperties(entity.tokenProperties ?? {}),
+    ...(placement.widthCells == null ? {} : { widthCells: placement.widthCells }),
+    ...(placement.heightCells == null ? {} : { heightCells: placement.heightCells }),
+    ...(placement.isHidden === undefined ? {} : { isInvisible: placement.isHidden }),
     ...normalizeEncounterTokenProperties(tokenProperties),
   });
   const size = properties.size ?? 'medium';

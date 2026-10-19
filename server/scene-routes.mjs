@@ -377,6 +377,26 @@ export function registerSceneRoutes(app, {
   app.delete('/api/scenes/:id/encounters/:encounterId/entities/:referenceId',
     (request, reply) => mutateEncounterEntity(request, reply, 'remove'));
 
+  async function mutatePlacement(request, reply, mode) {
+    if (!masterOnly(request, reply)) return;
+    try {
+      const body = request.body;
+      if (!body || typeof body !== 'object' || Array.isArray(body)
+        || !Number.isSafeInteger(body.baseVersion) || body.baseVersion < 1) {
+        throw new TypeError('La versione base della scena è obbligatoria.');
+      }
+      const scene = service.mutateEncounterPlacement({ id: request.params.id,
+        encounterId: request.params.encounterId, placementId: request.params.placementId,
+        expectedVersion: body.baseVersion, placement: body.placement, mode });
+      if (scene.id === service.getActiveScene()?.id) onActiveSceneUpdated?.(scene);
+      if (mode === 'create') reply.code(201);
+      return sceneDetail(scene);
+    } catch (error) { return sendError(reply, error); }
+  }
+  app.post('/api/scenes/:id/encounters/:encounterId/placements', (request, reply) => mutatePlacement(request, reply, 'create'));
+  app.patch('/api/scenes/:id/encounters/:encounterId/placements/:placementId', (request, reply) => mutatePlacement(request, reply, 'update'));
+  app.delete('/api/scenes/:id/encounters/:encounterId/placements/:placementId', (request, reply) => mutatePlacement(request, reply, 'remove'));
+
   if (backgroundStorage) {
     app.addContentTypeParser(
       ['image/jpeg', 'image/png', 'image/webp'],

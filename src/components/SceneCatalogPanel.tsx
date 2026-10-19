@@ -84,6 +84,9 @@ export function SceneCatalogPanel({
     removeEncounter,
     createEncounterEntity,
     updateEncounterEntity,
+    createEncounterPlacement,
+    updateEncounterPlacement,
+    removeEncounterPlacement,
   } = useSceneCatalog(true);
   const [newName, setNewName] = useState('');
   const [nameDraft, setNameDraft] = useState('');
@@ -748,7 +751,11 @@ export function SceneCatalogPanel({
           </form>
           <SceneEncounterSection scene={selectedScene} disabled={isMutating || isLoading || hasDraftChanges} error={error}
             onCreate={createEncounter} onUpdate={updateEncounter} onRemove={removeEncounter}
-            onCreateEntity={createEncounterEntity} onUpdateEntity={updateEncounterEntity} />
+            onCreateEntity={createEncounterEntity} onUpdateEntity={updateEncounterEntity}
+            onCreatePlacement={createEncounterPlacement} onUpdatePlacement={updateEncounterPlacement} onRemovePlacement={removeEncounterPlacement}
+            placementPreview={{ host: previewHost, left: previewLeft, top: previewTop, width: previewWidth, height: previewHeight,
+              interactive: drawingTool === null && !isPreviewPanMode,
+              onBeginEdit: () => { setDrawingTool(null); setIsPreviewPanMode(false); } }} />
           </>
         ) : (
           <div className="scene-catalog__empty-workspace">

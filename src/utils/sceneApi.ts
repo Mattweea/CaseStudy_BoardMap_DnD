@@ -1,4 +1,4 @@
-import type { Scene, SceneDrawing, SceneElement, SceneEncounter, EncounterTokenProperties } from '../types';
+import type { Scene, SceneDrawing, SceneElement, SceneEncounter, ScenePreparedPlacement, EncounterTokenProperties } from '../types';
 import { API_BASE_URL } from './api';
 
 export interface SceneCatalogEntry {
@@ -31,6 +31,8 @@ export interface EncounterEntityInput {
   name: string;
   tokenProperties?: EncounterTokenProperties;
 }
+
+export type EncounterPlacementInput = Pick<ScenePreparedPlacement, 'entityReferenceId' | 'position' | 'widthCells' | 'heightCells' | 'isHidden'>;
 
 export interface PartyTransferPreview {
   sourceSceneId: string;
@@ -169,6 +171,18 @@ export const sceneApi = {
     entity: EncounterEntityInput) => request<PersistedScene>(
     `/scenes/${encodeURIComponent(id)}/encounters/${encodeURIComponent(encounterId)}/entities/${encodeURIComponent(referenceId)}`, {
       method: 'PATCH', body: JSON.stringify({ baseVersion, entity }),
+    }),
+  createEncounterPlacement: (id: string, encounterId: string, baseVersion: number, placement: EncounterPlacementInput) =>
+    request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/encounters/${encodeURIComponent(encounterId)}/placements`, {
+      method: 'POST', body: JSON.stringify({ baseVersion, placement }),
+    }),
+  updateEncounterPlacement: (id: string, encounterId: string, placementId: string, baseVersion: number, placement: EncounterPlacementInput) =>
+    request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/encounters/${encodeURIComponent(encounterId)}/placements/${encodeURIComponent(placementId)}`, {
+      method: 'PATCH', body: JSON.stringify({ baseVersion, placement }),
+    }),
+  removeEncounterPlacement: (id: string, encounterId: string, placementId: string, baseVersion: number) =>
+    request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/encounters/${encodeURIComponent(encounterId)}/placements/${encodeURIComponent(placementId)}`, {
+      method: 'DELETE', body: JSON.stringify({ baseVersion }),
     }),
 };
 

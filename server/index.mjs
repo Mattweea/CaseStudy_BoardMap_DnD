@@ -19,6 +19,7 @@ import { bootstrapScenes } from './scene-bootstrap.mjs';
 import { SceneRepository } from './scene-repository.mjs';
 import { registerSceneRoutes } from './scene-routes.mjs';
 import { SceneService } from './scene-service.mjs';
+import { EncounterPlacementRuntime } from './encounter-placement-runtime.mjs';
 import { PartyTransferError, planPartyTransfer } from './party-transfer.mjs';
 import {
   attachActiveSceneMetadata,
@@ -111,6 +112,7 @@ let battleMapState = normalizeSharedState(initialSharedState);
 let battleMapVersion = 1;
 // Il runtime della scena attiva vive in battleMapState; questa mappa contiene solo scene inattive.
 const inactiveSceneTokens = new Map();
+const encounterPlacementRuntime = new EncounterPlacementRuntime();
 let partyTransferBeforePublish = null;
 let turnTransitionId = 0;
 let lastSessionSnapshot = null;
@@ -925,11 +927,29 @@ function broadcastSnapshot() {
 }
 
 function refreshActiveSceneProjection() {
+  const scene = sceneService?.getActiveScene?.() ?? null;
   battleMapState = normalizeSharedState(
-    installActiveSceneProjection(battleMapState, sceneService?.getActiveScene?.() ?? null),
+    installActiveSceneProjection({ ...battleMapState,
+      tokens: encounterPlacementRuntime.project(scene, battleMapState.tokens) }, scene),
   );
+  encounterPlacementRuntime.remember(scene);
   bumpBattleMapVersion();
   broadcastSnapshot();
+}
+
+function validateScenePreparation(scene) {
+  const runtime = scene.id === battleMapState.activeSceneId ? battleMapState.tokens : inactiveSceneTokens.get(scene.id) ?? [];
+  const tokens = encounterPlacementRuntime.project(scene, runtime);
+  const dimensions = scene.document.board.dimensions;
+  if (tokens.some((token) => {
+    const footprint = getTokenFootprint(token);
+    return token.position.x < 0 || token.position.y < 0
+      || token.position.x + footprint.width > (dimensions.columns || SCENE_LIMITS.maxCoordinateMagnitude)
+      || token.position.y + footprint.height > (dimensions.rows || SCENE_LIMITS.maxCoordinateMagnitude);
+  })) throw new TypeError('La configurazione esclude un token live dai confini della scena.');
+  const candidate = normalizeSharedState(installActiveSceneProjection({ ...battleMapState, tokens }, scene));
+  const error = validateSharedState(candidate) ?? validateActiveTokenIdentity(candidate.tokens, scene.id);
+  if (error) throw new TypeError(error.message);
 }
 
 function prepareActiveSceneTransition(targetScene) {
@@ -940,19 +960,18 @@ function prepareActiveSceneTransition(targetScene) {
     const targetTokens = targetScene.id === battleMapState.activeSceneId
       ? battleMapState.tokens
       : inactiveSceneTokens.get(targetScene.id) ?? [];
-    return {
-      status: 200,
-      state: normalizeSharedState(prepareSceneTransitionState({
+    const state = normalizeSharedState(prepareSceneTransitionState({
         ...battleMapState,
-        tokens: structuredClone(targetTokens),
+        tokens: encounterPlacementRuntime.project(targetScene, structuredClone(targetTokens)),
         initiatives: [],
         activeTurnTokenId: null,
         movementUsedByTokenId: {},
         diagonalParityByTokenId: {},
         dashUsedByTokenId: {},
         extraMovementByTokenId: {},
-      }, targetScene)),
-    };
+      }, targetScene));
+    const invalid = validateSharedState(state) ?? validateActiveTokenIdentity(state.tokens, targetScene.id);
+    return invalid ?? { status: 200, state };
   } catch (error) {
     return { status: 400, message: error?.message ?? 'La scena di destinazione non e valida.' };
   }
@@ -966,6 +985,7 @@ function installPreparedSceneTransition(_scene, prepared) {
     inactiveSceneTokens.delete(prepared.state.activeSceneId);
   }
   battleMapState = prepared.state;
+  encounterPlacementRuntime.remember(_scene);
   masterUndoStack.length = 0;
   playerUndoStackByUserId.clear();
   turnTransitionId += 1;
@@ -1016,7 +1036,7 @@ function preparePartySceneTransition(body) {
     || (body.stateVersion !== undefined && body.stateVersion !== battleMapVersion)) {
     throw new PartyTransferError('Le scene o il runtime sono cambiati. Aggiorna la preview.', 409);
   }
-  const targetTokens = inactiveSceneTokens.get(target.id) ?? [];
+  const targetTokens = encounterPlacementRuntime.project(target, inactiveSceneTokens.get(target.id) ?? []);
   const plan = planPartyTransfer({
     sourceTokens: battleMapState.tokens,
     targetTokens,
@@ -1150,8 +1170,9 @@ function replaceBattleMapState(nextState) {
   }, { recordMasterUndo: true, validate: true });
 }
 
-function validateActiveTokenIdentity(tokens) {
-  const inactive = [...inactiveSceneTokens.values()].flat();
+function validateActiveTokenIdentity(tokens, ownSceneId = battleMapState.activeSceneId) {
+  const inactive = [...inactiveSceneTokens.entries()].filter(([id]) => id !== ownSceneId).flatMap(([, items]) => items);
+  if (ownSceneId !== battleMapState.activeSceneId) inactive.push(...battleMapState.tokens);
   const inactiveIds = new Set(inactive.map((token) => token.id));
   if (tokens.some((token) => inactiveIds.has(token.id))) {
     return { status: 409, message: 'Un ID token è già presente in un’altra scena live.' };
@@ -2844,11 +2865,14 @@ async function start() {
     sceneService = new SceneService({
       repository: new SceneRepository(database),
       campaignId: 'local-campaign',
+      validateScene: validateScenePreparation,
     });
     sceneService.load();
     battleMapState = normalizeSharedState(
-      installActiveSceneProjection(battleMapState, sceneService.getActiveScene()),
+      installActiveSceneProjection({ ...battleMapState,
+        tokens: encounterPlacementRuntime.project(sceneService.getActiveScene(), battleMapState.tokens) }, sceneService.getActiveScene()),
     );
+    encounterPlacementRuntime.remember(sceneService.getActiveScene());
   } catch (error) {
     database.close();
     throw new Error(`Persistenza scene non pronta: ${error.message} Esegui npm run db:migrate.`);
@@ -2911,10 +2935,12 @@ export const __testing = {
   },
   setBattleMapState: (state) => {
     inactiveSceneTokens.clear();
+    encounterPlacementRuntime.clear();
     battleMapState = normalizeSharedState(
       installActiveSceneProjection(state, sceneService?.getActiveScene?.() ?? null),
     );
     battleMapVersion = 1;
+    encounterPlacementRuntime.remember(sceneService?.getActiveScene?.() ?? null);
   },
   getBattleMapState: () => battleMapState,
   ensureCharacterTokenForUser,
@@ -2923,11 +2949,14 @@ export const __testing = {
   },
   setSceneService: (service) => {
     inactiveSceneTokens.clear();
+    encounterPlacementRuntime.clear();
     sceneService = service;
     battleMapState = normalizeSharedState(
       installActiveSceneProjection(battleMapState, sceneService?.getActiveScene?.() ?? null),
     );
   },
+  refreshActiveSceneProjection,
+  validateScenePreparation,
   setPartyTransferBeforePublish: (callback) => { partyTransferBeforePublish = callback; },
   sanitizeStateForUser,
   nextSnapshot,

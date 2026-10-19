@@ -70,9 +70,10 @@ function applyDrawingCommand(drawings, command) {
 }
 
 export class SceneService {
-  constructor({ repository, campaignId }) {
+  constructor({ repository, campaignId, validateScene = null }) {
     this.repository = repository;
     this.campaignId = campaignId;
+    this.validateScene = validateScene;
     this.scenes = new Map();
     this.activeSceneId = null;
     this.drawingHistory = new Map();
@@ -118,6 +119,9 @@ export class SceneService {
     if (!this.scenes.has(id)) throw new SceneNotFoundError(id);
 
     const previous = this.scenes.get(id);
+    if (previous.version === expectedVersion) {
+      this.validateScene?.({ ...previous, document: normalizeSceneDocument(document) });
+    }
 
     const persisted = this.repository.saveVersion({
       id,
@@ -394,6 +398,34 @@ export class SceneService {
       },
       sortOrder: current.sortOrder,
     });
+  }
+
+  mutateEncounterPlacement({ id, encounterId, placementId, expectedVersion, placement, mode }) {
+    const current = this.versionedScene(id, expectedVersion);
+    if (!current.document.encounters.some((encounter) => encounter.id === encounterId)) {
+      throw new ScenePersistenceConflictError(current);
+    }
+    const existing = current.document.preparedPlacements.find((item) => item.id === placementId && item.encounterId === encounterId);
+    if (mode !== 'create' && !existing) throw new ScenePersistenceConflictError(current);
+    if (mode !== 'remove' && (!placement || typeof placement !== 'object' || Array.isArray(placement)
+      || Object.keys(placement).some((key) => !['entityReferenceId', 'position', 'widthCells', 'heightCells', 'isHidden'].includes(key)))) {
+      throw new TypeError('Specifica posizione, ingombro e visibilità della figura.');
+    }
+    if (mode === 'update' && placement.entityReferenceId !== undefined && placement.entityReferenceId !== existing.entityReferenceId) {
+      throw new TypeError('Il collegamento della figura non può essere cambiato.');
+    }
+    let placements = current.document.preparedPlacements;
+    if (mode === 'remove') placements = placements.filter((item) => item.id !== placementId);
+    else {
+      const candidate = { ...existing, ...placement, id: existing?.id ?? randomUUID(), encounterId };
+      const entity = current.document.entityReferences.find((reference) => reference.id === candidate.entityReferenceId
+        && reference.encounterId === encounterId && SCENE_ENTITY_KINDS.includes(reference.entityType));
+      if (!entity) throw new TypeError('Scegli una figura valida di questo encounter.');
+      placements = mode === 'create' ? [...placements, candidate]
+        : placements.map((item) => item.id === placementId ? candidate : item);
+    }
+    const document = normalizeSceneDocument({ ...current.document, preparedPlacements: placements });
+    return this.updateScene({ id, expectedVersion, name: current.name, document, sortOrder: current.sortOrder });
   }
 
   async replaceBackground({ id, expectedVersion, buffer, mediaType, storage }) {

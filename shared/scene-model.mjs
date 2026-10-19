@@ -414,7 +414,7 @@ export function normalizeSceneEncounters(value) {
   });
 }
 
-function normalizePreparedPlacements(value, path, referencesById, encounterIds) {
+function normalizePreparedPlacements(value, path, referencesById, encounterIds, dimensions) {
   return normalizeCollection(value, path, (item, itemPath) => {
     const cloned = cloneJsonObject(item, itemPath);
     const entityReferenceId = normalizeId(
@@ -436,13 +436,34 @@ function normalizePreparedPlacements(value, path, referencesById, encounterIds) 
     if (reference.encounterId !== undefined && encounterId !== reference.encounterId) {
       fail(itemPath + '.encounterId', 'must match the entity encounter');
     }
-    return {
+    const placement = {
       ...cloned,
       id: normalizeId(cloned.id, itemPath + '.id'),
       entityReferenceId,
       ...(encounterId === undefined ? {} : { encounterId }),
       position: normalizePosition(cloned.position, itemPath + '.position'),
     };
+    if (SCENE_ENTITY_KINDS.includes(reference.entityType)) {
+      if (cloned.isHidden !== undefined && typeof cloned.isHidden !== 'boolean') fail(itemPath + '.isHidden', 'must be boolean');
+      const overrides = normalizeEncounterTokenProperties({
+        ...(cloned.widthCells === undefined ? {} : { widthCells: cloned.widthCells }),
+        ...(cloned.heightCells === undefined ? {} : { heightCells: cloned.heightCells }),
+      });
+      const properties = { ...reference.tokenProperties,
+        ...(overrides.widthCells == null ? {} : { widthCells: overrides.widthCells }),
+        ...(overrides.heightCells == null ? {} : { heightCells: overrides.heightCells }) };
+      const size = ({ large: 2, huge: 3, gargantuan: 4 })[properties.size] ?? 1;
+      const width = properties.widthCells ?? size;
+      const height = properties.heightCells ?? size;
+      const { x, y } = placement.position;
+      if (x < 0 || y < 0 || x + width > (dimensions.columns || SCENE_LIMITS.maxCoordinateMagnitude)
+        || y + height > (dimensions.rows || SCENE_LIMITS.maxCoordinateMagnitude)) {
+        fail(itemPath + '.position', 'Il token deve restare nei confini della scena.');
+      }
+      placement.isHidden = cloned.isHidden ?? reference.tokenProperties?.isInvisible ?? false;
+      Object.assign(placement, overrides);
+    }
+    return placement;
   });
 }
 
@@ -545,6 +566,7 @@ export function normalizeSceneDocument(value) {
       'scene.preparedPlacements',
       referencesById,
       encounterIds,
+      board.dimensions,
     ),
     runtime: {
       tokens: normalizeTokens(runtime.tokens ?? [], 'scene.runtime.tokens'),

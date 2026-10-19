@@ -18,3 +18,15 @@ Il sistema SHALL permettere al Master di creare placement sulla scena per le ent
 #### Scenario: Confine P0.10
 - **WHEN** un placement è nascosto o preparato
 - **THEN** P0.9e.4 non garantisce che ogni dato correlato sia escluso dal client Player
+
+#### Scenario: Autorizzazione e concorrenza
+- **WHEN** un Player tenta una mutazione placement o il Master usa una versione obsoleta della scena
+- **THEN** l'operazione viene rifiutata senza cambiare preparazione o token live
+
+#### Scenario: Scrittura non riuscita
+- **WHEN** il placement non rispetta riferimenti, ingombri o collisioni, oppure la persistenza rifiuta la scrittura
+- **THEN** configurazione, versione e runtime restano invariati
+
+#### Scenario: Preparazione distinta dal gioco
+- **WHEN** un token derivato viene mosso o perde HP durante il gioco e successivamente viene modificata una proprietà estranea alla preparazione dell'istanza
+- **THEN** il token mantiene i propri valori live senza sovrascrivere la configurazione preparata

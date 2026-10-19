@@ -14,11 +14,11 @@ Il Master deve preparare sulla scena le entità di un encounter distinguendole d
 
 ### New Capabilities
 
-- encounter-management: configurazione e preparazione degli encounter associati alle scene.
+Nessuna.
 
 ### Modified Capabilities
 
-Nessuna.
+- encounter-management: aggiunge collocazione e preparazione posizionale alla capability esistente.
 
 ## Impact
 

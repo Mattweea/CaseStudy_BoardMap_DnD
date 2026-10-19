@@ -111,6 +111,9 @@ export interface ScenePreparedPlacement {
   entityReferenceId: string;
   encounterId?: string;
   position: GridPosition;
+  widthCells?: number | null;
+  heightCells?: number | null;
+  isHidden?: boolean;
   [key: string]: unknown;
 }
 

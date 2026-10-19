@@ -8,6 +8,7 @@ import {
   type SceneCatalogEntry,
   type PartyTransferPreview,
   type EncounterEntityInput,
+  type EncounterPlacementInput,
 } from '../utils/sceneApi';
 
 function entryFromScene(scene: PersistedScene): SceneCatalogEntry {
@@ -299,5 +300,11 @@ export function useSceneCatalog(enabled: boolean) {
     updateEncounterEntity: (encounterId: string, referenceId: string, entity: EncounterEntityInput) => writeLayer(
       (scene) => sceneApi.updateEncounterEntity(scene.id, encounterId, referenceId, scene.version, entity),
       'Modifica della figura non riuscita.'),
+    createEncounterPlacement: (encounterId: string, placement: EncounterPlacementInput) => writeLayer(
+      (scene) => sceneApi.createEncounterPlacement(scene.id, encounterId, scene.version, placement), 'Collocazione della figura non riuscita.'),
+    updateEncounterPlacement: (encounterId: string, placementId: string, placement: EncounterPlacementInput) => writeLayer(
+      (scene) => sceneApi.updateEncounterPlacement(scene.id, encounterId, placementId, scene.version, placement), 'Modifica della collocazione non riuscita.'),
+    removeEncounterPlacement: (encounterId: string, placementId: string) => writeLayer(
+      (scene) => sceneApi.removeEncounterPlacement(scene.id, encounterId, placementId, scene.version), 'Rimozione della collocazione non riuscita.'),
   };
 }
