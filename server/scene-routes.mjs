@@ -1,3 +1,4 @@
+import { SceneWalls } from './scene-walls.mjs';
 import { createDefaultSceneDocument } from '../shared/scene-model.mjs';
 import { MAX_SCENE_BACKGROUND_BYTES } from './scene-background-storage.mjs';
 
@@ -83,11 +84,13 @@ export function registerSceneRoutes(app, {
   onSceneActivated = null,
   getRuntimeTokens = () => [],
 }) {
+  const walls = new SceneWalls(service);
   function sceneDetail(scene) {
     return {
       ...scene,
       isActive: scene.id === service.getActiveScene()?.id,
       drawingHistory: service.getDrawingHistoryState(scene.id),
+      wallHistory: walls.state(scene.id),
       placementHistory: service.getPlacementHistoryState(scene.id),
     };
   }
@@ -393,6 +396,18 @@ export function registerSceneRoutes(app, {
       if (mode === 'create') reply.code(201);
       return sceneDetail(scene);
     } catch (error) { return sendError(reply, error); }
+  }
+  for (const [method, suffix, operation] of [['POST','','add'], ['DELETE','/:wallId','remove'], ['POST','/undo','undo'], ['POST','/redo','redo']]) {
+    app.route({method, url:`/api/scenes/:id/walls${suffix}`, handler(request,reply) {
+      if (!masterOnly(request,reply)) return;
+      try {
+        const version=request.body?.baseVersion;
+        if (!Number.isSafeInteger(version) || version<1) throw new TypeError('Versione base richiesta.');
+        const scene=walls.mutate(request.params.id,version,operation,operation==='remove'?request.params.wallId:request.body?.wall);
+        if (scene.id===service.getActiveScene()?.id) onActiveSceneUpdated?.(scene);
+        return sceneDetail(scene);
+      } catch(error) {return sendError(reply,error);}
+    }});
   }
   app.post('/api/scenes/:id/placements/undo',(request,reply)=>{
     if(!masterOnly(request,reply))return;

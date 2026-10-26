@@ -146,3 +146,7 @@ SQLite is a separate persistence boundary:
 ## Verification
 
 For state-shape changes, verify an empty/default state, an older partial snapshot, malformed references, both role-specific views, SSE broadcast, version increments, suspend/resume, and the applicable undo path. For SQLite-backed changes, also verify migrations, foreign keys, version conflicts, persistence failure, and restart recovery with an isolated temporary database. For ephemeral events, verify the version and snapshot stay untouched, the author is always the session's user, per-recipient visibility filtering for templates, and that a fresh or reconnecting client finds no trace of a past ping or template.
+
+## Explored-map memory and walls
+
+Wall polylines are scene configuration in `walls` (legacy default `[]`) and project as `activeSceneWalls`. They only affect visibility/light; do not derive movement collisions from the line's bounding box. `SceneWalls` owns a separate, process-local history capped at 40 per scene.

@@ -312,6 +312,12 @@ function normalizeDrawings(value, path) {
   });
 }
 
+export function normalizeSceneWalls(value) {
+  const walls = normalizeDrawings(value, 'walls');
+  if (walls.some((wall) => wall.points.length < 2 || !wall.points.some(p=>p.x!==wall.points[0].x||p.y!==wall.points[0].y))) throw new TypeError('Un muro richiede almeno due punti.');
+  return walls;
+}
+
 export function normalizeSceneDrawings(value) {
   return normalizeDrawings(value, 'drawings');
 }
@@ -493,6 +499,7 @@ export function createDefaultSceneDocument() {
       lightSources: [],
     },
     drawings: [],
+    walls: [],
     elements: [],
     encounters: [],
     entityReferences: [],
@@ -560,6 +567,7 @@ export function normalizeSceneDocument(value) {
     background: normalizeBackground(value.background, 'scene.background'),
     board,
     drawings: normalizeDrawings(value.drawings ?? [], 'scene.drawings'),
+    walls: normalizeSceneWalls(value.walls ?? []),
     elements: normalizeElements(value.elements ?? [], 'scene.elements', board.dimensions),
     encounters,
     entityReferences,
@@ -589,6 +597,7 @@ export function captureSceneConfiguration(scene) {
     background: normalized.background,
     board: normalized.board,
     drawings: normalized.drawings,
+    walls: normalized.walls,
     elements: normalized.elements,
     encounters: normalized.encounters,
     entityReferences: normalized.entityReferences,

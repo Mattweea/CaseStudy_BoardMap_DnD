@@ -1,3 +1,4 @@
+import { SceneWallEditor } from './SceneWallEditor';
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { BoardDimensions, SceneDrawing } from '../types';
 import { useSceneCatalog } from '../hooks/useSceneCatalog';
@@ -56,6 +57,7 @@ export function SceneCatalogPanel({
   onActiveSceneBackgroundVisibilityChange,
 }: SceneCatalogPanelProps) {
   const {
+    mutateWall,
     undoPlacement,
     catalog,
     selectedScene,
@@ -109,6 +111,8 @@ export function SceneCatalogPanel({
   const [dimensionsError, setDimensionsError] = useState<string | null>(null);
   const [transferAnchor, setTransferAnchor] = useState({ x: '0', y: '0' });
   const [transferAnchorError, setTransferAnchorError] = useState<string | null>(null);
+  const [wallActive,setWallActive]=useState(false);
+  useEffect(()=>{setWallActive(false);},[selectedScene?.id]);
   const [drawingTool, setDrawingTool] = useState<'pencil' | 'eraser' | null>(null);
   const [drawingColor, setDrawingColor] = useState('#f36f3d');
   const [drawingWidth, setDrawingWidth] = useState(0.12);
@@ -535,12 +539,15 @@ export function SceneCatalogPanel({
                   </div>
                 </div>
                 <div className="scene-catalog__preview-navigation" role="group" aria-label="Navigazione anteprima">
-                  <button type="button" aria-pressed={isPreviewPanMode} onClick={() => { setDrawingTool(null); setIsPreviewPanMode((current) => !current); }}>Sposta vista</button>
+                  <button type="button" aria-pressed={isPreviewPanMode} onClick={() => { setDrawingTool(null); setWallActive(false); setIsPreviewPanMode((current) => !current); }}>Sposta vista</button>
                   <button type="button" aria-label="Riduci zoom anteprima" disabled={previewZoom <= 1} onClick={() => setPreviewZoom((current) => Math.max(1, Math.round((current - .25) * 100) / 100))}>−</button>
                   <output aria-label="Zoom anteprima">{Math.round(previewZoom * 100)}%</output>
                   <button type="button" aria-label="Aumenta zoom anteprima" disabled={previewZoom >= 4} onClick={() => setPreviewZoom((current) => Math.min(4, Math.round((current + .25) * 100) / 100))}>+</button>
                   <button type="button" onClick={() => { setPreviewZoom(1); setPreviewPan({ x: 0, y: 0 }); setIsPreviewPanMode(false); }}>Centra</button>
                 </div>
+                <SceneWallEditor scene={selectedScene} disabled={hasDraftChanges||isMutating||isLoading||isPreviewPanMode}
+                  active={wallActive} onActive={(value)=>{setWallActive(value);if(value){setDrawingTool(null);setIsPreviewPanMode(false);}}}
+                  mutate={mutateWall} preview={{host:previewHost,left:previewLeft,top:previewTop,width:previewWidth,height:previewHeight,interactive:!hasDraftChanges,onBeginEdit:()=>{}}}/>
                 <SceneElementEditor
                   sceneId={selectedScene.id}
                   elements={selectedScene.document.elements}
@@ -551,19 +558,19 @@ export function SceneCatalogPanel({
                   previewWidth={previewWidth}
                   previewHeight={previewHeight}
                   canPrepare={!hasDraftChanges && !isMutating && !isLoading && previewScale > 0}
-                  drawingToolActive={drawingTool !== null}
+                  drawingToolActive={drawingTool !== null || wallActive}
                   panMode={isPreviewPanMode}
                   previewZoom={previewZoom}
-                  onBeginEdit={() => { setDrawingTool(null); setIsPreviewPanMode(false); }}
+                  onBeginEdit={() => { setDrawingTool(null); setIsPreviewPanMode(false); setWallActive(false); }}
                   onAdd={addElement}
                   onUpdate={updateElement}
                   onRemove={removeElement}
                 />
                 <div className="scene-catalog__drawing-tools" role="group" aria-label="Disegno della scena">
                   <button type="button" className="scene-catalog__drawing-tool" aria-pressed={drawingTool === 'pencil'}
-                    disabled={isLoading || isMutating || hasDraftChanges} onClick={() => setDrawingTool(drawingTool === 'pencil' ? null : 'pencil')}>✎ <span>Matita</span></button>
+                    disabled={isLoading || isMutating || hasDraftChanges} onClick={() => {setWallActive(false);setDrawingTool(drawingTool === 'pencil' ? null : 'pencil');}}>✎ <span>Matita</span></button>
                   <button type="button" className="scene-catalog__drawing-tool" aria-pressed={drawingTool === 'eraser'}
-                    disabled={isLoading || isMutating || hasDraftChanges} onClick={() => setDrawingTool(drawingTool === 'eraser' ? null : 'eraser')}>⌫ <span>Gomma</span></button>
+                    disabled={isLoading || isMutating || hasDraftChanges} onClick={() => {setWallActive(false);setDrawingTool(drawingTool === 'eraser' ? null : 'eraser');}}>⌫ <span>Gomma</span></button>
                   <div className="scene-catalog__history-tools" role="group" aria-label="Cronologia disegni della scena">
                     <button type="button" className="scene-catalog__drawing-tool" disabled={!canUndoDrawing}
                       title="Annulla l’ultima operazione di disegno (Ctrl+Z)" aria-label="Annulla disegno, Ctrl+Z"
@@ -755,7 +762,7 @@ export function SceneCatalogPanel({
             onCreateEntity={createEncounterEntity} onUpdateEntity={updateEncounterEntity}
             onCreatePlacement={createEncounterPlacement} onUpdatePlacement={updateEncounterPlacement} onRemovePlacement={removeEncounterPlacement}
             placementPreview={{ host: previewHost, left: previewLeft, top: previewTop, width: previewWidth, height: previewHeight,
-              interactive: drawingTool === null && !isPreviewPanMode,
+              interactive: drawingTool === null && !wallActive && !isPreviewPanMode,
               onBeginEdit: () => { setDrawingTool(null); setIsPreviewPanMode(false); } }} />
           </>
         ) : (

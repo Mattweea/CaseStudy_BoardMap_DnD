@@ -180,7 +180,7 @@ test('valid data is cloned and normalized while preserving layer-specific fields
   const source = validScene();
   const normalized = normalizeSceneDocument(source);
 
-  assert.deepEqual(normalized, source);
+  assert.deepEqual(normalized, { ...source, walls: source.walls ?? [] });
   assert.notEqual(normalized, source);
   assert.notEqual(normalized.runtime.tokens[0], source.runtime.tokens[0]);
   assert.equal(normalized.drawings[0].color, '#123456');

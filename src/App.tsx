@@ -428,7 +428,7 @@ function App() {
   const activeTurnToken =
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
   const darkvisionCells = darkvisionToCells(user?.darkvision);
-  const visionBlockers = collectVisionBlockers(state.tokens, state.activeSceneElements, getTokenFootprint);
+  const visionBlockers = collectVisionBlockers(state.tokens, state.activeSceneElements, getTokenFootprint, state.activeSceneWalls);
   const playerVision = !canManageBattleMap && sessionToken && !state.isBoardFullyLit
     ? {
         enabled: true,

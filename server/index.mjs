@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { normalizeSceneDrawings, normalizeSceneElements } from '../shared/scene-model.mjs';
+import { normalizeSceneDrawings, normalizeSceneWalls, normalizeSceneElements } from '../shared/scene-model.mjs';
 import { collectMovementBlockers, footprintsOverlap } from '../shared/scene-blockers.mjs';
 import { normalizeDiceLogDetail } from '../shared/dice-log-normalization.mjs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -115,6 +115,7 @@ const initialSharedState = {
   activeSceneSummary: null,
   activeSceneBackground: { kind: 'blank' },
   activeSceneDrawings: [],
+  activeSceneWalls: [],
   activeSceneElements: [],
   tokens: [],
   diceLogs: [],
@@ -447,6 +448,9 @@ function normalizeSharedState(parsed) {
             isActive: parsed.activeSceneSummary.isActive === true,
           }
         : null,
+    activeSceneWalls: (() => {
+      try { return normalizeSceneWalls(parsed?.activeSceneWalls ?? []); } catch { return []; }
+    })(),
     activeSceneDrawings: (() => {
       try { return normalizeSceneDrawings(parsed?.activeSceneDrawings ?? []); }
       catch { return []; }

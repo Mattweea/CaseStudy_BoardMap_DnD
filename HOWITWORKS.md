@@ -388,6 +388,8 @@ Dopo modifiche lato server, riavvia `npm run dev:server`.
 
 ## Preparare muri, gruppi e schede delle creature
 
+Nel dialog **Preparazione scene**, scegli lo sfondo della mappa e salva la calibrazione prima di tracciarci sopra. Con **Disegna muri**, ripassa le pareti sulla preview: il tratto si conferma al rilascio e `Esc` annulla il gesto. I muri fermano luce e visuale, anche la scurovisione; non aggiungono blocchi al movimento. Puoi cancellare un muro dall'elenco oppure usare **Annulla muro** e **Ripeti muro**.
+
 Nell'encounter, prepara una figura e apri **Figure sulla mappa**. Il campo **Quantità** crea fino a 100 istanze: l'anteprima elenca nomi e posizioni prima della conferma. Un esemplare mantiene il nome base; un gruppo usa i suffissi `1`, `2`, ecc. **Annulla ultima collocazione / lotto** rimuove insieme le istanze dell'ultima operazione compatibile.
 
 ## Terreno esplorato e comandi dei dadi

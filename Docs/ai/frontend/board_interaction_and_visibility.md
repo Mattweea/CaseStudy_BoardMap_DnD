@@ -112,4 +112,6 @@ Check at minimum: single and multi-selection, zoom/pan coordinate accuracy, allo
 
 ## Darkness and explored terrain
 
-`DarknessLayer` renders the opaque black coverage with an inward feather on the union of revealed regions. Never enlarge visibility with strokes or unconstrained blur; unknown pixels remain #000. Union polygons can contain holes and use even-odd SVG paths. `shared/vision.mjs` is the geometry source for both client and server; `src/utils/vision.ts` only re-exports it.
+`DarknessLayer` renders the opaque black coverage with an inward feather on the union of revealed regions. Never enlarge visibility with strokes or unconstrained blur; unknown pixels remain #000. Union polygons can contain holes and use even-odd SVG paths. `shared/vision.mjs` is the geometry source for both client and server; `src/utils/vision.ts` only re-exports it. Wall polylines join the existing vision blockers without becoming rectangular movement blockers.
+
+The Master traces walls in the scene preparation preview using `SceneWallEditor`; guides stay out of the live Player board. Completed gestures submit one versioned write, Escape cancels, and the wall history is separate from drawing/live undo. Use fractional world coordinates, never camera pixels or rounded token cells. Existing background calibration does not rewrite wall coordinates.

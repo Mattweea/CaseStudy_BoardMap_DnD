@@ -18,6 +18,7 @@ export interface PersistedScene extends Scene {
   updatedAt: string;
   isActive: boolean;
   placementHistory?: {canUndo:boolean};
+  wallHistory?: { canUndo: boolean; canRedo: boolean };
   drawingHistory?: { canUndo: boolean; canRedo: boolean };
 }
 
@@ -74,6 +75,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const sceneApi = {
   undoPlacement: (id:string,baseVersion:number)=>request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/placements/undo`,{method:'POST',body:JSON.stringify({baseVersion})}),
+  mutateWall: (id: string, baseVersion: number, operation: 'add'|'remove'|'undo'|'redo', wall?: SceneDrawing, wallId?: string) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/walls${operation==='remove'?`/${encodeURIComponent(wallId ?? '')}`:operation==='add'?'':`/${operation}`}`, {
+    method: operation==='remove'?'DELETE':'POST', body:JSON.stringify({baseVersion,wall}),
+  }),
   list: () => request<{ scenes: SceneCatalogEntry[] }>('/scenes'),
   get: (id: string) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}`),
   create: (name: string) => request<PersistedScene>('/scenes', {

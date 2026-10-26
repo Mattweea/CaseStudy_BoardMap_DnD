@@ -133,6 +133,7 @@ export interface SceneConfigurationDocument {
   background: SceneBackground;
   board: SceneBoardConfig;
   drawings: SceneDrawing[];
+  walls: SceneDrawing[];
   elements: SceneElement[];
   encounters: SceneEncounter[];
   entityReferences: SceneEntityReference[];
@@ -165,3 +166,5 @@ export function projectSceneRuntime(
   configuration: unknown,
   runtime?: SceneRuntime,
 ): SceneDocument;
+
+export function normalizeSceneWalls(value: unknown): SceneDrawing[];
