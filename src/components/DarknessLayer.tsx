@@ -7,10 +7,10 @@ interface DarknessLayerProps {
   paths: string[];
 }
 
-/** Unknown terrain is covered by fully opaque black. */
+/** Feather the union inward: neither the blur nor a stroke may enlarge visibility. */
 export function DarknessLayer({ width, height, cellSize, paths }: DarknessLayerProps) {
   const id = useId().replace(/:/g, '');
-  void cellSize;
+  const feather = cellSize / 4;
   return (
     <svg
       className="board-darkness-layer"
@@ -20,6 +20,19 @@ export function DarknessLayer({ width, height, cellSize, paths }: DarknessLayerP
       aria-hidden="true"
     >
       <defs>
+        <filter
+          id={`${id}-feather`}
+          filterUnits="userSpaceOnUse"
+          x={-feather * 4}
+          y={-feather * 4}
+          width={width + feather * 8}
+          height={height + feather * 8}
+          colorInterpolationFilters="sRGB"
+        >
+          <feMorphology in="SourceGraphic" operator="erode" radius={feather / 2} />
+          <feGaussianBlur stdDeviation={feather / 4} />
+          <feComposite in2="SourceGraphic" operator="in" />
+        </filter>
         <mask
           id={`${id}-mask`}
           maskUnits="userSpaceOnUse"
@@ -30,7 +43,7 @@ export function DarknessLayer({ width, height, cellSize, paths }: DarknessLayerP
           style={{ maskType: 'luminance' }}
         >
           <rect width={width} height={height} fill="white" />
-          <g fill="black">
+          <g fill="black" filter={`url(#${id}-feather)`}>
             {paths.filter(Boolean).map((path, index) => (
               <path key={index} d={path} fillRule="evenodd" />
             ))}

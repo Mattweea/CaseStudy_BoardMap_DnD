@@ -112,4 +112,4 @@ Check at minimum: single and multi-selection, zoom/pan coordinate accuracy, allo
 
 ## Darkness and explored terrain
 
-`DarknessLayer` renders the opaque black coverage over the union of revealed regions. Unknown pixels remain #000. Union polygons can contain holes and use even-odd SVG paths. `shared/vision.mjs` is the geometry source for both client and server; `src/utils/vision.ts` only re-exports it.
+`DarknessLayer` renders the opaque black coverage with an inward feather on the union of revealed regions. Never enlarge visibility with strokes or unconstrained blur; unknown pixels remain #000. Union polygons can contain holes and use even-odd SVG paths. `shared/vision.mjs` is the geometry source for both client and server; `src/utils/vision.ts` only re-exports it.

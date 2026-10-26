@@ -392,6 +392,6 @@ Nell'encounter, prepara una figura e apri **Figure sulla mappa**. Il campo **Qua
 
 ## Terreno esplorato e comandi dei dadi
 
-Con il buio attivo, le zone sconosciute sono nere.
+Con il buio attivo, le zone sconosciute sono nere e il confine verso quelle scoperte è sfumato.
 
 Nella textbox dei dadi puoi scrivere `/r 1d12+5 -n "attacco con ascia"`: il nome appare nel log insieme alla formula e al risultato. `/rs` conserva la stessa sintassi per i tiri segreti. Con **↑** e **↓** richiami i tuoi ultimi comandi riusciti, senza rilanciarli finché non premi Invio; scendendo oltre il più recente ritrovi la bozza. La cronologia resta locale e si azzera uscendo dall'account.
