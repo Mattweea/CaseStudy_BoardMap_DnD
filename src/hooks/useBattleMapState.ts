@@ -1,3 +1,4 @@
+import { normalizeExploredRegions } from '../../shared/explored-regions.mjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { collectDiceDeliveries } from '../../shared/dice-3d-presentation.mjs';
 import { normalizeDiceLogDetail } from '../../shared/dice-log-normalization.mjs';
@@ -144,6 +145,7 @@ const initialSharedState: BattleMapSharedState = {
   activeSceneBackground: { kind: 'blank' },
   activeSceneDrawings: [],
   activeSceneWalls: [],
+  exploredRegions: [],
   activeSceneElements: [],
   tokens: [],
   diceLogs: [],
@@ -387,6 +389,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
       parsed?.activeSceneBackground,
       typeof parsed?.activeSceneId === 'string' ? parsed.activeSceneId : null,
     ),
+    exploredRegions: normalizeExploredRegions(parsed?.exploredRegions),
     activeSceneWalls: (() => {
       try { return normalizeSceneWalls(parsed?.activeSceneWalls ?? []); } catch { return []; }
     })(),

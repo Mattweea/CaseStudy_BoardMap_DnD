@@ -71,10 +71,12 @@ function applyDrawingCommand(drawings, command) {
 }
 
 export class SceneService {
-  constructor({ repository, campaignId, validateScene = null }) {
+  constructor({ repository, campaignId, validateScene = null, onPersist = null, onActivate = null }) {
     this.repository = repository;
     this.campaignId = campaignId;
     this.validateScene = validateScene;
+    this.onPersist = onPersist;
+    this.onActivate = onActivate;
     this.scenes = new Map();
     this.activeSceneId = null;
     this.drawingHistory = new Map();
@@ -126,7 +128,8 @@ export class SceneService {
       this.validateScene?.({ ...previous, document: normalizeSceneDocument(document) });
     }
 
-    const persisted = this.repository.saveVersion({
+    const persist = () => {
+      const persisted = this.repository.saveVersion({
       id,
       campaignId: this.campaignId,
       expectedVersion,
@@ -134,6 +137,10 @@ export class SceneService {
       document,
       sortOrder,
     });
+      if (persisted) this.onPersist?.(persisted);
+      return persisted;
+    };
+    const persisted = this.repository.db ? this.repository.db.transaction(persist)() : persist();
     if (!persisted) {
       const current = this.repository.findById(id);
       if (current && !sameDrawings(previous.document.drawings, current.document.drawings)) {
@@ -484,9 +491,14 @@ export class SceneService {
     return updated;
   }
 
-  activateScene({ id, expectedVersion }) {
+  activateScene({ id, expectedVersion, preparedState = null }) {
     const current = this.versionedScene(id, expectedVersion);
-    const persisted = this.repository.setActiveScene(this.campaignId, current.id);
+    const activate = () => {
+      const scene = this.repository.setActiveScene(this.campaignId, current.id);
+      if (scene) this.onActivate?.(scene, preparedState);
+      return scene;
+    };
+    const persisted = this.repository.db ? this.repository.db.transaction(activate)() : activate();
     if (!persisted) throw new SceneNotFoundError(id);
     this.activeSceneId = persisted.id;
     return clone(persisted);

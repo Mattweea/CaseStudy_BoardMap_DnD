@@ -158,7 +158,7 @@ export function registerSceneRoutes(app, {
         reply.code(prepared.status);
         return { message: prepared.message };
       }
-      const scene = service.activateScene({ id: target.id, expectedVersion: body.baseVersion });
+      const scene = service.activateScene({ id: target.id, expectedVersion: body.baseVersion, preparedState: prepared?.state });
       onSceneActivated?.(scene, prepared);
       return sceneDetail(scene);
     } catch (error) {

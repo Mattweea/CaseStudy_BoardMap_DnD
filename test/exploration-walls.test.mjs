@@ -9,6 +9,7 @@ import { migrate } from '../database/migrator.mjs';
 import { SceneRepository } from '../server/scene-repository.mjs';
 import { SceneService } from '../server/scene-service.mjs';
 import { SceneWalls } from '../server/scene-walls.mjs';
+import { ExplorationService } from '../server/exploration-service.mjs';
 import { createDefaultSceneDocument, normalizeSceneWalls } from '../shared/scene-model.mjs';
 import { firstWallIntersection } from '../shared/vision-walls.mjs';
 import { visibleRegions, asRegion } from '../shared/explored-regions.mjs';
@@ -83,6 +84,44 @@ test('wall history is separate, persists and invalid/stale writes are atomic', a
   assert.deepEqual(new SceneWalls(service).state('scene'), { canUndo: false, canRedo: false });
   assert.throws(() => normalizeSceneWalls([{ ...wall, points: [{ x: 1, y: 1 }] }]));
 });
+test('explored corridors survive returning, reload and a different scene; complete light does not explore', async (t) => {
+  const { db, repository } = await fixture(t);
+  repository.create({ id: 'other', campaignId: 'campaign', name: 'Altra', document: createDefaultSceneDocument() });
+  const profiles = [{ id: 'hero', key: 'hero', role: 'adventurer', darkvision: '6 m' }];
+  const memory = new ExplorationService(db, profiles);
+  const state = {
+    activeSceneId: 'scene',
+    tokens: [token],
+    activeSceneElements: [],
+    activeSceneWalls: [],
+    lightSources: [],
+    isBoardFullyLit: false,
+  };
+  memory.remember({ ...state, tokens: [{ ...token, position: { x: 12, y: 1 } }] }, [
+    { id: 'hero', position: { x: 5, y: 1 } },
+    { id: 'hero', position: { x: 8, y: 1 } },
+  ]);
+  const first = memory.read('scene');
+  assert.equal(includes(first.regions, 8.5, 1.5), true);
+  memory.remember(state);
+  assert.equal(includes(memory.read('scene').regions, 12.5, 1.5), true);
+  const reopened = new ExplorationService(db, profiles);
+  assert.deepEqual(reopened.read('scene'), memory.read('scene'));
+  assert.deepEqual(reopened.read('other').regions, []);
+  memory.remember({ ...state, activeSceneId: 'other', isBoardFullyLit: true });
+  assert.deepEqual(memory.read('other').regions, []);
+});
+test('memory persistence failure never changes saved exploration', async (t) => {
+  const { db } = await fixture(t);
+  const memory = new ExplorationService(db, [{ id: 'hero', role: 'adventurer', darkvision: '6 m' }]);
+  const state = { activeSceneId: 'scene', tokens: [token], activeSceneElements: [], lightSources: [] };
+  memory.remember(state);
+  const before = memory.read('scene');
+  db.exec(`CREATE TRIGGER fail_exploration BEFORE UPDATE ON explored_regions BEGIN SELECT RAISE(ABORT,'failure'); END`);
+  assert.throws(() => memory.remember({ ...state, tokens: [{ ...token, position: { x: 15, y: 15 } }] }));
+  assert.deepEqual(memory.read('scene'), before);
+});
+
 test('wall endpoint authorization and stale mutations preserve the active scene',async t=>{
  const {service}=await fixture(t);
  const {default:Fastify}=await import('fastify');

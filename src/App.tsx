@@ -1724,6 +1724,7 @@ function App() {
           isBoardLightPending={isBoardLightPending}
           background={state.activeSceneBackground}
           drawings={state.activeSceneDrawings}
+          exploredRegions={state.exploredRegions}
           elements={state.activeSceneElements}
           dimensions={state.boardDimensions}
           vision={playerVision}
@@ -1815,6 +1816,7 @@ function App() {
             isBoardLightPending={isBoardLightPending}
             background={state.activeSceneBackground}
             drawings={state.activeSceneDrawings}
+          exploredRegions={state.exploredRegions}
             elements={state.activeSceneElements}
             dimensions={state.boardDimensions}
             vision={playerVision}

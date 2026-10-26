@@ -1,3 +1,4 @@
+import { ExplorationService } from './exploration-service.mjs';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
@@ -896,6 +897,7 @@ function nextSnapshot(user = null) {
   return {
     state: {
       ...buildSceneStateView(sanitizedState, user, sceneService),
+      exploredRegions: explorationService?.read(battleMapState.activeSceneId)?.regions ?? [],
       turnNotice: getTurnNotice(user),
     },
     version: battleMapVersion,
@@ -1262,7 +1264,7 @@ function validateActiveTokenIdentity(tokens, ownSceneId = battleMapState.activeS
 }
 
 function commitBattleMapState(nextState, options = {}) {
-  const { recordMasterUndo = false, validate = true } = options;
+  const { recordMasterUndo = false, validate = true, travels = [] } = options;
 
   if (recordMasterUndo) {
     pushMasterUndoState();
@@ -1286,6 +1288,11 @@ function commitBattleMapState(nextState, options = {}) {
     };
   }
 
+  try { explorationService?.remember(normalizedState, travels); }
+  catch (error) {
+    if (recordMasterUndo) masterUndoStack.pop();
+    return {status:500,message:`Esplorazione non salvata: ${error.message}`,snapshot:nextSnapshot()};
+  }
   if (normalizedState.activeTurnTokenId !== battleMapState.activeTurnTokenId) turnTransitionId += 1;
   battleMapState = normalizedState;
   bumpBattleMapVersion();
@@ -1765,12 +1772,26 @@ function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
     };
   }
 
+  const travels = [];
+  for (let i=1;i<waypoints.length;i++) {
+    const from=waypoints[i-1],to=waypoints[i];
+    const steps=Math.max(1,Math.ceil(Math.max(Math.abs(to.x-from.x),Math.abs(to.y-from.y))));
+    for(let step=0;step<=steps;step++) {
+      const position={x:from.x+(to.x-from.x)*step/steps,y:from.y+(to.y-from.y)*step/steps};
+      travels.push({id:token.id,position});
+      if(token.type==='vehicle') for(const occupant of battleMapState.tokens.filter(t=>t.containedInVehicleId===token.id))
+        travels.push({id:occupant.id,position:{x:position.x+occupant.position.x-token.position.x,y:position.y+occupant.position.y-token.position.y}});
+    }
+  }
   if (user.role === 'master') {
-    const result = commitBattleMapState(nextState, { recordMasterUndo: true, validate: false });
+    const result = commitBattleMapState(nextState, { recordMasterUndo: true, validate: false, travels });
+    if (result.status && result.status !== 200) return result;
     broadcastTokenWalk(token, waypoints, showTrack);
     return result;
   }
 
+  try { explorationService?.remember(nextState, travels); }
+  catch (error) { return {status:500,message:`Esplorazione non salvata: ${error.message}`,snapshot:nextSnapshot()}; }
   battleMapState = nextState;
   if (user.role !== 'master') {
     pushPlayerUndoAction(user.id, {
@@ -2291,6 +2312,7 @@ function undoLastAction(user) {
 
 const sessionStore = new Map();
 let database;
+let explorationService = null;
 let userRepository;
 let authService;
 const characterSheetPolicy = new CharacterSheetPolicy();
@@ -2415,10 +2437,12 @@ function ensureCharacterTokenForUser(user) {
       profile.spawnPosition,
     );
 
-    battleMapState = normalizeSharedState({
+    const candidate = normalizeSharedState({
       ...battleMapState,
       tokens: [...battleMapState.tokens, { ...spawnToken, position: spawnPosition }],
     });
+    explorationService?.remember(candidate);
+    battleMapState = candidate;
     bumpBattleMapVersion();
     broadcastSnapshot();
     return;
@@ -2440,10 +2464,12 @@ function ensureCharacterTokenForUser(user) {
     characterKey: profile.key,
   };
 
-  battleMapState = normalizeSharedState({
+  const candidate = normalizeSharedState({
     ...battleMapState,
     tokens: nextTokens,
   });
+  explorationService?.remember(candidate);
+  battleMapState = candidate;
   bumpBattleMapVersion();
   broadcastSnapshot();
 }
@@ -2640,6 +2666,7 @@ app.post('/api/scenes/party-transfer/commit', async (request, reply) => {
     }
     const { source, plan, nextState } = preparePartyTransfer(request.body);
     partyTransferBeforePublish?.();
+    explorationService?.remember(nextState);
     inactiveSceneTokens.set(source.id, structuredClone(plan.remaining));
     battleMapState = nextState;
     masterUndoStack.length = 0;
@@ -2682,7 +2709,7 @@ app.post('/api/scenes/party-transition/commit', async (request, reply) => {
     const { source, target, plan, nextState } = preparePartySceneTransition(request.body);
     const remaining = structuredClone(plan.remaining);
     partyTransferBeforePublish?.();
-    sceneService.activateScene({ id: target.id, expectedVersion: target.version });
+    sceneService.activateScene({ id: target.id, expectedVersion: target.version, preparedState: nextState });
     inactiveSceneTokens.set(source.id, remaining);
     inactiveSceneTokens.delete(target.id);
     battleMapState = nextState;
@@ -3322,7 +3349,14 @@ async function start() {
   await loadPersistedSessionMetadata();
   try {
     bootstrapScenes(database, { legacySnapshot: lastSessionSnapshot });
+    explorationService = new ExplorationService(database, CHARACTER_PROFILES);
     sceneService = new SceneService({
+      onPersist: (scene) => {
+        if(scene.id!==battleMapState.activeSceneId)return;
+        const tokens=encounterPlacementRuntime.project(scene,battleMapState.tokens);
+        explorationService.remember(normalizeSharedState(installActiveSceneProjection({...battleMapState,tokens},scene)));
+      },
+      onActivate: (_scene,state) => {if(state)explorationService.remember(state);},
       repository: new SceneRepository(database),
       campaignId: 'local-campaign',
       validateScene: validateScenePreparation,
@@ -3414,6 +3448,7 @@ export const __testing = {
   // Un test costruisce un CharacterSheetService di scena e deve poterlo collegare al token come
   // fa `start()` in produzione, per esercitare la proiezione scheda -> token end-to-end.
   projectCharacterSheetToToken,
+  setExplorationService: (service) => { explorationService = service; },
   setSceneService: (service) => {
     inactiveSceneTokens.clear();
     encounterPlacementRuntime.clear();

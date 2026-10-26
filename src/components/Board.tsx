@@ -1,4 +1,4 @@
-import { regionPaths, visibleRegions } from '../../shared/explored-regions.mjs';
+import { regionPaths, mergeRegions, visibleRegions, type ExploredRegions } from '../../shared/explored-regions.mjs';
 import { DarknessLayer } from './DarknessLayer';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -76,6 +76,7 @@ function formatRulerMeasurement(cells: number, unit: MeasurementUnit): string {
 }
 
 interface BoardProps {
+  exploredRegions?: ExploredRegions;
   sceneId: string | null;
   tokens: UnitToken[];
   portraitUrlsByOwnerId?: Record<string, string>;
@@ -470,6 +471,7 @@ export function Board({
   isBoardLightPending = false,
   background = { kind: 'blank' },
   drawings = [],
+  exploredRegions = [],
   elements = [],
   dimensions = { columns: 30, rows: 30 },
   vision = null,
@@ -2418,7 +2420,7 @@ export function Board({
 
             {effectiveVision ? <DarknessLayer width={width} height={height}
               cellSize={BOARD_CONFIG.cellSize * zoom}
-              paths={regionPaths(visibleRegions(effectiveVision.sourceToken, effectiveVision.radiusCells, effectiveVision.blockers, lightSources), camera, BOARD_CONFIG.cellSize * zoom)} /> : null}
+              paths={regionPaths(mergeRegions(exploredRegions, visibleRegions(effectiveVision.sourceToken, effectiveVision.radiusCells, effectiveVision.blockers, lightSources)), camera, BOARD_CONFIG.cellSize * zoom)} /> : null}
 
             {canManageTokens && (lightPolygonPaths.length > 0 || lightPreviewPolygonPath) ? (
               <svg

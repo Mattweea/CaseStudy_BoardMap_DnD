@@ -37,3 +37,9 @@ Define the stable connection, schema-evolution, safety, and verification rules f
 ## Verification
 
 Use a unique temporary `VTT_DB_PATH`, never the developer database. Verify fresh migration, a second no-op migration, status, rollback, reapplication, foreign keys, checksum protection, failure atomicity, data survival after reopen, and any new repository concurrency rule. Scene changes additionally verify cross-campaign active-scene rejection, stale-write behavior and idempotent legacy bootstrap. Run `npm test`; schema work also requires the applicable strict OpenSpec validation when a change is in scope.
+
+## Explored geometry
+
+`explored_regions` is a separate scene-keyed durable union with an independent revision. Updates use SQLite transactions and preserve holes; its rows do not imply full multi-scene runtime durability. Scene cache updates occur only after transactional persistence hooks succeed. Missing legacy memory begins empty. Wall polylines remain inside the versioned scene JSON and do not require rewriting historical migrations.
+
+Code rollback must account for migration history: the migrator rejects an applied migration whose file has been removed. Before reverting commits that remove applied migrations, stop database writers, take a restorable SQLite backup and inspect `db:status`. Run the applicable rollback while the migration files are still present. `db:rollback` reverses the entire latest batch; exploration and creature migrations may belong to the same batch. Their `down` functions drop feature tables, so a Git revert alone cannot restore their data; retain the backup for recovery. Never change an applied migration to bypass checksum validation.

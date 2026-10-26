@@ -149,4 +149,8 @@ For state-shape changes, verify an empty/default state, an older partial snapsho
 
 ## Explored-map memory and walls
 
-Wall polylines are scene configuration in `walls` (legacy default `[]`) and project as `activeSceneWalls`. They only affect visibility/light; do not derive movement collisions from the line's bounding box. `SceneWalls` owns a separate, process-local history capped at 40 per scene.
+Wall polylines are scene configuration in `walls` (legacy default `[]`) and project as `activeSceneWalls`. They only affect visibility/light; do not derive movement collisions from the line's bounding box. `SceneWalls` owns a separate, process-local history capped at 40 per scene. Scene writes call persistence hooks inside the repository transaction before updating the cached document.
+
+`ExplorationService` owns the SQLite `explored_regions` union for each scene. Only canonical PGs contribute; accepted path steps and transported PGs contribute actual traversed positions, while direct relocations reveal the destination. Rejected moves, previews and temporary full lighting do not explore. Exploration is monotonic and is not rolled back by movement undo or an older session snapshot. The union is sparse polygon geometry with holes, computed with the same shared vision rules as presentation. It is separate from the scene preparation version and from full runtime recovery.
+
+Movement persists its candidate exploration before replacing live state or broadcasting. Read-only snapshots deliver only the active scene's memory; clients cannot replace it through a full-state commit. Rendering remembered terrain does not grant live sight of creatures.
