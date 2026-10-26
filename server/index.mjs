@@ -1,3 +1,6 @@
+import { applyConditionChange } from '../shared/token-conditions.mjs';
+import { CreatureSheetService } from './creature-sheet-service.mjs';
+import { registerCreatureSheetRoutes } from './creature-sheet-routes.mjs';
 import { ExplorationService } from './exploration-service.mjs';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
@@ -148,6 +151,7 @@ const INITIATIVE_ROLL_MODES = new Set(['normal', 'advantage', 'disadvantage']);
 // lo consulta per ricavare il modificatore di Destrezza dalla scheda collegata a un token.
 let characterSheetService;
 let sceneService;
+let creatureSheetService = null;
 let battleMapState = normalizeSharedState(initialSharedState);
 let battleMapVersion = 1;
 // Il runtime della scena attiva vive in battleMapState; questa mappa contiene solo scene inattive.
@@ -265,7 +269,7 @@ function normalizeSharedState(parsed) {
       }
     }
   }
-  const tokens = Array.isArray(parsed?.tokens)
+  let tokens = Array.isArray(parsed?.tokens)
     ? parsed.tokens.map((token) => {
         // `aura` (singolare) è una forma pre-P0.8 mai più scritta; `auras` in ingresso, in ogni
         // forma, è comunque ignorato più sotto e ricalcolato da resolveTokenAuras.
@@ -327,6 +331,7 @@ function normalizeSharedState(parsed) {
         };
       })
     : initialSharedState.tokens;
+  if (creatureSheetService) tokens = creatureSheetService.projectTokens(tokens, parsed?.activeSceneId ?? sceneService?.getActiveScene?.()?.id);
   // Modalità di sessione (P0.8a). Uno snapshot precedente non ha `sessionMode`: con voci
   // d'iniziativa è un incontro in corso (a round avviato se c'è un turno attivo), senza voci è
   // esplorazione. Le invarianti per modalità valgono per ogni stato, legacy o no.
@@ -1459,8 +1464,17 @@ const EXPLORATION_ROLL_ERROR =
 // Il gestore è sincrono dal controllo alla commit, quindi due richieste per lo stesso token si
 // serializzano e la seconda trova la voce già presente. Nessun undo: il Master corregge con
 // modifica o rimozione della voce.
+function creatureInitiativeSheet(user, tokenId) {
+  const token = battleMapState.tokens.find(t=>t.id===tokenId);
+  if(user.role!=='master'||!token?.creatureSheetId||!creatureSheetService)return null;
+  const record=creatureSheetService.get(user,token.creatureSheetId);
+  if(record.kind==='character')return record;
+  if(!/^\d+$/.test(record.data.dexterity))return null;
+  return {data:{character:{abilities:{dexterity:{score:record.data.dexterity}},initiativeMiscBonus:'',initiativeRollMode:'normal'}}};
+}
+
 function commitInitiativeRoll(user, tokenId, requestedMode) {
-  const result = rollInitiative({ user, state: battleMapState, service: characterSheetService, tokenId, requestedMode });
+  const result = rollInitiative({ user, state: battleMapState, service: characterSheetService, tokenId, requestedMode, creatureSheet: creatureInitiativeSheet(user,tokenId) });
   if (result.error) return { status: result.status, message: result.error };
   return commitBattleMapState({
     ...battleMapState,
@@ -1482,7 +1496,7 @@ function commitInitiativeRollAll(user) {
   for (const token of battleMapState.tokens) {
     if (!isCreatureToken(token) || token.excludeFromInitiative === true) continue;
     if (workingState.initiatives.some((entry) => entry.tokenId === token.id)) continue;
-    const result = rollInitiative({ user, state: workingState, service: characterSheetService, tokenId: token.id });
+    const result = rollInitiative({ user, state: workingState, service: characterSheetService, tokenId: token.id, creatureSheet: creatureInitiativeSheet(user,token.id) });
     if (result.error) {
       skipped.push(token.name);
       continue;
@@ -1961,18 +1975,6 @@ function addExtraMovement(user, tokenId, amount) {
 // imposta il livello di Indebolimento, applicata alle condizioni correnti del token invece di
 // sostituire l'intero elenco. Autorizzato per il Master su ogni token, e per l'Adventurer sui
 // propri token, famiglio compreso (stesso `ownerUserId` di un personaggio normale).
-function applyConditionChange(token, type, condition) {
-  const catalog = conditionCatalogFor(token.type);
-  const current = Array.isArray(token.conditions) ? token.conditions : [];
-  if (typeof condition !== 'string' || !catalog.includes(condition)) return null;
-  if (type === 'add') {
-    const added = current.includes(condition) ? [] : [condition];
-    if (added.length && condition === 'unconscious' && !current.includes('prone')) added.push('prone');
-    return { conditions: [...current, ...added], added, removed: [] };
-  }
-  const removed = current.includes(condition) ? [condition] : [];
-  return { conditions: current.filter((entry) => entry !== condition), added: [], removed };
-}
 
 function applyTokenCondition(user, tokenId, op) {
   const token = battleMapState.tokens.find((entry) => entry.id === tokenId);
@@ -2782,6 +2784,18 @@ app.post('/api/battle-map/rolls', async (request, reply) => {
   }
 
   const body = request.body ?? {};
+  if (typeof body.source?.sheetId === 'string' && body.source.sheetId.startsWith('creature:')) {
+    if (!creatureSheetService || user.role !== 'master') return reply.code(403).send({message:'Tiro creatura riservato al Master.'});
+    try {
+      const record = creatureSheetService.get(user,body.source.sheetId);
+      if (record.sceneId !== battleMapState.activeSceneId) return reply.code(409).send({message:'La creatura non è nella scena attiva.'});
+      if (body.source.target === 'initiative') return sendMutationResult(reply,user,commitInitiativeRoll(user,record.tokenId,record.kind==='character'?record.data.character.initiativeRollMode:undefined));
+      const result=creatureSheetService.roll(user,record.id,body);
+      if(result.error)return reply.code(400).send({message:result.error,...nextSnapshot(user)});
+      return appendDiceLog(user,result.log);
+    } catch(error){return reply.code(error.status??400).send({message:error.message,...nextSnapshot(user)});}
+  }
+
   // Il bersaglio Iniziativa della scheda è il tiro d'iniziativa autorevole: scrive il tracker e
   // ignora l'interruttore segreto della scheda (la visibilità la decide il modulo d'iniziativa).
   if (body.source?.target === 'initiative') {
@@ -3374,6 +3388,15 @@ async function start() {
   await portraitStorage.initialize();
   await sceneBackgroundStorage.initialize();
   await registerCharacterSheetRoutes(app, { service: characterSheetService, portraitStorage, getUser: getSessionUser });
+  creatureSheetService = new CreatureSheetService({db:database,sceneService,
+    getTokens:(id)=>id===battleMapState.activeSceneId?battleMapState.tokens:inactiveSceneTokens.get(id)??[],
+    project:()=>{battleMapState=normalizeSharedState(battleMapState);bumpBattleMapVersion();broadcastSnapshot();},
+    emit:(event)=>{for(const client of streamClients){if(client.user?.role!=='master')continue;
+      try{client.write(`event: creature-sheet-saved\ndata: ${JSON.stringify(event)}\n\n`);}catch{streamClients.delete(client);}}},
+  });
+  battleMapState = normalizeSharedState(battleMapState);
+  registerCreatureSheetRoutes(app,{service:creatureSheetService,getUser:getSessionUser,portraitStorage,
+    canViewPortrait:(user,id)=>nextSnapshot(user).state.tokens.some(t=>t.imageUrl?.startsWith(`/api/creature-sheets/${id}/portrait`))});
   registerSceneRoutes(app, {
     service: sceneService,
     getUser: getSessionUser,
@@ -3448,6 +3471,7 @@ export const __testing = {
   // Un test costruisce un CharacterSheetService di scena e deve poterlo collegare al token come
   // fa `start()` in produzione, per esercitare la proiezione scheda -> token end-to-end.
   projectCharacterSheetToToken,
+  setCreatureSheetService: (service) => { creatureSheetService = service; },
   setExplorationService: (service) => { explorationService = service; },
   setSceneService: (service) => {
     inactiveSceneTokens.clear();

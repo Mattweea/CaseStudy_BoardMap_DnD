@@ -275,4 +275,8 @@ Verifica struttura, raggiungibilita e link della documentazione con:
 npm run docs:check
 ```
 
+## Muri, esplorazione e creature del Master
+
+La preparazione scena permette di ricalcare muri che bloccano luce e visuale e di collocare gruppi con quantità e nomi progressivi. Il terreno esplorato resta visibile per il party, mentre quello sconosciuto resta nero con un bordo sfumato. Le creature del Master possono usare schede condivise: scheda personaggio per PG/PNG e blocco statistiche per mostri, con conferma dei destinatari al salvataggio. La textbox dei dadi supporta cronologia con ↑/↓ e nomi tramite `-n "nome"`. La procedura è in [HOWITWORKS.md](./HOWITWORKS.md).
+
 Per lo sviluppo usa la versione Node indicata in `.nvmrc`, installa con `npm ci` e applica le migrazioni con `npm run db:migrate` prima di avviare il backend.

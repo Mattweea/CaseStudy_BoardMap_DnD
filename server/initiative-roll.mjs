@@ -36,7 +36,7 @@ function readLinkedSheet(user, token, service) {
   return service.get(user, sheetId);
 }
 
-export function rollInitiative({ user, state, service, tokenId, requestedMode, nextUint32 = nextCryptoUint32 }) {
+export function rollInitiative({ user, state, service, tokenId, requestedMode, creatureSheet = null, nextUint32 = nextCryptoUint32 }) {
   if (state.sessionMode !== 'combat') {
     return { status: 400, error: "La sessione è in Esplorazione: il tiro d'iniziativa si abilita quando il Master avvia il combattimento." };
   }
@@ -58,7 +58,7 @@ export function rollInitiative({ user, state, service, tokenId, requestedMode, n
 
   let sheet;
   try {
-    sheet = readLinkedSheet(user, token, service);
+    sheet = creatureSheet ?? readLinkedSheet(user, token, service);
   } catch (error) {
     return { status: 400, error: error instanceof CharacterSheetError ? error.message : 'Impossibile leggere la scheda.' };
   }

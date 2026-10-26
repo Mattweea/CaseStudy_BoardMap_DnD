@@ -151,6 +151,7 @@ export interface TokenAura {
 }
 
 export interface UnitToken {
+  creatureSheetId?: string;
   id: string;
   name: string;
   type: TokenType;

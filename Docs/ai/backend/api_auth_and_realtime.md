@@ -86,4 +86,10 @@ Master-only `/api/scenes/:id/walls` supports POST of a complete wall and DELETE 
 
 Free-roll `/api/battle-map/rolls` accepts optional `name` (1–120 Unicode characters after trim, no controls); validate it before generating dice. A name cannot alter author, formula, source, or public/secret recipients. Legacy logs without a name remain valid. Roll names are plain text and must never be rendered as HTML.
 
+## Creature-sheet endpoints
+
+`/api/creature-sheets/context` resolves the Master editing context for a scene/token. POST `/bindings` explicitly creates or assigns a compatible definition, optionally to related placements. GET `/bindings/:id` returns the composed document; POST `/bindings/:id/preview` returns current recipients and their signature without writing; PUT `/bindings/:id` requires both versions, signature and scope (`one` or `all`). DELETE unlinks a binding; deleting `/api/creature-sheets/:id` rejects referenced definitions. Documents and mutations are Master-only. Managed portrait delivery additionally permits a participant whose sanitized active view contains the corresponding token.
+
+The existing `/api/battle-map/rolls` dispatches `creature:` binding sources only for the Master and the active scene. Initiative uses the bound token; other actions use the stored creature document and preserve normal roll visibility filtering. No client-supplied formula replaces a stored creature action. `creature-sheet-saved` is emitted only to Master stream clients.
+
 Scene details expose `placementHistory.canUndo`; Master-only POST `/api/scenes/:id/placements/undo` atomically reverses the last compatible placement mutation, including a whole batch. This history is process-local, capped at 40, and separate from drawing and live-state undo.

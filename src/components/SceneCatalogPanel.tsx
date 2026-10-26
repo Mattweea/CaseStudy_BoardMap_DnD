@@ -48,11 +48,12 @@ function sceneCalibration(scene: ReturnType<typeof useSceneCatalog>['selectedSce
 }
 
 interface SceneCatalogPanelProps {
+  onOpenCreatureSheet?: (sceneId:string,tokenId:string)=>void;
   isActiveSceneBackgroundHidden: boolean;
   onActiveSceneBackgroundVisibilityChange: (hidden: boolean) => Promise<void>;
 }
 
-export function SceneCatalogPanel({
+export function SceneCatalogPanel({ onOpenCreatureSheet,
   isActiveSceneBackgroundHidden,
   onActiveSceneBackgroundVisibilityChange,
 }: SceneCatalogPanelProps) {
@@ -757,7 +758,7 @@ export function SceneCatalogPanel({
               </button>
             </div>
           </form>
-          <SceneEncounterSection onUndoPlacement={undoPlacement} scene={selectedScene} disabled={isMutating || isLoading || hasDraftChanges} error={error}
+          <SceneEncounterSection onOpenSheet={(tokenId)=>onOpenCreatureSheet?.(selectedScene.id,tokenId)} onUndoPlacement={undoPlacement} scene={selectedScene} disabled={isMutating || isLoading || hasDraftChanges} error={error}
             onCreate={createEncounter} onUpdate={updateEncounter} onRemove={removeEncounter}
             onCreateEntity={createEncounterEntity} onUpdateEntity={updateEncounterEntity}
             onCreatePlacement={createEncounterPlacement} onUpdatePlacement={updateEncounterPlacement} onRemovePlacement={removeEncounterPlacement}

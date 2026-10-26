@@ -327,6 +327,7 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
           ownerUserId: typeof token.ownerUserId === 'string' ? token.ownerUserId : null,
           characterKey: typeof token.characterKey === 'string' ? token.characterKey : null,
           groupId: typeof token.groupId === 'string' ? token.groupId : null,
+          creatureSheetId: typeof token.creatureSheetId === 'string' ? token.creatureSheetId : undefined,
           hitPoints: typeof token.hitPoints === 'number' ? token.hitPoints : null,
           maxHitPoints: typeof token.maxHitPoints === 'number' ? token.maxHitPoints : null,
           temporaryHitPoints: typeof token.temporaryHitPoints === 'number' ? token.temporaryHitPoints : null,

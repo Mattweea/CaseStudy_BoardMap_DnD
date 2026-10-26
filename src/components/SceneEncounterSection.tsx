@@ -19,7 +19,7 @@ interface SceneEncounterSectionProps extends EncounterPlacementActions {
   placementPreview: PlacementPreview;
 }
 
-export function SceneEncounterSection({ onUndoPlacement, scene, disabled, error, onCreate, onUpdate, onRemove,
+export function SceneEncounterSection({ onOpenSheet, onUndoPlacement, scene, disabled, error, onCreate, onUpdate, onRemove,
   onCreateEntity, onUpdateEntity, placementPreview, onCreatePlacement, onUpdatePlacement, onRemovePlacement }: SceneEncounterSectionProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EncounterDraft>(EMPTY_DRAFT);
@@ -127,7 +127,7 @@ export function SceneEncounterSection({ onUndoPlacement, scene, disabled, error,
     </div>
     {selected ? <SceneEncounterEntitySection scene={scene} encounterId={selected.id} disabled={disabled}
       onCreate={onCreateEntity} onUpdate={onUpdateEntity} /> : null}
-    {selected ? <SceneEncounterPlacementSection onUndoPlacement={onUndoPlacement} scene={scene} encounterId={selected.id} disabled={disabled}
+    {selected ? <SceneEncounterPlacementSection onOpenSheet={onOpenSheet} onUndoPlacement={onUndoPlacement} scene={scene} encounterId={selected.id} disabled={disabled}
       preview={placementPreview} onCreatePlacement={onCreatePlacement} onUpdatePlacement={onUpdatePlacement}
       onRemovePlacement={onRemovePlacement} /> : null}
     {error ? <p className="scene-catalog__error" role="alert">{error}</p> : null}

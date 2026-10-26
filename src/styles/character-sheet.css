@@ -599,3 +599,24 @@ input.resource-block__caption::placeholder { color: var(--sheet-muted); }
 .initiative-mode__badge--disadvantage { color: oklch(98% .01 30); background: var(--sheet-hp-danger); }
 .framed-value--roll-disabled[data-roll-source] { cursor: not-allowed; opacity: .72; }
 .framed-value--roll-disabled[data-roll-source]:hover { background-color: transparent; box-shadow: none; }
+
+/* The monster sheet uses the same surfaces and fields, with a compact stat-block flow. */
+.monster-stat-block { display: grid; gap: 1rem; }
+.monster-stat-block h3 { color: var(--sheet-ember); border-bottom: 2px solid var(--sheet-ember-deep); padding-bottom: .5rem; }
+.monster-stat-block__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.monster-stat-block__action { border-bottom: 1px solid var(--sheet-line); margin-bottom: 1rem; padding-bottom: 1rem; }
+.monster-stat-block__portrait { max-width: 100%; max-height: 12rem; object-fit: contain; }
+@media (max-width: 600px) { .monster-stat-block__fields { grid-template-columns: minmax(0, 1fr); } }
+
+.creature-sheet-window { display: flex; flex-direction: column; }
+.creature-sheet-window > .character-sheet-window__scroll { flex: 1; min-height: 0; }
+.modal-backdrop.creature-sheet-confirm { z-index: 90; }
+
+.creature-sheet-draft { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+.creature-sheet-window select { color: var(--sheet-ink); background: var(--sheet-well); border: 1px solid var(--sheet-line); border-radius: 4px; padding: .45rem; }
+.creature-sheet-window > .character-sheet-window__bar { flex-wrap: wrap; }
+
+.monster-stat-block__abilities { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .5rem; text-align: center; }
+.monster-stat-block__abilities output { color: var(--sheet-ember); font-weight: 700; }
+@media (max-width: 600px) { .monster-stat-block__abilities { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

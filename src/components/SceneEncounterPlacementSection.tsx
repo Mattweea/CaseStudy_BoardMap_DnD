@@ -17,6 +17,7 @@ export interface PlacementPreview {
 }
 
 export interface EncounterPlacementActions {
+  onOpenSheet?: (tokenId:string)=>void;
   onUndoPlacement?: ()=>Promise<boolean>;
   onCreatePlacement: (encounterId: string, placement: EncounterPlacementInput) => Promise<boolean>;
   onUpdatePlacement: (encounterId: string, placementId: string, placement: EncounterPlacementInput) => Promise<boolean>;
@@ -35,7 +36,7 @@ function payloadOf(draft: Draft): EncounterPlacementInput {
 }
 
 export function SceneEncounterPlacementSection({ scene, encounterId, disabled, preview,
-  onUndoPlacement, onCreatePlacement, onUpdatePlacement, onRemovePlacement }: EncounterPlacementActions & {
+  onOpenSheet, onUndoPlacement, onCreatePlacement, onUpdatePlacement, onRemovePlacement }: EncounterPlacementActions & {
     scene: PersistedScene; encounterId: string; disabled: boolean; preview: PlacementPreview;
   }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -138,7 +139,7 @@ export function SceneEncounterPlacementSection({ scene, encounterId, disabled, p
           onClick={() => { setSelectedId(placement.id); setDraft(draftOf(placement)); setConfirmRemove(false); setNotice(null); }}>
           <strong>{placement.name ?? entities.find((entity) => entity.id === placement.entityReferenceId)?.name}</strong>
           <span>{placement.isHidden ? 'Nascosta' : 'Visibile'} · {placement.position.x + 1}, {placement.position.y + 1}</span>
-        </button></li>)}</ul> : <p className="scene-catalog__hint">Nessuna figura collocata.</p>}</nav>
+        </button>{onOpenSheet ? <button type="button" className="secondary-button secondary-button--tiny" disabled={disabled} onClick={()=>onOpenSheet(placement.id)}>Scheda</button> : null}</li>)}</ul> : <p className="scene-catalog__hint">Nessuna figura collocata.</p>}</nav>
       <form className="scene-encounters__form" onSubmit={(event) => void submit(event)}>
         {onUndoPlacement ? <button type="button" className="secondary-button" disabled={disabled||!scene.placementHistory?.canUndo}
           onClick={()=>void onUndoPlacement()}>Annulla ultima collocazione / lotto</button> : null}

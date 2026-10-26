@@ -1,3 +1,4 @@
+import { CreatureSheetWindow } from './components/creature-sheet/CreatureSheetWindow';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AuraPresenceBanner } from './components/AuraPresenceBanner';
 import { AuthScreen } from './components/AuthScreen';
@@ -269,6 +270,8 @@ function App() {
   const [draftNotes, setDraftNotes] = useState('');
   const [characterSheets, setCharacterSheets] = useState<CharacterSheetRosterEntry[]>([]);
   const [publicPortraits, setPublicPortraits] = useState<PublicPortraitEntry[]>([]);
+  const [openCreature,setOpenCreature]=useState<{sceneId:string;tokenId:string}|null>(null);
+  useEffect(()=>{setOpenCreature(null);},[state.activeSceneId]);
   const [openCharacterSheetId, setOpenCharacterSheetId] = useState<string | null>(null);
   const [boardFullscreenPhase, setBoardFullscreenPhase] = useState<
     'closed' | 'opening' | 'open' | 'closing'
@@ -1580,6 +1583,9 @@ function App() {
                 </div>
               </article>;
             })}
+            {canManageBattleMap ? <><h3>Creature del Master</h3>{state.tokens.filter(t=>!t.ownerUserId&&(t.type==='enemy'||t.type==='player')).map(token=><article key={token.id} className="character-roster__entry">
+              <strong>{token.name}</strong><button type="button" className="secondary-button secondary-button--tiny" onClick={()=>setOpenCreature({sceneId:state.activeSceneId!,tokenId:token.id})}>Scheda creatura</button>
+            </article>)}</> : null}
           </section>
         );
       case 'modules':
@@ -1965,6 +1971,10 @@ function App() {
         onDuplicateToken={(tokenId) => duplicateToken(tokenId)}
       />
 
+      {canManageBattleMap && openCreature ? <CreatureSheetWindow
+        key={`${openCreature.sceneId}:${openCreature.tokenId}`} sceneId={openCreature.sceneId} tokenId={openCreature.tokenId}
+        onClose={()=>setOpenCreature(null)} onRoll={request=>void rollDice(request)} canRoll={openCreature.sceneId===state.activeSceneId} diceLogs={state.diceLogs}
+        sessionMode={state.sessionMode} measurementUnit={state.measurementUnit}/> : null}
       <CharacterSheetWindow
         sheetId={openCharacterSheetId}
         isOpen={openCharacterSheetId !== null}
@@ -2001,7 +2011,7 @@ function App() {
         onClose={() => setIsSceneCatalogModalOpen(false)}
         className="modal-card--scene-catalog"
       >
-        <SceneCatalogPanel
+        <SceneCatalogPanel onOpenCreatureSheet={(sceneId,tokenId)=>setOpenCreature({sceneId,tokenId})}
           isActiveSceneBackgroundHidden={state.isBoardBackgroundHidden}
           onActiveSceneBackgroundVisibilityChange={setBoardBackgroundHidden}
         />

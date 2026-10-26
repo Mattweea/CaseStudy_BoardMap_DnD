@@ -128,3 +128,16 @@ export function movementBudget({ effectiveCells, dashed = false, extra = 0 }) {
   const extraCells = typeof extra === 'number' && Number.isFinite(extra) && extra > 0 ? extra : 0;
   return cells * (dashed ? 2 : 1) + extraCells;
 }
+
+export function applyConditionChange(token, type, condition) {
+  const catalog = conditionCatalogFor(token.type);
+  const current = Array.isArray(token.conditions) ? token.conditions : [];
+  if (typeof condition !== 'string' || !catalog.includes(condition)) return null;
+  if (type === 'add') {
+    const added = current.includes(condition) ? [] : [condition];
+    if (added.length && condition === 'unconscious' && !current.includes('prone')) added.push('prone');
+    return { conditions: [...current, ...added], added, removed: [] };
+  }
+  const removed = current.includes(condition) ? [condition] : [];
+  return { conditions: current.filter((entry) => entry !== condition), added: [], removed };
+}

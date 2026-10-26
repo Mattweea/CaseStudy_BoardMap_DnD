@@ -392,6 +392,8 @@ Nel dialog **Preparazione scene**, scegli lo sfondo della mappa e salva la calib
 
 Nell'encounter, prepara una figura e apri **Figure sulla mappa**. Il campo **Quantità** crea fino a 100 istanze: l'anteprima elenca nomi e posizioni prima della conferma. Un esemplare mantiene il nome base; un gruppo usa i suffissi `1`, `2`, ecc. **Annulla ultima collocazione / lotto** rimuove insieme le istanze dell'ultima operazione compatibile.
 
+Apri **Scheda** dalla collocazione oppure **Personaggi → Creature del Master → Scheda creatura**. Per PG/PNG ritrovi le tre tab della scheda personaggio; per i mostri trovi un blocco statistiche 5e con tratti, attacchi, reazioni e azioni leggendarie. La creazione può collegare esplicitamente tutte le copie della stessa figura alla stessa scheda. Le modifiche restano in bozza fino a **Salva**: se la scheda è condivisa, il popup elenca le creature destinatarie e offre **Applica a tutte**, **Solo questa** oppure **Annulla**. Solo questa rende indipendente la scheda aperta. PF correnti, condizioni e risorse consumate rimangono individuali. Salva prima di lanciare i dadi dalla scheda; per tirare da una scena preparata devi prima attivarla.
+
 ## Terreno esplorato e comandi dei dadi
 
 Con il buio attivo, le zone sconosciute sono nere e il confine verso quelle scoperte è sfumato. Il terreno visto dai PG resta visibile per il party anche tornando indietro, cambiando scena o riconnettendosi. Questa memoria non rivela le creature fuori dalla visuale attuale e non sostituisce il salvataggio dello stato live della sessione.
