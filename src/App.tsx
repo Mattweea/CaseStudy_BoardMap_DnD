@@ -1142,7 +1142,7 @@ function App() {
         );
       case 'dice':
         return (
-          <DicePanel key="dice" onRoll={rollDice} />
+          <DicePanel key={`dice-${user?.id}`} onRoll={rollDice} />
         );
       case 'settings':
         return (

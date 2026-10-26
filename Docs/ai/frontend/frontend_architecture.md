@@ -91,4 +91,4 @@ For frontend changes, run `npm run build`. Manually verify the affected role and
 
 ## Dice command input
 
-`shared/dice-commands.mjs` parses optional terminal `-n "name"` separately from the dice formula. The server validates the optional name again before drawing entropy; the card displays it as text without replacing formula or author.
+`shared/dice-commands.mjs` parses optional terminal `-n "name"` separately from the dice formula. The server validates the optional name again before drawing entropy; the card displays it as text without replacing formula or author. The input keeps at most 50 successful commands in memory, scoped by the authenticated user's keyed `DicePanel`; no shared-log reconstruction or browser persistence. Arrow navigation respects selection, multiline boundaries, modifiers and IME. Recall never rolls and restores the previous draft after the newest entry.

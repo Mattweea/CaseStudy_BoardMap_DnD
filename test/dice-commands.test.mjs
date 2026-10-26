@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseDiceCommand } from '../shared/dice-commands.mjs';
+import { parseDiceCommand, createCommandHistory, rememberCommand, recallCommand } from '../shared/dice-commands.mjs';
 import { createAuthoritativeRoll } from '../server/authoritative-roll.mjs';
 
 const user = { id: 'player', displayName: 'Player' };
@@ -55,4 +55,27 @@ test('named public and secret free rolls retain server identity, formula and tot
     assert.equal(log.visibility, visibility);
     assert.equal(log.authorUserId, 'player');
   }
+});
+test('history walks without wrap, preserves drafts and distinct repeated executions', () => {
+  let state = createCommandHistory();
+  for (const c of ['/r 1d6', '/rs 1d8', '/rs 1d8']) state = rememberCommand(state, c);
+  let current = '/r draft';
+  const step = (direction) => {
+    const next = recallCommand(state, direction, current);
+    state = next.state;
+    current = next.value;
+    return current;
+  };
+  assert.equal(step('up'), '/rs 1d8');
+  assert.equal(step('up'), '/rs 1d8');
+  assert.equal(step('up'), '/r 1d6');
+  assert.equal(step('up'), '/r 1d6');
+  step('down');
+  step('down');
+  assert.equal(step('down'), '/r draft');
+  assert.equal(step('down'), '/r draft');
+  for (let i = 0; i < 60; i++) state = rememberCommand(state, String(i));
+  assert.equal(state.entries.length, 50);
+  assert.equal(state.entries[0], '10');
+  assert.deepEqual(createCommandHistory().entries, []);
 });

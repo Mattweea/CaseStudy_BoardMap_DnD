@@ -36,3 +36,21 @@ export function parseDiceCommand(value) {
     },
   };
 }
+
+export function createCommandHistory() {
+  return { entries: [], index: null, draft: '' };
+}
+export function rememberCommand(state, command) {
+  return { entries: [...state.entries, command].slice(-50), index: null, draft: '' };
+}
+export function recallCommand(state, direction, current) {
+  if (!state.entries.length) return { state, value: current };
+  const draft = state.index === null ? current : state.draft;
+  const index =
+    direction === 'up'
+      ? Math.max(0, (state.index ?? state.entries.length) - 1)
+      : state.index === null || state.index + 1 >= state.entries.length
+        ? null
+        : state.index + 1;
+  return { state: { ...state, index, draft }, value: index === null ? draft : state.entries[index] };
+}

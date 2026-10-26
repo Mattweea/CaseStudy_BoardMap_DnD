@@ -1,4 +1,4 @@
-import { parseDiceCommand } from '../../shared/dice-commands.mjs';
+import { createCommandHistory, parseDiceCommand, recallCommand, rememberCommand } from '../../shared/dice-commands.mjs';
 import { useRef, useState } from 'react';
 import type { DiceRollRequest, DiceType } from '../types';
 import { DICE_OPTIONS } from '../utils/dice';
@@ -18,6 +18,7 @@ export function DicePanel({ onRoll }: DicePanelProps) {
   const [visibility, setVisibility] = useState<'public' | 'secret'>('public');
   const [modifierInput, setModifierInput] = useState('');
   const [command, setCommand] = useState('');
+  const history = useRef(createCommandHistory());
   const rolling = useRef(false);
   const [message, setMessage] = useState<string | null>(null);
   const [isRolling, setIsRolling] = useState(false);
@@ -77,6 +78,7 @@ export function DicePanel({ onRoll }: DicePanelProps) {
       const result = await onRoll(parsed.request);
       if (!result?.ok) setMessage(result?.message ?? 'Tiro non riuscito.');
       else {
+        history.current = rememberCommand(history.current, command);
         setCommand('');
         resetDice();
       }
@@ -125,6 +127,7 @@ export function DicePanel({ onRoll }: DicePanelProps) {
         className="dice-panel__chat-input"
         value={command}
         onChange={(event) => {
+          history.current = { ...history.current, index: null, draft: event.target.value };
           setCommand(event.target.value);
         }}
         onKeyDown={(event) => {
@@ -134,11 +137,22 @@ export function DicePanel({ onRoll }: DicePanelProps) {
             void submitCommand();
             return;
           }
-
+          if (event.shiftKey || isRolling || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+          const input = event.currentTarget;
+          if (input.selectionStart !== input.selectionEnd) return;
+          const atEdge =
+            event.key === 'ArrowUp'
+              ? !input.value.slice(0, input.selectionStart).includes('\n')
+              : !input.value.slice(input.selectionEnd).includes('\n');
+          if (!atEdge || !history.current.entries.length) return;
+          event.preventDefault();
+          const recalled = recallCommand(history.current, event.key === 'ArrowUp' ? 'up' : 'down', command);
+          history.current = recalled.state;
+          setCommand(recalled.value);
         }}
         placeholder={'/r 1d12+5 -n "attacco con ascia"'}
         rows={2}
-        aria-label="Comando dadi: /r pubblico, /rs segreto, -n nome tra virgolette."
+        aria-label="Comando dadi: /r pubblico, /rs segreto, -n nome tra virgolette. Frecce su e giù: cronologia."
       />
       {message ? (
         <p className="dice-panel__error" role="alert">
