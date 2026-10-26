@@ -88,6 +88,7 @@ export function registerSceneRoutes(app, {
       ...scene,
       isActive: scene.id === service.getActiveScene()?.id,
       drawingHistory: service.getDrawingHistoryState(scene.id),
+      placementHistory: service.getPlacementHistoryState(scene.id),
     };
   }
 
@@ -393,6 +394,14 @@ export function registerSceneRoutes(app, {
       return sceneDetail(scene);
     } catch (error) { return sendError(reply, error); }
   }
+  app.post('/api/scenes/:id/placements/undo',(request,reply)=>{
+    if(!masterOnly(request,reply))return;
+    try{
+      const scene=service.undoPlacement({id:request.params.id,expectedVersion:request.body?.baseVersion});
+      if(scene.id===service.getActiveScene()?.id)onActiveSceneUpdated?.(scene);
+      return sceneDetail(scene);
+    }catch(error){return sendError(reply,error);}
+  });
   app.post('/api/scenes/:id/encounters/:encounterId/placements', (request, reply) => mutatePlacement(request, reply, 'create'));
   app.patch('/api/scenes/:id/encounters/:encounterId/placements/:placementId', (request, reply) => mutatePlacement(request, reply, 'update'));
   app.delete('/api/scenes/:id/encounters/:encounterId/placements/:placementId', (request, reply) => mutatePlacement(request, reply, 'remove'));

@@ -17,6 +17,7 @@ export interface PersistedScene extends Scene {
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
+  placementHistory?: {canUndo:boolean};
   drawingHistory?: { canUndo: boolean; canRedo: boolean };
 }
 
@@ -32,7 +33,7 @@ export interface EncounterEntityInput {
   tokenProperties?: EncounterTokenProperties;
 }
 
-export type EncounterPlacementInput = Pick<ScenePreparedPlacement, 'entityReferenceId' | 'position' | 'widthCells' | 'heightCells' | 'isHidden'>;
+export type EncounterPlacementInput = Pick<ScenePreparedPlacement, 'entityReferenceId' | 'position' | 'widthCells' | 'heightCells' | 'isHidden'> & { quantity?: number };
 
 export interface PartyTransferPreview {
   sourceSceneId: string;
@@ -72,6 +73,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const sceneApi = {
+  undoPlacement: (id:string,baseVersion:number)=>request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/placements/undo`,{method:'POST',body:JSON.stringify({baseVersion})}),
   list: () => request<{ scenes: SceneCatalogEntry[] }>('/scenes'),
   get: (id: string) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}`),
   create: (name: string) => request<PersistedScene>('/scenes', {

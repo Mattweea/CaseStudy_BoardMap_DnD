@@ -107,6 +107,7 @@ export interface SceneEncounterEntityReference extends SceneEntityReference {
 }
 
 export interface ScenePreparedPlacement {
+  name?: string;
   id: string;
   entityReferenceId: string;
   encounterId?: string;

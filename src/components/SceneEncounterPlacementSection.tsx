@@ -1,3 +1,4 @@
+import { planEncounterBatch } from '../../shared/encounter-batch.mjs';
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { ScenePreparedPlacement } from '../types';
@@ -16,6 +17,7 @@ export interface PlacementPreview {
 }
 
 export interface EncounterPlacementActions {
+  onUndoPlacement?: ()=>Promise<boolean>;
   onCreatePlacement: (encounterId: string, placement: EncounterPlacementInput) => Promise<boolean>;
   onUpdatePlacement: (encounterId: string, placementId: string, placement: EncounterPlacementInput) => Promise<boolean>;
   onRemovePlacement: (encounterId: string, placementId: string) => Promise<boolean>;
@@ -33,12 +35,13 @@ function payloadOf(draft: Draft): EncounterPlacementInput {
 }
 
 export function SceneEncounterPlacementSection({ scene, encounterId, disabled, preview,
-  onCreatePlacement, onUpdatePlacement, onRemovePlacement }: EncounterPlacementActions & {
+  onUndoPlacement, onCreatePlacement, onUpdatePlacement, onRemovePlacement }: EncounterPlacementActions & {
     scene: PersistedScene; encounterId: string; disabled: boolean; preview: PlacementPreview;
   }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [quantity, setQuantity] = useState('1');
   const [notice, setNotice] = useState<string | null>(null);
   const [dragPreview, setDragPreview] = useState<ScenePreparedPlacement | null>(null);
   const dragCandidate = useRef<ScenePreparedPlacement | null>(null);
@@ -48,10 +51,15 @@ export function SceneEncounterPlacementSection({ scene, encounterId, disabled, p
     && (entity.entityType === 'monster' || entity.entityType === 'npc'));
   const placements = scene.document.preparedPlacements.filter((placement) => placement.encounterId === encounterId);
   const selected = placements.find((placement) => placement.id === selectedId) ?? null;
+  let batchPreview: ScenePreparedPlacement[] = [], batchError = '';
+  if (!selected && Number(quantity) !== 1 && draft.entityReferenceId) {
+    try { batchPreview = planEncounterBatch(scene.document, encounterId, { ...payloadOf(draft), quantity: Number(quantity) }); }
+    catch (error) { batchError = error instanceof Error ? error.message : 'Lotto non valido.'; }
+  }
   const reset = () => { setDraft(selected ? draftOf(selected) : EMPTY); setDragPreview(null); gesture.current = null; };
 
   useEffect(() => {
-    setSelectedId(null); setDraft(EMPTY); setConfirmRemove(false); setNotice(null); setDragPreview(null); gesture.current = null;
+    setSelectedId(null); setDraft(EMPTY); setQuantity('1'); setConfirmRemove(false); setNotice(null); setDragPreview(null); gesture.current = null;
   }, [scene.id, encounterId]);
   useEffect(() => {
     const current = placements.find((placement) => placement.id === selectedId);
@@ -76,7 +84,7 @@ export function SceneEncounterPlacementSection({ scene, encounterId, disabled, p
     pending.current = true; setNotice(null);
     try {
       const saved = selected ? await onUpdatePlacement(encounterId, selected.id, payloadOf(draft))
-        : await onCreatePlacement(encounterId, payloadOf(draft));
+        : await onCreatePlacement(encounterId, { ...payloadOf(draft), ...(quantity === '1' ? {} : { quantity: Number(quantity) }) });
       if (saved) { setNotice(selected ? 'Collocazione aggiornata.' : 'Figura collocata sulla scena.'); if (!selected) setDraft(EMPTY); }
     } finally { pending.current = false; }
   };
@@ -122,21 +130,28 @@ export function SceneEncounterPlacementSection({ scene, encounterId, disabled, p
     <div className="scene-entity-editor__heading">
       <div><h5>Figure sulla mappa</h5><p>Colloca le figure preparate. Se la scena è attiva, compariranno subito sulla board.</p></div>
       <button type="button" className="secondary-button" disabled={disabled || !entities.length}
-        onClick={() => { setSelectedId(null); setDraft(EMPTY); setConfirmRemove(false); setNotice(null); }}>Nuova collocazione</button>
+        onClick={() => { setSelectedId(null); setDraft(EMPTY); setQuantity('1'); setConfirmRemove(false); setNotice(null); }}>Nuova collocazione</button>
     </div>
     <div className="scene-entity-editor__layout">
       <nav aria-label="Figure collocate">{placements.length ? <ul className="scene-encounters__list">{placements.map((placement) => <li key={placement.id}>
         <button type="button" aria-current={placement.id === selectedId ? 'true' : undefined}
           onClick={() => { setSelectedId(placement.id); setDraft(draftOf(placement)); setConfirmRemove(false); setNotice(null); }}>
-          <strong>{entities.find((entity) => entity.id === placement.entityReferenceId)?.name}</strong>
+          <strong>{placement.name ?? entities.find((entity) => entity.id === placement.entityReferenceId)?.name}</strong>
           <span>{placement.isHidden ? 'Nascosta' : 'Visibile'} · {placement.position.x + 1}, {placement.position.y + 1}</span>
         </button></li>)}</ul> : <p className="scene-catalog__hint">Nessuna figura collocata.</p>}</nav>
       <form className="scene-encounters__form" onSubmit={(event) => void submit(event)}>
+        {onUndoPlacement ? <button type="button" className="secondary-button" disabled={disabled||!scene.placementHistory?.canUndo}
+          onClick={()=>void onUndoPlacement()}>Annulla ultima collocazione / lotto</button> : null}
         <label>Figura<select required value={draft.entityReferenceId} disabled={disabled || Boolean(selected)}
           onChange={(event) => { const entity = entities.find((item) => item.id === event.target.value); setDraft((current) => ({ ...current,
             entityReferenceId: event.target.value, hidden: entity?.tokenProperties?.isInvisible ?? false })); }}>
           <option value="">Scegli una figura</option>{entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}
         </select></label>
+        {!selected ? <label>Quantità<input type="number" min="1" max="100" step="1" required
+          value={quantity} disabled={disabled} onChange={(event) => setQuantity(event.target.value)} /></label> : null}
+        {batchError ? <p role="alert">{batchError}</p> : null}
+        {batchPreview.length ? <div aria-label="Anteprima lotto"><p>Conferma {batchPreview.length} figure nelle posizioni indicate:</p>
+          <ul>{batchPreview.map((item) => <li key={item.id}>{item.name} · {item.position.x + 1}, {item.position.y + 1}</li>)}</ul></div> : null}
         <div className="scene-entity-editor__fields">{([['x', 'Colonna', 1], ['y', 'Riga', 1], ['width', 'Larghezza in caselle', 1], ['height', 'Altezza in caselle', 1]] as const).map(([key, label, min]) =>
           <label key={key}>{label}<input type="number" min={min} max={key === 'width' || key === 'height' ? 40 : 1_000_000} step={1}
             required={key === 'x' || key === 'y'} placeholder="Taglia della figura" value={draft[key]} disabled={disabled}
@@ -146,7 +161,7 @@ export function SceneEncounterPlacementSection({ scene, encounterId, disabled, p
         <div className="scene-encounters__actions">
           <button type="button" className="secondary-button" disabled={disabled} onClick={reset}>Annulla modifiche</button>
           {selected ? <button type="button" className="secondary-button" disabled={disabled} onClick={() => setConfirmRemove(true)}>Rimuovi dalla scena</button> : null}
-          <button type="submit" className="primary-button" disabled={disabled || !draft.entityReferenceId}>{selected ? 'Salva collocazione' : 'Colloca figura'}</button>
+          <button type="submit" className="primary-button" disabled={disabled || !draft.entityReferenceId || Boolean(batchError)}>{selected ? 'Salva collocazione' : Number(quantity) > 1 ? `Conferma lotto di ${quantity}` : 'Colloca figura'}</button>
         </div>
         {confirmRemove && selected ? <div role="group" aria-label="Conferma rimozione dalla scena">
           <p>Rimuovere questa collocazione? La figura preparata resta nell’encounter.</p>

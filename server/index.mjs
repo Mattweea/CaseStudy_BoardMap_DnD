@@ -1230,6 +1230,10 @@ function projectCharacterSheetToToken(ownerUserId, updates, { hitPointTransition
 }
 
 function replaceBattleMapState(nextState) {
+  const knownIds = new Set(battleMapState.tokens.map(token=>token.id));
+  if(nextState.tokens.filter(token=>isCreatureToken(token)&&!knownIds.has(token.id)).length>100){
+    return {status:400,message:'Crea al massimo 100 creature per operazione.',snapshot:nextSnapshot()};
+  }
   return commitBattleMapState({
     ...nextState,
     diceLogs: battleMapState.diceLogs,

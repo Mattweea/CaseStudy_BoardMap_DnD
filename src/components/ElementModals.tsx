@@ -564,6 +564,7 @@ export function NewElementModal({
         : isObstacle
           ? name.trim() || 'Ostacolo'
           : name.trim();
+    if ((type === 'player' || type === 'enemy') && (!Number.isInteger(quantity) || quantity < 1 || quantity > 100)) return;
     const normalizedQuantity = type === 'vehicle' || isObstacle ? 1 : Math.max(1, Math.floor(quantity) || 1);
     if (!baseName) {
       return;
@@ -885,6 +886,7 @@ export function NewElementModal({
             type="number"
             min="1"
             step="1"
+            max={100}
             value={kindToTokenType(kind) === 'vehicle' || kind === 'obstacle' ? 1 : quantity}
             disabled={kindToTokenType(kind) === 'vehicle' || kind === 'obstacle'}
             onChange={(event) => setQuantity(Number(event.target.value))}

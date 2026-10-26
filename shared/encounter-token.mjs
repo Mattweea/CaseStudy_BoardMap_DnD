@@ -43,7 +43,7 @@ export function projectEncounterEntityToken({ entity, placement, tokenProperties
 
   return {
     id,
-    name: entity.name.trim(),
+    name: typeof placement.name === 'string' && placement.name.trim() ? placement.name.trim() : entity.name.trim(),
     type: 'enemy',
     size,
     position: { x, y },

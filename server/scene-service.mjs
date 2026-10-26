@@ -1,3 +1,4 @@
+import { planEncounterBatch } from '../shared/encounter-batch.mjs';
 import { randomUUID } from 'node:crypto';
 import { normalizeSceneDrawings, normalizeSceneElements, normalizeSceneEncounters, normalizeSceneDocument, SCENE_LIMITS, SCENE_ENTITY_KINDS } from '../shared/scene-model.mjs';
 
@@ -77,6 +78,7 @@ export class SceneService {
     this.scenes = new Map();
     this.activeSceneId = null;
     this.drawingHistory = new Map();
+    this.placementHistory = new Map();
   }
 
   load() {
@@ -85,6 +87,7 @@ export class SceneService {
     this.scenes = new Map(scenes.map((scene) => [scene.id, scene]));
     this.activeSceneId = active?.id ?? null;
     this.drawingHistory.clear();
+    this.placementHistory.clear();
     return this.getCatalog();
   }
 
@@ -408,7 +411,7 @@ export class SceneService {
     const existing = current.document.preparedPlacements.find((item) => item.id === placementId && item.encounterId === encounterId);
     if (mode !== 'create' && !existing) throw new ScenePersistenceConflictError(current);
     if (mode !== 'remove' && (!placement || typeof placement !== 'object' || Array.isArray(placement)
-      || Object.keys(placement).some((key) => !['entityReferenceId', 'position', 'widthCells', 'heightCells', 'isHidden'].includes(key)))) {
+      || Object.keys(placement).some((key) => !['entityReferenceId', 'position', 'widthCells', 'heightCells', 'isHidden', ...(mode === 'create' ? ['quantity'] : [])].includes(key)))) {
       throw new TypeError('Specifica posizione, ingombro e visibilità della figura.');
     }
     if (mode === 'update' && placement.entityReferenceId !== undefined && placement.entityReferenceId !== existing.entityReferenceId) {
@@ -421,11 +424,28 @@ export class SceneService {
       const entity = current.document.entityReferences.find((reference) => reference.id === candidate.entityReferenceId
         && reference.encounterId === encounterId && SCENE_ENTITY_KINDS.includes(reference.entityType));
       if (!entity) throw new TypeError('Scegli una figura valida di questo encounter.');
-      placements = mode === 'create' ? [...placements, candidate]
+      placements = mode === 'create' ? [...placements, ...planEncounterBatch(current.document, encounterId, placement, () => randomUUID())]
         : placements.map((item) => item.id === placementId ? candidate : item);
     }
     const document = normalizeSceneDocument({ ...current.document, preparedPlacements: placements });
-    return this.updateScene({ id, expectedVersion, name: current.name, document, sortOrder: current.sortOrder });
+    const saved = this.updateScene({ id, expectedVersion, name: current.name, document, sortOrder: current.sortOrder });
+    const entries = this.placementHistory.get(id) ?? [];
+    entries.push({before:current.document.preparedPlacements,after:saved.document.preparedPlacements});
+    this.placementHistory.set(id,entries.slice(-40));
+    return saved;
+  }
+
+  getPlacementHistoryState(id) {
+    const current = this.getScene(id), entry = this.placementHistory.get(id)?.at(-1);
+    return {canUndo:!!entry && JSON.stringify(entry.after) === JSON.stringify(current?.document.preparedPlacements)};
+  }
+
+  undoPlacement({id,expectedVersion}) {
+    const current=this.versionedScene(id,expectedVersion),entries=this.placementHistory.get(id)??[],entry=entries.at(-1);
+    if(!entry || !this.getPlacementHistoryState(id).canUndo)throw new ScenePersistenceConflictError(current);
+    const saved=this.updateScene({id,expectedVersion,name:current.name,sortOrder:current.sortOrder,
+      document:{...current.document,preparedPlacements:entry.before}});
+    entries.pop();return saved;
   }
 
   async replaceBackground({ id, expectedVersion, buffer, mediaType, storage }) {

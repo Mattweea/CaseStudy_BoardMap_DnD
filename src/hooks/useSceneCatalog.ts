@@ -265,6 +265,7 @@ export function useSceneCatalog(enabled: boolean) {
   };
 
   return {
+    undoPlacement: () => writeLayer((scene)=>sceneApi.undoPlacement(scene.id,scene.version),'Annullamento collocazione non riuscito.'),
     catalog,
     selectedScene,
     isLoading,

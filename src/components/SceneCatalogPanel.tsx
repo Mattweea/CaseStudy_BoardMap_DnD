@@ -56,6 +56,7 @@ export function SceneCatalogPanel({
   onActiveSceneBackgroundVisibilityChange,
 }: SceneCatalogPanelProps) {
   const {
+    undoPlacement,
     catalog,
     selectedScene,
     isLoading,
@@ -749,7 +750,7 @@ export function SceneCatalogPanel({
               </button>
             </div>
           </form>
-          <SceneEncounterSection scene={selectedScene} disabled={isMutating || isLoading || hasDraftChanges} error={error}
+          <SceneEncounterSection onUndoPlacement={undoPlacement} scene={selectedScene} disabled={isMutating || isLoading || hasDraftChanges} error={error}
             onCreate={createEncounter} onUpdate={updateEncounter} onRemove={removeEncounter}
             onCreateEntity={createEncounterEntity} onUpdateEntity={updateEncounterEntity}
             onCreatePlacement={createEncounterPlacement} onUpdatePlacement={updateEncounterPlacement} onRemovePlacement={removeEncounterPlacement}

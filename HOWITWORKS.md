@@ -386,6 +386,10 @@ Dopo modifiche lato server, riavvia `npm run dev:server`.
 - gli altri client non vedono gli aggiornamenti: controlla SSE, backend attivo e tunnel ngrok puntato alla porta `5173`
 - la partita si resetta dopo restart: controlla che il master abbia salvato la sessione almeno una volta
 
+## Preparare muri, gruppi e schede delle creature
+
+Nell'encounter, prepara una figura e apri **Figure sulla mappa**. Il campo **Quantità** crea fino a 100 istanze: l'anteprima elenca nomi e posizioni prima della conferma. Un esemplare mantiene il nome base; un gruppo usa i suffissi `1`, `2`, ecc. **Annulla ultima collocazione / lotto** rimuove insieme le istanze dell'ultima operazione compatibile.
+
 ## Terreno esplorato e comandi dei dadi
 
 Nella textbox dei dadi puoi scrivere `/r 1d12+5 -n "attacco con ascia"`: il nome appare nel log insieme alla formula e al risultato. `/rs` conserva la stessa sintassi per i tiri segreti. Con **↑** e **↓** richiami i tuoi ultimi comandi riusciti, senza rilanciarli finché non premi Invio; scendendo oltre il più recente ritrovi la bozza. La cronologia resta locale e si azzera uscendo dall'account.

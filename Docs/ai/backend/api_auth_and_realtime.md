@@ -83,3 +83,5 @@ For backend changes, exercise success, unauthenticated, unauthorized, malformed,
 ## Dice-name contracts
 
 Free-roll `/api/battle-map/rolls` accepts optional `name` (1–120 Unicode characters after trim, no controls); validate it before generating dice. A name cannot alter author, formula, source, or public/secret recipients. Legacy logs without a name remain valid. Roll names are plain text and must never be rendered as HTML.
+
+Scene details expose `placementHistory.canUndo`; Master-only POST `/api/scenes/:id/placements/undo` atomically reverses the last compatible placement mutation, including a whole batch. This history is process-local, capped at 40, and separate from drawing and live-state undo.

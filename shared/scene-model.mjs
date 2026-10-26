@@ -442,6 +442,7 @@ function normalizePreparedPlacements(value, path, referencesById, encounterIds, 
       entityReferenceId,
       ...(encounterId === undefined ? {} : { encounterId }),
       position: normalizePosition(cloned.position, itemPath + '.position'),
+      ...(cloned.name === undefined ? {} : { name: normalizeShortString(cloned.name, itemPath + '.name', SCENE_LIMITS.maxNameLength + 4) }),
     };
     if (SCENE_ENTITY_KINDS.includes(reference.entityType)) {
       if (cloned.isHidden !== undefined && typeof cloned.isHidden !== 'boolean') fail(itemPath + '.isHidden', 'must be boolean');
@@ -474,6 +475,7 @@ function normalizeTokens(value, path) {
       ...cloned,
       id: normalizeId(cloned.id, itemPath + '.id'),
       position: normalizePosition(cloned.position, itemPath + '.position'),
+      ...(cloned.name === undefined ? {} : { name: normalizeShortString(cloned.name, itemPath + '.name', SCENE_LIMITS.maxNameLength + 4) }),
     };
   });
 }

@@ -65,3 +65,7 @@ Current, maximum, and temporary HP on a canonical player token come from its she
 ## Verification
 
 Exercise each affected token category, explicit and size-derived footprint, hidden owner/non-owner views, grouped blockers, vehicle add/remove/move and capacity, overlap rejection, and load of older token snapshots. For conditions, also exercise: every condition and vehicle-only condition rejected on the wrong token type, an out-of-catalog string dropped from a master full-state commit, concurrent master/adventurer condition changes on the same token, the `unconscious`→`prone` automatism in both directions, and an older snapshot carrying the retired `dead`/`conditioned`/`inspired` identifiers loading with them stripped.
+
+## Encounter batches
+
+Placement creation accepts an integer quantity from 1 through 100. One definition produces distinct placements in one versioned scene commit. Quantity one retains the definition name; larger batches use the trimmed base plus a space and index from 1. Each new batch restarts at 1. Names are labels, never identities: persist an instance name on the placement and project it through the existing token adapter. Layout uses creature footprints and scene bounds; validation rejects conflicts with live tokens before persistence. No automatic login accounts or canonical PG duplication.
