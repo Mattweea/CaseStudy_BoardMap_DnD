@@ -27,6 +27,7 @@
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.10.0",
     "fastify": "^4.29.1",
+    "polygon-clipping": "0.15.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

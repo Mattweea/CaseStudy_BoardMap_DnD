@@ -462,7 +462,8 @@ function App() {
             )
           : false;
         const isInsideMasterLight = state.lightSources.some((light) =>
-          obstacleCluster.some((clusterToken) => isTokenInsideLight(light, clusterToken, visionBlockers)),
+          obstacleCluster.some((clusterToken) => sessionToken && isTokenInsideLight(light, clusterToken, visionBlockers)
+            && isTokenInsideVision(sessionToken, clusterToken, Number.POSITIVE_INFINITY, visionBlockers)),
         );
 
         return isInsidePersonalVision || isInsideMasterLight;

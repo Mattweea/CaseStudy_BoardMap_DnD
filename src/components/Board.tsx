@@ -1,3 +1,5 @@
+import { regionPaths, visibleRegions } from '../../shared/explored-regions.mjs';
+import { DarknessLayer } from './DarknessLayer';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BlockIcon, BookIcon, CircleTemplateIcon, CloseIcon, CollapseIcon, ConeTemplateIcon, ExpandIcon, LineTemplateIcon, MapIcon,
@@ -38,7 +40,7 @@ import {
   zoomAtPoint,
   type WheelBurstState,
 } from '../utils/board';
-import { buildVisionPolygon, buildVisionPolygonFromPoint } from '../utils/vision';
+import { buildVisionPolygonFromPoint } from '../utils/vision';
 import { cellsToUnit, pathCost, pathStepCount, MAX_MOVEMENT_PATH_STEPS } from '../../shared/grid-movement';
 import { effectiveSpeed } from '../../shared/token-conditions.mjs';
 import { auraRect } from '../../shared/token-auras.mjs';
@@ -180,14 +182,6 @@ const INITIAL_CAMERA = { x: 0, y: 0 };
 const BOARD_GUTTER = 30;
 const DRAG_THRESHOLD = 6;
 
-function tokenCenter(token: UnitToken): { x: number; y: number } {
-  const footprint = getTokenFootprint(token);
-
-  return {
-    x: token.position.x + footprint.width / 2,
-    y: token.position.y + footprint.height / 2,
-  };
-}
 
 function isCreatureToken(token: UnitToken) {
   return token.type === 'player' || token.type === 'enemy';
@@ -668,25 +662,6 @@ export function Board({
   // Geometria mondo e proiezione a schermo su due livelli di memo (D7): il ray-cast dipende
   // solo dai bloccanti, la proiezione dipende da camera e zoom. Uno spostamento della visuale
   // non deve ricalcolare il poligono, solo riproiettarne i punti già noti.
-  const visionWorldPolygon = useMemo(() => {
-    if (!effectiveVision) {
-      return [];
-    }
-
-    return buildVisionPolygon(
-      effectiveVision.sourceToken,
-      effectiveVision.radiusCells,
-      effectiveVision.blockers,
-    );
-  }, [effectiveVision]);
-  const visionPolygonPoints = useMemo(
-    () =>
-      visionWorldPolygon.map((point) => ({
-        x: (point.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
-        y: (point.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
-      })),
-    [camera.x, camera.y, visionWorldPolygon, zoom],
-  );
   const lightWorldPolygons = useMemo(
     () =>
       lightSources.map((light) => ({
@@ -729,21 +704,13 @@ export function Board({
       })),
     [camera.x, camera.y, lightPreviewWorldPolygon, zoom],
   );
-  const visionPolygonPath = visionPolygonPoints.map((point) => `${point.x},${point.y}`).join(' ');
+
   const lightPolygonPaths = lightPolygonPoints.map((light) => ({
     id: light.id,
     path: light.points.map((point) => `${point.x},${point.y}`).join(' '),
   }));
   const lightPreviewPolygonPath = lightPreviewPolygonPoints.map((point) => `${point.x},${point.y}`).join(' ');
-  const visionCenter = effectiveVision
-    ? tokenCenter(effectiveVision.sourceToken)
-    : null;
-  const visionScreenCenter = visionCenter
-    ? {
-        x: (visionCenter.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
-        y: (visionCenter.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
-      }
-    : null;
+
 
   useEffect(() => {
     onPresentationHostChange?.(shellRef.current);
@@ -958,24 +925,6 @@ export function Board({
       ]),
     );
   }, [planInteraction, planEndCell]);
-  const visibleTokenMaskRects = useMemo(() => {
-    if (!effectiveVision) {
-      return [];
-    }
-
-    return tokens.filter((token) => token.type === 'player').map((token) => {
-      const position = token.position;
-      const footprint = getTokenFootprint(token);
-
-      return {
-        id: token.id,
-        x: (position.x - camera.x) * BOARD_CONFIG.cellSize * zoom,
-        y: (position.y - camera.y) * BOARD_CONFIG.cellSize * zoom,
-        width: footprint.width * BOARD_CONFIG.cellSize * zoom,
-        height: footprint.height * BOARD_CONFIG.cellSize * zoom,
-      };
-    });
-  }, [camera.x, camera.y, effectiveVision, tokens, zoom]);
 
   const hasInvalidPlanOverlap = useMemo(() => {
     if (planDestinations.size === 0) {
@@ -2467,77 +2416,9 @@ export function Board({
               />
             ))}
 
-            {effectiveVision ? (
-              <svg
-                className="board-darkness-layer"
-                width={width}
-                height={height}
-                viewBox={`0 0 ${width} ${height}`}
-                aria-hidden="true"
-              >
-                <defs>
-                  <mask id={`vision-mask-${isFullscreen ? 'fullscreen' : 'main'}`}>
-                    <rect width={width} height={height} fill="white" />
-                    {visionPolygonPath ? <polygon points={visionPolygonPath} fill="black" /> : null}
-                    {visionPolygonPath ? (
-                      <polygon
-                        points={visionPolygonPath}
-                        fill="none"
-                        stroke="black"
-                        strokeWidth={BOARD_CONFIG.cellSize * zoom * 1.25}
-                        strokeLinejoin="round"
-                      />
-                    ) : null}
-                    {lightPolygonPaths.map((light) => (
-                      <polygon key={`mask-light-${light.id}`} points={light.path} fill="black" />
-                    ))}
-                    {lightPolygonPaths.map((light) => (
-                      <polygon
-                        key={`mask-light-soft-${light.id}`}
-                        points={light.path}
-                        fill="none"
-                        stroke="black"
-                        strokeWidth={BOARD_CONFIG.cellSize * zoom * 1.25}
-                        strokeLinejoin="round"
-                      />
-                    ))}
-                    {visibleTokenMaskRects.map((rect) => (
-                      <rect
-                        key={`mask-token-${rect.id}`}
-                        x={rect.x}
-                        y={rect.y}
-                        width={rect.width}
-                        height={rect.height}
-                        fill="black"
-                      />
-                    ))}
-                  </mask>
-                  <radialGradient id={`vision-warmth-${isFullscreen ? 'fullscreen' : 'main'}`}>
-                    <stop offset="0%" stopColor="rgba(255, 181, 102, 0.18)" />
-                    <stop offset="60%" stopColor="rgba(255, 181, 102, 0.06)" />
-                    <stop offset="100%" stopColor="rgba(255, 181, 102, 0)" />
-                  </radialGradient>
-                </defs>
-                <rect
-                  width={width}
-                  height={height}
-                  className="board-darkness-layer__shade"
-                  mask={`url(#vision-mask-${isFullscreen ? 'fullscreen' : 'main'})`}
-                />
-                {visionPolygonPath ? <polygon points={visionPolygonPath} className="board-darkness-layer__edge" /> : null}
-                {visionScreenCenter && effectiveVision ? (
-                  <circle
-                    cx={visionScreenCenter.x}
-                    cy={visionScreenCenter.y}
-                    r={Math.max(BOARD_CONFIG.cellSize * zoom, effectiveVision.radiusCells * BOARD_CONFIG.cellSize * zoom)}
-                    fill={`url(#vision-warmth-${isFullscreen ? 'fullscreen' : 'main'})`}
-                  />
-                ) : null}
-                {lightPolygonPaths.map((light) => (
-                  <polygon key={`light-edge-${light.id}`} points={light.path} className="board-light-layer__edge" />
-                ))}
-              </svg>
-            ) : null}
+            {effectiveVision ? <DarknessLayer width={width} height={height}
+              cellSize={BOARD_CONFIG.cellSize * zoom}
+              paths={regionPaths(visibleRegions(effectiveVision.sourceToken, effectiveVision.radiusCells, effectiveVision.blockers, lightSources), camera, BOARD_CONFIG.cellSize * zoom)} /> : null}
 
             {canManageTokens && (lightPolygonPaths.length > 0 || lightPreviewPolygonPath) ? (
               <svg

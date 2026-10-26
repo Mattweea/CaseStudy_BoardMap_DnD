@@ -1971,24 +1971,6 @@ kbd {
   pointer-events: none;
 }
 
-.board-darkness-layer__shade {
-  fill: rgba(3, 3, 4, 0.96);
-}
-
-.board-darkness-layer__edge {
-  fill: rgba(255, 181, 102, 0.035);
-  stroke: rgba(255, 179, 105, 0.14);
-  stroke-width: 10;
-  stroke-linejoin: round;
-}
-
-.board-light-layer__edge {
-  fill: rgba(255, 211, 122, 0.045);
-  stroke: rgba(255, 214, 139, 0.13);
-  stroke-width: 8;
-  stroke-linejoin: round;
-}
-
 .board-light-preview-layer {
   position: absolute;
   inset: 0;

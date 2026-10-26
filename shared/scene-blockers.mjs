@@ -33,11 +33,12 @@ export function collectMovementBlockers(tokens, elements, getTokenFootprint) {
   ];
 }
 
-export function collectVisionBlockers(tokens, elements, getTokenFootprint) {
+export function collectVisionBlockers(tokens, elements, getTokenFootprint, walls = []) {
   return [
     ...tokens.filter((token) => token.blocksMovement === true)
       .map((token) => tokenBlocker(token, getTokenFootprint)),
     ...elements.filter((element) => element.blocksVision === true).map(elementBlocker),
+    ...walls.map((wall) => ({ id: wall.id, source: 'wall', name: 'Muro', groupId: null, position: { x: 0, y: 0 }, widthCells: 0, heightCells: 0, points: wall.points })),
   ];
 }
 
