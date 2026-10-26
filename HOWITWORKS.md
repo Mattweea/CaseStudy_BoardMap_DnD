@@ -385,3 +385,7 @@ Dopo modifiche lato server, riavvia `npm run dev:server`.
 - il personaggio non appare: verifica di aver fatto login col profilo corretto e riavvia il backend se hai appena cambiato il roster
 - gli altri client non vedono gli aggiornamenti: controlla SSE, backend attivo e tunnel ngrok puntato alla porta `5173`
 - la partita si resetta dopo restart: controlla che il master abbia salvato la sessione almeno una volta
+
+## Terreno esplorato e comandi dei dadi
+
+Nella textbox dei dadi puoi scrivere `/r 1d12+5 -n "attacco con ascia"`: il nome appare nel log insieme alla formula e al risultato. `/rs` conserva la stessa sintassi per i tiri segreti.

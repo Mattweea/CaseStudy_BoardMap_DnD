@@ -79,3 +79,7 @@ Localhost and `127.0.0.1` origins are allowed for development. Additional exact 
 ## Verification
 
 For backend changes, exercise success, unauthenticated, unauthorized, malformed, and stale/version-conflict paths as applicable. Verify SSE output with both master and adventurer identities when hidden or private fields are involved.
+
+## Dice-name contracts
+
+Free-roll `/api/battle-map/rolls` accepts optional `name` (1–120 Unicode characters after trim, no controls); validate it before generating dice. A name cannot alter author, formula, source, or public/secret recipients. Legacy logs without a name remain valid. Roll names are plain text and must never be rendered as HTML.

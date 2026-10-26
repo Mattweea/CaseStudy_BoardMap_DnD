@@ -105,7 +105,7 @@ Ogni tiro SHALL dichiarare visibilità pubblica o segreta. Un tiro pubblico SHAL
 
 ### Requirement: Log distinguibile nella tab Chat + Dadi
 
-La tab Chat + Dadi SHALL mostrare i tiri che il partecipante è autorizzato a vedere, distinguendo chiaramente i propri tiri segreti dai tiri pubblici. Il log in P0.3 SHALL funzionare senza una chat testuale. Ogni voce SHALL usare la stessa forma di card qualunque sia l'origine del tiro, libera o dalla scheda del personaggio. La card SHALL mostrare la formula del tiro con un peso tipografico inferiore a quello del totale, che SHALL restare l'elemento dominante; quando il tiro comprende più gruppi, la formula mostrata SHALL rappresentare tutti i gruppi e non soltanto il primo. Il dettaglio dei singoli dadi SHALL essere raggiungibile attivando il totale e SHALL NOT dipendere dal solo passaggio del mouse. Le icone dei dadi nel dettaglio SHALL essere le stesse usate dai controlli di lancio. Una voce originata dalla scheda SHALL aggiungere l'azione che ha prodotto il tiro; una voce senza azione d'origine SHALL NOT ripetere la formula come didascalia.
+La tab Chat + Dadi SHALL mostrare i tiri che il partecipante è autorizzato a vedere, distinguendo chiaramente i propri tiri segreti dai tiri pubblici. Il log in P0.3 SHALL funzionare senza una chat testuale. Ogni voce SHALL usare la stessa forma di card qualunque sia l'origine del tiro, libera o dalla scheda del personaggio. La card SHALL mostrare la formula del tiro con un peso tipografico inferiore a quello del totale, che SHALL restare l'elemento dominante; quando il tiro comprende più gruppi, la formula mostrata SHALL rappresentare tutti i gruppi e non soltanto il primo. Il dettaglio dei singoli dadi SHALL essere raggiungibile attivando il totale e SHALL NOT dipendere dal solo passaggio del mouse. Le icone dei dadi nel dettaglio SHALL essere le stesse usate dai controlli di lancio. Una voce originata dalla scheda SHALL aggiungere l'azione che ha prodotto il tiro; una voce libera con nome esplicito SHALL mostrare quel nome come didascalia testuale separata dalla formula; una voce senza azione d'origine e senza nome SHALL NOT ripetere la formula come didascalia.
 
 #### Scenario: Log dell'autore
 
@@ -119,7 +119,7 @@ La tab Chat + Dadi SHALL mostrare i tiri che il partecipante è autorizzato a ve
 
 #### Scenario: Stessa card per origini diverse
 
-- **WHEN** un partecipante confronta nel log un tiro libero e un tiro originato dalla scheda
+- **WHEN** un partecipante confronta nel log un tiro libero senza nome e un tiro originato dalla scheda
 - **THEN** le due voci hanno la stessa struttura, entrambe mostrano la formula e aprono il dettaglio allo stesso modo, e differiscono soltanto perché quella dalla scheda riporta anche l'azione d'origine
 
 #### Scenario: Formula completa di un tiro a più gruppi
@@ -141,6 +141,11 @@ La tab Chat + Dadi SHALL mostrare i tiri che il partecipante è autorizzato a ve
 
 - **WHEN** un partecipante confronta l'icona di un `d8` nel dettaglio di una voce con quella del `d8` nei controlli di lancio
 - **THEN** le due icone sono la stessa rappresentazione
+
+#### Scenario: Tiro libero con nome esplicito
+
+- **WHEN** il partecipante consulta un tiro libero con nome attacco con ascia
+- **THEN** la card mostra quel nome, formula e totale distinti e il dettaglio resta accessibile dal totale
 
 ### Requirement: Tiro libero equo con dettaglio per-dado compatibile
 

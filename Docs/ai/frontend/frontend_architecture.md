@@ -88,3 +88,7 @@ The board renders a neutral blank surface plus the application grid when the bac
 ## Verification
 
 For frontend changes, run `npm run build`. Manually verify the affected role and the nearest alternate role when visibility or permissions change. For optimistic or realtime work, verify rejection/reconciliation and a second connected client when practical.
+
+## Dice command input
+
+`shared/dice-commands.mjs` parses optional terminal `-n "name"` separately from the dice formula. The server validates the optional name again before drawing entropy; the card displays it as text without replacing formula or author.

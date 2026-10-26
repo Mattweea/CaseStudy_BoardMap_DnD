@@ -1,3 +1,4 @@
+import { validateRollName } from '../shared/dice-commands.mjs';
 import { randomUUID } from 'node:crypto';
 import { resolveDiceRoll } from '../shared/dice-engine.mjs';
 import { MAX_PRESENTATION_DICE } from '../shared/dice-3d-presentation.mjs';
@@ -104,6 +105,8 @@ export function createAuthoritativeRoll(user, request, {
     return { error: 'Il tiro libero non accetta una modalità: un d20 solitario genera sempre due esiti indipendenti, e chi legge il log scelga quale contare.' };
   }
 
+  const named = validateRollName(request?.name);
+  if (named.error) return named;
   const parsed = parseRollFormula(request?.formula);
   if (parsed.error) return parsed;
 
@@ -118,6 +121,7 @@ export function createAuthoritativeRoll(user, request, {
   const log = {
     id: createId(),
     label: parsed.formula,
+    ...(named.name === undefined ? {} : { name: named.name }),
     formula: parsed.formula,
     rollerName: user.displayName ?? user.username,
     authorUserId: user.id,

@@ -133,7 +133,7 @@ function buildModel(log: DiceRollLog, onRoll?: (request: DiceRollSourceRequest) 
         key: `free-part-${index}`, label: part.label, sides: diceSidesFromFormula(part.formula),
         rolls: part.rolls, modifier: part.modifier, total: part.total,
       })),
-      caption: null,
+      caption: log.name ? <span>{log.name}</span> : null,
     };
   }
 
@@ -143,7 +143,7 @@ function buildModel(log: DiceRollLog, onRoll?: (request: DiceRollSourceRequest) 
       formula: log.formula,
       results: log.rolls.map((natural) => ({ value: natural + log.modifier, highlight: highlightFor(natural) })),
       detailGroups: [{ key: 'd20', sides: 20, rolls: log.rolls, modifier: log.modifier }],
-      caption: null,
+      caption: log.name ? <span>{log.name}</span> : null,
     };
   }
 
@@ -152,7 +152,7 @@ function buildModel(log: DiceRollLog, onRoll?: (request: DiceRollSourceRequest) 
     formula: log.formula,
     results: [{ value: log.total }],
     detailGroups: [{ key: 'free', sides: diceSides, rolls: log.rolls, modifier: log.modifier, total: log.total }],
-    caption: null,
+    caption: log.name ? <span>{log.name}</span> : null,
   };
 }
 

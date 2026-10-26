@@ -215,6 +215,7 @@ export const COMMAND_MODULES: readonly CommandModule[] = [
           { keys: ['d20'], text: 'Non si combina con altri tipi di dado nello stesso tiro.', audience: 'all' },
           { keys: ['Modificatore'], text: 'Campo numerico nella configurazione del tiro.', audience: 'all' },
           { keys: ['Pubblico', 'Segreto'], text: 'Visibilità del tiro per gli altri partecipanti.', audience: 'all' },
+          { keys: ['-n'], text: 'Nome facoltativo: /r 1d12+5 -n \"attacco con ascia\".', audience: 'all' },
           { keys: ['/r', 'Invio'], text: 'Tiro pubblico da comando, per esempio /r 1d20+5.', audience: 'all' },
           { keys: ['/rs', 'Invio'], text: 'Tiro segreto da comando, per esempio /rs 1d8+3d6.', audience: 'all' },
           {

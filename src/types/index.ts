@@ -333,6 +333,7 @@ export interface DiceRollLogSavingThrow {
 }
 
 export interface DiceRollLog {
+  name?: string;
   id: string;
   label: string;
   formula: string;
@@ -363,6 +364,7 @@ export interface DiceRollLog {
 }
 
 export interface DiceRollFormulaRequest {
+  name?: string;
   formula: string;
   visibility: 'public' | 'secret';
 }

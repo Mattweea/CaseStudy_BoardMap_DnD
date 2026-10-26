@@ -1,3 +1,4 @@
+import { validateRollName } from './dice-commands.mjs';
 import { SUPPORTED_DICE } from './dice-engine.mjs';
 
 const SUPPORTED_DICE_SET = new Set(SUPPORTED_DICE);
@@ -29,7 +30,9 @@ export function normalizeDiceDetail(value) {
 }
 
 export function normalizeDiceLogDetail(log) {
-  const { dice: rawDice, ...legacyFields } = log;
+  const { dice: rawDice, name: rawName, ...fields } = log;
+  const named = validateRollName(rawName);
+  const legacyFields = named.name ? { ...fields, name: named.name } : fields;
   const dice = normalizeDiceDetail(rawDice);
   return dice ? { ...legacyFields, dice } : legacyFields;
 }
