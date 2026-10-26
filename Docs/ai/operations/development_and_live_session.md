@@ -62,3 +62,7 @@ Share the frontend HTTPS URL, not the backend port. The default allowed-host lis
 - A restart without a prior suspend loses unsaved live state and all in-memory sessions.
 - Migration and persistence tests must use temporary database paths, never the developer database.
 - Tests that start the production server must isolate storage as well as SQLite: snapshot, portrait and background paths are relative to the server module. `test/multi-scene-session.test.mjs` copies only source modules into a temporary directory, shares installed dependencies through a read-only usage convention, binds loopback on a random port and closes its HTTP/SSE clients before stopping its own child process. It must never restart the developer server or copy the current runtime data. This test requires local socket and subprocess support; it does not require a browser.
+
+## Node runtime
+
+Use Node 22 LTS (the repository .nvmrc pins 22.22.0) and rebuild/install native dependencies under that runtime. Node 24 can crash better-sqlite3 11.x during test-process cleanup. Switching Node after installation requires `npm rebuild better-sqlite3 bcrypt` before database tests; do not reuse binaries compiled for another ABI. Tests that bind local sockets or spawn isolated servers require those local execution capabilities.

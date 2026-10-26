@@ -274,3 +274,5 @@ Verifica struttura, raggiungibilita e link della documentazione con:
 ```bash
 npm run docs:check
 ```
+
+Per lo sviluppo usa la versione Node indicata in `.nvmrc`, installa con `npm ci` e applica le migrazioni con `npm run db:migrate` prima di avviare il backend.
