@@ -4,9 +4,9 @@ Ogni gruppo è un confine di micro commit, con messaggio indicativo in italiano.
 
 ## 1. Consolidare la base precedente
 
-- [ ] 1.1 Prima di Apply rileggere gli artefatti approvati e il diff pending; eseguire `openspec validate scene-preparation-wizard-and-cell-walls --strict --no-interactive` e la validazione di `vertex-walls-and-master-darkness`, verificando che i due change non sovrascrivano requisiti reciproci e che gli altri change attivi restino fuori scope.
-- [ ] 1.2 Verificare la stabilizzazione geometrica pending con i test `explored-regions` ed `exploration-walls`, conservazione della memoria e rifiuto atomico dei movimenti; separarla nel commit «Corregge le unioni della memoria esplorata con pareti dense», includendo la documentazione pertinente e `npm run docs:check`.
-- [ ] 1.3 Verificare Libero/Segmenti, velo Master e compatibilità Player con `npm test`, `npm run build`, verifica browser isolata e controlli documentali; consolidare nel commit «Aggiunge muri a segmenti e anteprima del buio per il Master», poi sincronizzare e archiviare soltanto `vertex-walls-and-master-darkness` dopo il confronto con i suoi scenari e la validazione strict. Il diff del nuovo change deve restare separato.
+- [x] 1.1 Prima di Apply rileggere gli artefatti approvati e il diff pending; eseguire `openspec validate scene-preparation-wizard-and-cell-walls --strict --no-interactive` e la validazione di `vertex-walls-and-master-darkness`, verificando che i due change non sovrascrivano requisiti reciproci e che gli altri change attivi restino fuori scope.
+- [x] 1.2 Verificare la stabilizzazione geometrica pending con i test `explored-regions` ed `exploration-walls`, conservazione della memoria e rifiuto atomico dei movimenti; separarla nel commit «Corregge le unioni della memoria esplorata con pareti dense», includendo la documentazione pertinente e `npm run docs:check`.
+- [x] 1.3 Verificare Libero/Segmenti, velo Master e compatibilità Player con `npm test`, `npm run build`, verifica browser isolata e controlli documentali; consolidare nel commit «Aggiunge muri a segmenti e anteprima del buio per il Master», poi sincronizzare e archiviare soltanto `vertex-walls-and-master-darkness` dopo il confronto con i suoi scenari e la validazione strict. Il diff del nuovo change deve restare separato.
 
 ## 2. Persistenza e API delle pareti a celle
 
