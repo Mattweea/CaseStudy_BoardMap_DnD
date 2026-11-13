@@ -6,7 +6,16 @@ function booleanRegions(operation, ...regions) {
   // Reset per operation so snapping never depends on another scene or retains its coordinates.
   polygonClipping.setPrecision(1e-12);
   try {
-    return polygonClipping[operation](...regions);
+    try {
+      return polygonClipping[operation](...regions);
+    } catch (error) {
+      // Near-collinearity can also collapse distinct light/sight edges and leave an
+      // open output ring. Retry the complete operation with exact decimal predicates;
+      // never substitute empty geometry or discard previously explored terrain.
+      if (!error.message?.startsWith('Unable to complete output ring')) throw error;
+      polygonClipping.setPrecision();
+      return polygonClipping[operation](...regions);
+    }
   } finally {
     polygonClipping.setPrecision();
   }
