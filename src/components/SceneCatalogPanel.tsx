@@ -650,7 +650,7 @@ export function SceneCatalogPanel({ onOpenCreatureSheet, closeRequestRef, onRequ
               disabled={isMutating}
             />
 
-                <fieldset className="scene-wizard__background"><legend>Sfondo e allineamento</legend><div className="scene-catalog__background-actions">
+                <fieldset className="scene-catalog__background scene-wizard__background"><legend>Sfondo e allineamento</legend><div className="scene-catalog__background-actions">
                 <label className="secondary-button">
                   Scegli immagine
                   <input
