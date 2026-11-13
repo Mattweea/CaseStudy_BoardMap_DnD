@@ -5,10 +5,11 @@ interface DarknessLayerProps {
   height: number;
   cellSize: number;
   paths: string[];
+  opacity?: number;
 }
 
 /** Feather the union inward: neither the blur nor a stroke may enlarge visibility. */
-export function DarknessLayer({ width, height, cellSize, paths }: DarknessLayerProps) {
+export function DarknessLayer({ width, height, cellSize, paths, opacity = 1 }: DarknessLayerProps) {
   const id = useId().replace(/:/g, '');
   const feather = cellSize / 4;
   return (
@@ -50,7 +51,7 @@ export function DarknessLayer({ width, height, cellSize, paths }: DarknessLayerP
           </g>
         </mask>
       </defs>
-      <rect width={width} height={height} fill="#000" mask={`url(#${id}-mask)`} />
+      <rect width={width} height={height} fill="#000" fillOpacity={opacity} mask={`url(#${id}-mask)`} />
     </svg>
   );
 }

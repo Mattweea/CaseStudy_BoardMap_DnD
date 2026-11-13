@@ -661,6 +661,14 @@ export function Board({
     [obstacleClusters],
   );
   const effectiveVision = vision?.enabled ? vision : null;
+  const darknessRegions = useMemo(() => {
+    if (isBoardFullyLit) return null;
+    if (canManageTokens) return exploredRegions;
+    return effectiveVision
+      ? mergeRegions(exploredRegions, visibleRegions(effectiveVision.sourceToken,
+          effectiveVision.radiusCells, effectiveVision.blockers, lightSources))
+      : null;
+  }, [isBoardFullyLit, canManageTokens, exploredRegions, effectiveVision, lightSources]);
   // Geometria mondo e proiezione a schermo su due livelli di memo (D7): il ray-cast dipende
   // solo dai bloccanti, la proiezione dipende da camera e zoom. Uno spostamento della visuale
   // non deve ricalcolare il poligono, solo riproiettarne i punti già noti.
@@ -2418,9 +2426,10 @@ export function Board({
               />
             ))}
 
-            {effectiveVision ? <DarknessLayer width={width} height={height}
+            {darknessRegions ? <DarknessLayer width={width} height={height}
               cellSize={BOARD_CONFIG.cellSize * zoom}
-              paths={regionPaths(mergeRegions(exploredRegions, visibleRegions(effectiveVision.sourceToken, effectiveVision.radiusCells, effectiveVision.blockers, lightSources)), camera, BOARD_CONFIG.cellSize * zoom)} /> : null}
+              opacity={canManageTokens ? 0.45 : 1}
+              paths={regionPaths(darknessRegions, camera, BOARD_CONFIG.cellSize * zoom)} /> : null}
 
             {canManageTokens && (lightPolygonPaths.length > 0 || lightPreviewPolygonPath) ? (
               <svg

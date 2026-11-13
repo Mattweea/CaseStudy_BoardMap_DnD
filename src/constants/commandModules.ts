@@ -350,6 +350,7 @@ export const COMMAND_MODULES: readonly CommandModule[] = [
           { keys: ['Mostra sfondo board', 'Nascondi sfondo board'], text: 'Alterna la visibilità dello sfondo della mappa.', audience: 'master' },
           { keys: ['Posa ostacolo libera'], text: 'Seleziona celle e conferma o annulla un nuovo ostacolo.', audience: 'master' },
           { keys: ['Illumina tutto', 'Riattiva buio'], text: 'Alterna l’illuminazione completa della mappa.', audience: 'master' },
+          { keys: ['Disegna muri', 'Libero / Segmenti'], text: 'In Preparazione scene scegli il ricalco libero o aggiungi un vertice per clic. In Segmenti, Spazio/Invio conferma, Backspace rimuove l’ultimo vertice ed Esc annulla la bozza; Frecce e V permettono il disegno da tastiera, Shift usa passi fini.', audience: 'master' },
           { keys: ['Posa luce'], text: 'Piazza una nuova luce puntuale con il raggio impostato.', audience: 'master' },
           { keys: ['Ctrl+Z'], text: 'Annulla globale, per qualunque azione della sessione.', audience: 'master' },
         ],

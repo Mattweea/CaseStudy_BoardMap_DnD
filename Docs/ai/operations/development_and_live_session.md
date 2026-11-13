@@ -66,3 +66,16 @@ Share the frontend HTTPS URL, not the backend port. The default allowed-host lis
 ## Node runtime
 
 Use Node 22 LTS (the repository .nvmrc pins 22.22.0) and rebuild/install native dependencies under that runtime. Node 24 can crash better-sqlite3 11.x during test-process cleanup. Switching Node after installation requires `npm rebuild better-sqlite3 bcrypt` before database tests; do not reuse binaries compiled for another ABI. Tests that bind local sockets or spawn isolated servers require those local execution capabilities.
+
+## Optional scene-authoring browser verification
+
+`tools/verify-scene-authoring.mjs` checks wall interaction and Master/Player darkness in Chromium against a temporary server, SQLite database and runtime storage. It never mutates or restarts the developer server. It requires Node from `.nvmrc`, a current build, Playwright and its Chromium/system libraries. Playwright can live outside the project:
+
+```bash
+npm install --prefix /tmp/vtt-browser-check --no-audit --no-fund playwright@1.64.1
+node /tmp/vtt-browser-check/node_modules/playwright/cli.js install chromium --only-shell
+npm run build
+PLAYWRIGHT_MODULE=/tmp/vtt-browser-check/node_modules/playwright/index.mjs node tools/verify-scene-authoring.mjs
+```
+
+The verifier checks one vertex per click, explicit confirmation, cancellation, both modes, keyboard input, transformed coordinates, stale-write rejection, touch and role-specific darkness. It exercises the existing fullscreen handler programmatically because the legacy header control is hidden by current CSS. Screenshots are written under `/tmp/dnd-*.png`; browser contexts and temporary server/storage are closed at the end.
