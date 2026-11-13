@@ -1,3 +1,4 @@
+import { SceneVisionPreview } from './SceneVisionPreview';
 import { SceneDraftContext, type SceneDraft } from './SceneDraftContext';
 import { ScenePreparationPreview } from './ScenePreparationPreview';
 import { SceneWizardNavigation, SCENE_STEPS } from './SceneWizardNavigation';
@@ -139,6 +140,8 @@ export function SceneCatalogPanel({ onOpenCreatureSheet, closeRequestRef, onRequ
   const [wallActive,setWallActive]=useState(false);
   const [lightDraft, setLightDraft] = useState<import('../types').LightSource[]>([]);
   const [lightActive, setLightActive] = useState(false);
+  const [observerEnabled, setObserverEnabled] = useState(false);
+  useEffect(() => { setObserverEnabled(false); setLightActive(false); }, [selectedScene?.id]);
   const lightsDirty = JSON.stringify(lightDraft) !== JSON.stringify(selectedScene?.document.board.lightSources ?? []);
   useEffect(() => { setLightDraft(selectedScene?.document.board.lightSources ?? []); }, [selectedScene]);
   const [cellActive, setCellActive] = useState(false);
@@ -267,7 +270,7 @@ export function SceneCatalogPanel({ onOpenCreatureSheet, closeRequestRef, onRequ
     || isDarknessEnabledDraft !== !selectedScene.document.board.isFullyLit
   );
   const resetTools = () => {
-    setWallActive(false); setCellActive(false); setLightActive(false); setDrawingTool(null); setIsPreviewPanMode(false);
+    setObserverEnabled(false); setWallActive(false); setCellActive(false); setLightActive(false); setDrawingTool(null); setIsPreviewPanMode(false);
     drawingGestureRef.current = null; setDrawingGesture(null); setEraserPreviewPoint(null);
   };
   const changeStep = (next: number) => { resetTools(); setStep(next); requestAnimationFrame(() => stepHeadingRef.current?.focus()); };
@@ -768,9 +771,12 @@ export function SceneCatalogPanel({ onOpenCreatureSheet, closeRequestRef, onRequ
               </span>
             </label>
             <SceneLightEditor sceneId={selectedScene.id} lights={lightDraft} dirty={lightsDirty} disabled={step !== 2 || isMutating || isLoading || hasDraftChanges}
-                  active={step === 2 && lightActive} onActive={(value) => { setLightActive(value); if (value) { setCellActive(false); setWallActive(false); setDrawingTool(null); setIsPreviewPanMode(false); } }}
+                  active={step === 2 && lightActive} onActive={(value) => { setLightActive(value); if (value) { setObserverEnabled(false); setCellActive(false); setWallActive(false); setDrawingTool(null); setIsPreviewPanMode(false); } }}
                   onChange={setLightDraft} onSave={() => saveLights(lightDraft)} onCancel={() => setLightDraft(selectedScene.document.board.lightSources)}
-                  preview={{ host: previewHost, left: previewLeft, top: previewTop, width: previewWidth, height: previewHeight, interactive: true, onBeginEdit: () => {} }} /></div>
+                  preview={{ host: previewHost, left: previewLeft, top: previewTop, width: previewWidth, height: previewHeight, interactive: true, onBeginEdit: () => {} }} />
+            <SceneVisionPreview scene={selectedScene} lights={lightDraft} fullyLit={!isDarknessEnabledDraft}
+              enabled={step === 2 && observerEnabled} onEnabled={(value) => { resetTools(); setObserverEnabled(value); }} scale={previewScale}
+              preview={{ host: previewHost, left: previewLeft, top: previewTop, width: previewWidth, height: previewHeight, interactive: true, onBeginEdit: () => {} }} /></div>
               <div hidden={step !== 3}><SceneEncounterSection onOpenSheet={(tokenId)=>onOpenCreatureSheet?.(selectedScene.id,tokenId)} onUndoPlacement={undoPlacement} scene={selectedScene} disabled={step !== 3 || lightsDirty || isMutating || isLoading || hasDraftChanges} error={error}
             onCreate={createEncounter} onUpdate={updateEncounter} onRemove={removeEncounter}
             onCreateEntity={createEncounterEntity} onUpdateEntity={updateEncounterEntity}
@@ -780,11 +786,11 @@ export function SceneCatalogPanel({ onOpenCreatureSheet, closeRequestRef, onRequ
               onBeginEdit: () => { setDrawingTool(null); setIsPreviewPanMode(false); } }} /></div>
               {step === 4 ? <section className="scene-wizard__summary" aria-label="Riepilogo della scena">
                 <dl>
-                  <div><dt>Base</dt><dd>{selectedScene.document.background.kind === 'image' ? 'Immagine calibrata' : 'Griglia vuota'}</dd></div>
-                  <div><dt>Dimensioni</dt><dd>{isPreviewUnlimited ? 'Illimitata' : `${previewBoard.columns} × ${previewBoard.rows} celle`}</dd></div>
-                  <div><dt>Pareti</dt><dd>{selectedScene.document.wallCells.length} celle · {selectedScene.document.walls.length} tracciati</dd></div>
-                  <div><dt>Luci</dt><dd>{selectedScene.document.board.lightSources.length} sorgenti · {selectedScene.document.board.isFullyLit ? 'Luce completa' : 'Buio attivo'}</dd></div>
-                  <div><dt>Encounter</dt><dd>{selectedScene.document.encounters.length} incontri · {selectedScene.document.preparedPlacements.length} figure collocate</dd></div>
+                  <div><dt><button type="button" onClick={() => leave(() => changeStep(0))}>Base · Modifica</button></dt><dd>{selectedScene.document.background.kind === 'image' ? 'Immagine calibrata' : 'Griglia vuota'}</dd></div>
+                  <div><dt><button type="button" onClick={() => leave(() => changeStep(0))}>Dimensioni · Modifica</button></dt><dd>{isPreviewUnlimited ? 'Illimitata' : `${previewBoard.columns} × ${previewBoard.rows} celle`}</dd></div>
+                  <div><dt><button type="button" onClick={() => leave(() => changeStep(1))}>Pareti · Modifica</button></dt><dd>{selectedScene.document.wallCells.length} celle · {selectedScene.document.walls.length} tracciati</dd></div>
+                  <div><dt><button type="button" onClick={() => leave(() => changeStep(2))}>Luci · Modifica</button></dt><dd>{selectedScene.document.board.lightSources.length} sorgenti · {selectedScene.document.board.isFullyLit ? 'Luce completa' : 'Buio attivo'}</dd></div>
+                  <div><dt><button type="button" onClick={() => leave(() => changeStep(3))}>Encounter · Modifica</button></dt><dd>{selectedScene.document.encounters.length} incontri · {selectedScene.document.preparedPlacements.length} figure collocate</dd></div>
                 </dl>
                 <p className="scene-catalog__hint">La preparazione è salvata. Puoi riaprire ogni passaggio per modificarla.</p>
 <div className={`scene-catalog__visibility ${selectedScene.isActive ? 'scene-catalog__visibility--active' : ''}`}>

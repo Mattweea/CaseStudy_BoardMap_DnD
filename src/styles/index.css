@@ -5043,3 +5043,5 @@ button:has(> svg + *) {
   .scene-wizard__map .scene-catalog__calibration-preview-viewport { flex: none; height: 35dvh; min-height: 13rem; }
 }
 .scene-catalog__calibration-preview > .wall-cells-layer { z-index: 3; }
+.scene-wizard__summary dt button { padding: 0; border: 0; background: transparent; color: #d1ac8f; font: inherit; text-decoration: underline; text-underline-offset: .2rem; cursor: pointer; }
+.scene-vision-preview > p[role="status"] { font-size: .75rem; color: #e7c394; }

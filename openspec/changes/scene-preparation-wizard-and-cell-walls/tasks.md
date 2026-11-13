@@ -53,9 +53,9 @@ Commit indicativo: «Organizza la preparazione delle scene in cinque passaggi».
 
 Commit indicativo: «Aggiunge la prova della visuale e il riepilogo prima dell'attivazione».
 
-- [ ] 7.1 Aggiungere osservatore locale e raggio con geometria condivisa, escludendo memoria esplorata e ogni mutazione/evento di gioco; verificare muri a celle/tracciati, apertura, buio, luci in bozza, pan/zoom e uscita dalla prova, confrontando richieste di rete, token e memoria prima/dopo la prova.
-- [ ] 7.2 Spostare attivazione e trasferimento nel riepilogo con collegamenti ai passaggi e stato attiva/inattiva; verificare scena senza encounter, scena con più encounter, preparazione privata, aggiornamento immediato di modifiche confermate sulla scena attiva, conflitto della preview di trasferimento e round attivo senza effetti parziali.
-- [ ] 7.3 Documentare confini della prova locale e attivazione nei contratti frontend e guida comandi; aggiornare il verificatore browser e le sue istruzioni operative se necessarie, verificando `npm run build`, `npm run docs:check` e `git diff --check` prima del commit.
+- [x] 7.1 Aggiungere osservatore locale e raggio con geometria condivisa, escludendo memoria esplorata e ogni mutazione/evento di gioco; verificare muri a celle/tracciati, apertura, buio, luci in bozza, pan/zoom e uscita dalla prova, confrontando richieste di rete, token e memoria prima/dopo la prova.
+- [x] 7.2 Spostare attivazione e trasferimento nel riepilogo con collegamenti ai passaggi e stato attiva/inattiva; verificare scena senza encounter, scena con più encounter, preparazione privata, aggiornamento immediato di modifiche confermate sulla scena attiva, conflitto della preview di trasferimento e round attivo senza effetti parziali.
+- [x] 7.3 Documentare confini della prova locale e attivazione nei contratti frontend e guida comandi; aggiornare il verificatore browser e le sue istruzioni operative se necessarie, verificando `npm run build`, `npm run docs:check` e `git diff --check` prima del commit.
 
 ## 8. Verifica integrata e archivio
 

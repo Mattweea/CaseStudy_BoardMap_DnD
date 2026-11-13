@@ -79,3 +79,5 @@ PLAYWRIGHT_MODULE=/tmp/vtt-browser-check/node_modules/playwright/index.mjs node 
 ```
 
 The verifier checks one vertex per click, explicit confirmation, cancellation, both modes, keyboard input, transformed coordinates, stale-write rejection, touch and role-specific darkness. It exercises the existing fullscreen handler programmatically because the legacy header control is hidden by current CSS. Screenshots are written under `/tmp/dnd-*.png`; browser contexts and temporary server/storage are closed at the end.
+
+The same isolated setup also runs `tools/verify-scene-wizard.mjs` with `PLAYWRIGHT_MODULE` pointing to Playwright. It covers cell-wall gestures and continuous borders, both origin choices, light drafts, the local observer without network mutations or exploration, dirty-field navigation/close, encounters/batches/sheet access, private inactive preparation and stale/successful party transitions. Screenshots are written to `/tmp/dnd-scene-wizard.png` and `/tmp/dnd-scene-vision.png`; a failed run captures `/tmp/dnd-wizard-failure.png`. Chromium must have its shared libraries available; no project dependency or developer-server restart is required.
