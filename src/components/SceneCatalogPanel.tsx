@@ -565,7 +565,7 @@ export function SceneCatalogPanel({ onOpenCreatureSheet, closeRequestRef, onRequ
                       />
                     ) : <span className="scene-catalog__blank-preview-label">Board bianca</span>}
                     <span
-                      className="scene-catalog__grid-overlay"
+                      className={`scene-catalog__grid-overlay${step === 0 ? ' scene-catalog__grid-overlay--base' : ''}`}
                       aria-hidden="true"
                       style={{
                         backgroundSize: `${previewCellSize}px ${previewCellSize}px`,

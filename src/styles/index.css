@@ -229,6 +229,7 @@ button {
 .scene-catalog__calibration-preview { position: relative; flex: 0 0 auto; overflow: hidden; max-width: 100%; border-radius: .35rem; border: 1px solid rgba(255, 185, 142, .2); background: #f4f0e8; }
 .scene-catalog__calibration-preview img { position: absolute; max-width: none; aspect-ratio: auto; object-fit: fill; border: 0; border-radius: 0; }
 .scene-catalog__grid-overlay { position: absolute; z-index: 1; inset: 0; background-image: linear-gradient(to right, rgba(61, 43, 38, .35) 1px, transparent 1px), linear-gradient(to bottom, rgba(61, 43, 38, .35) 1px, transparent 1px); pointer-events: none; }
+.scene-catalog__grid-overlay--base { background-image: linear-gradient(to right, #39ff14 1px, transparent 1px), linear-gradient(to bottom, #39ff14 1px, transparent 1px); }
 .scene-catalog__board-boundary { position: absolute; z-index: 2; box-sizing: border-box; border: 2px solid #e44f26; background: transparent; box-shadow: 0 0 0 9999px rgba(27, 13, 16, .34); pointer-events: none; }
 .scene-catalog__blank-preview-label { position: absolute; inset: 0; z-index: 0; display: grid; place-items: center; color: #5a433d; font-size: .78rem; }
 .scene-catalog__preview-caption { color: #b98e7c; font-size: .68rem; line-height: 1.4; text-align: center; }
