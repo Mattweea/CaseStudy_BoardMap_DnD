@@ -250,8 +250,9 @@ test('a scene element that blocks vision only does not block movement', async ()
   }
 });
 
-test('an Adventurer-controlled vehicle retains its obstacle bypass with scene elements', async () => {
+test('an Adventurer-controlled vehicle retains its obstacle bypass with scene elements and structural cells', async () => {
   const document = createDefaultSceneDocument();
+  document.wallCells = [{ x: 3, y: 0 }];
   document.elements = [{ id: 'rock-vehicle', kind: 'rock', position: { x: 2, y: 0 }, widthCells: 1, heightCells: 1,
     rotation: 0, blocksMovement: true, blocksVision: true }];
   __testing.setSceneService({ getActiveScene: () => ({ id: 'scene-blockers', name: 'Ostacoli', version: 1, document }) });

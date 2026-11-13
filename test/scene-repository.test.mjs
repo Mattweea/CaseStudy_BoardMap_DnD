@@ -31,6 +31,8 @@ test('scene repository persists catalog, active scene and configuration across r
   let repository = new SceneRepository(db);
   const document = createDefaultSceneDocument();
   document.board.diagonalRule = 'alternating';
+  document.wallCells = [{ x: 3, y: 4 }];
+  document.board.lightSources = [{ id: 'torch', position: { x: 1, y: 2 }, radiusCells: 6 }];
   document.runtime.tokens = [{ id: 'live-only', position: { x: 2, y: 3 } }];
   const first = repository.createAndActivate({
     id: 'scene-a', campaignId: 'campaign-test', name: 'Dungeon', document,
@@ -49,6 +51,8 @@ test('scene repository persists catalog, active scene and configuration across r
   repository = new SceneRepository(db);
   assert.equal(repository.findByCampaign('campaign-test').length, 2);
   assert.equal(repository.findActiveByCampaign('campaign-test').document.board.diagonalRule, 'alternating');
+  assert.deepEqual(repository.findActiveByCampaign('campaign-test').document.wallCells, document.wallCells);
+  assert.deepEqual(repository.findActiveByCampaign('campaign-test').document.board.lightSources, document.board.lightSources);
 }));
 
 test('scene repository lets only one write advance an expected version', () => withDatabase(async ({ db }) => {

@@ -221,3 +221,20 @@ test('Master and Player moves persist exploration with dense walls; failed write
     assert.deepEqual(events, []);
   }
 });
+
+test('server exploration respects structural cells without deleting terrain remembered before a new wall', async (t) => {
+  const { db } = await fixture(t);
+  const memory = new ExplorationService(db, [{ id: 'hero', role: 'adventurer', darkvision: '9 m' }]);
+  const cells = Array.from({ length: 9 }, (_, y) => ({ x: 3, y }));
+  const state = { activeSceneId: 'scene', tokens: [token], activeSceneElements: [], activeSceneWalls: [],
+    activeSceneWallCells: cells, lightSources: [], boardDimensions: { columns: 30, rows: 30 }, isBoardFullyLit: false };
+  memory.remember(state);
+  assert.equal(includes(memory.read('scene').regions, 2, 2), true);
+  assert.equal(includes(memory.read('scene').regions, 4, 2), false);
+  memory.remember({ ...state, activeSceneWallCells: [] });
+  assert.equal(includes(memory.read('scene').regions, 4, 2), true);
+  memory.remember(state);
+  assert.equal(includes(memory.read('scene').regions, 4, 2), true);
+  const current = visibleRegions(token, 6, collectVisionBlockers([], [], footprint, [], cells), []);
+  assert.equal(includes(current, 4, 2), false);
+});

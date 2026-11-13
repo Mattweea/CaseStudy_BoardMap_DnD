@@ -83,7 +83,10 @@ export function useSceneCatalog(enabled: boolean) {
     setTransferError(null);
     try {
       const scene = await sceneApi.get(sceneId);
-      if (selectionRequest.current === requestId) setSelectedScene(scene);
+      if (selectionRequest.current === requestId) {
+        setCatalog((current) => replaceEntry(current, scene));
+        setSelectedScene(scene);
+      }
     } catch (requestError) {
       if (selectionRequest.current === requestId) setError(readableError(requestError, 'Dettaglio scena non disponibile.'));
     } finally {

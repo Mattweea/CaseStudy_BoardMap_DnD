@@ -96,3 +96,5 @@ For frontend changes, run `npm run build`. Manually verify the affected role and
 ## Scene preparation drafts
 
 The origin switch (scratch/image) is local UI state: it prioritizes cell tools or tracing and never removes an existing background or geometry. ScenePreparationPreview hosts all editing portals. One tool owns pointer input at a time; leaving a step cancels its incomplete gesture. Fields in Base/lights are owned by SceneCatalogPanel; encounter/entity/placement drafts register save/discard callbacks through SceneDraftContext. Navigation, catalog selection and parent-modal close share one save/discard/stay guard. Sequential saves use the latest scene version; stale detail requests cannot replace a newer selection.
+
+A successful scene-detail selection also reconciles its catalog summary from that authoritative response, including name/version changed by another Master. Only the latest pending selection may update either detail or summary.

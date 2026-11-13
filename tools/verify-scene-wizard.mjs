@@ -67,6 +67,11 @@ try {
   await m.locator('.board-fullscreen-overlay .wall-cells-layer').waitFor();
   await m.locator('.board-fullscreen-overlay .board-actions button').first().evaluate(b=>b.click());
   await m.locator('.board-fullscreen-overlay').waitFor({state:'detached'});
+  await p.locator('.board-actions button').first().evaluate(b=>b.click());
+  await p.locator('.board-fullscreen-overlay .wall-cells-layer').waitFor();
+  assert.equal(await p.locator('.board-fullscreen-overlay .board-darkness-layer > rect[mask]').getAttribute('fill-opacity'),'1');
+  await p.locator('.board-fullscreen-overlay .board-actions button').first().evaluate(b=>b.click());
+  await p.locator('.board-fullscreen-overlay').waitFor({state:'detached'});
   await m.getByRole('button',{name:'Apri preparazione scene'}).click();
   await m.locator('.scene-catalog__list button').first().click();
   await m.locator('.scene-catalog .wall-cells-layer').waitFor();
@@ -271,6 +276,17 @@ try {
   assert.deepEqual(activeTransfer.activeSceneWallCells,[{x:0,y:0}]);
   assert.ok(activeTransfer.tokens.every(token=>token.position.x!==0||token.position.y!==0));
   console.log('PASS: preparazione privata, trasferimento obsoleto rifiutato e attivazione con layout che evita le pareti.');
+  target=await (await master.request.get(`${base}/api/scenes/${destination.id}`)).json();
+  const enlarged=await master.request.patch(`${base}/api/scenes/${destination.id}`,{data:{baseVersion:target.version,boardDimensions:{columns:100,rows:100}}});
+  assert.equal(enlarged.status(),200);
+  const dense=Array.from({length:4900},(_,i)=>({x:20+i%70,y:20+Math.floor(i/70)}));
+  const denseWrite=await master.request.post(`${base}/api/scenes/${destination.id}/wall-cells`,{data:{baseVersion:(await enlarged.json()).version,operation:'add',cells:dense}});
+  assert.equal(denseWrite.status(),200);
+  await m.locator('.scene-catalog__list button').filter({hasText:'Destinazione aggiornata'}).click();
+  await m.waitForFunction(()=>((document.querySelector('.scene-catalog .wall-cells-layer path')?.getAttribute('d')||'').match(/M/g)||[]).length===4901);
+  assert.equal((await m.locator('.scene-catalog .wall-cells-layer path').nth(1).getAttribute('d')).match(/M/g).length,284);
+  console.log('PASS: scena densa con 4901 celle e contorno continuo, senza un nodo DOM per cella.');
+
 
   assert.deepEqual(errors,[]);
   console.log('PASS: celle strutturali unite, SSE Master/Player, fullscreen e preview condivisa.');
