@@ -22,6 +22,7 @@ export class ExplorationService {
       state.activeSceneElements ?? [],
       footprint,
       state.activeSceneWalls ?? [],
+      state.activeSceneWallCells ?? [],
     );
     this.db.transaction(() => {
       const previous = this.read(sceneId);

@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { normalizeSceneDrawings, normalizeSceneWalls, normalizeSceneElements } from '../shared/scene-model.mjs';
+import { normalizeSceneDrawings, normalizeSceneWalls, normalizeSceneWallCells, normalizeSceneElements } from '../shared/scene-model.mjs';
 import { collectMovementBlockers, footprintsOverlap } from '../shared/scene-blockers.mjs';
 import { normalizeDiceLogDetail } from '../shared/dice-log-normalization.mjs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -120,6 +120,7 @@ const initialSharedState = {
   activeSceneBackground: { kind: 'blank' },
   activeSceneDrawings: [],
   activeSceneWalls: [],
+  activeSceneWallCells: [],
   activeSceneElements: [],
   tokens: [],
   diceLogs: [],
@@ -454,6 +455,9 @@ function normalizeSharedState(parsed) {
             isActive: parsed.activeSceneSummary.isActive === true,
           }
         : null,
+    activeSceneWallCells: (() => {
+      try { return normalizeSceneWallCells(parsed?.activeSceneWallCells ?? []); } catch { return []; }
+    })(),
     activeSceneWalls: (() => {
       try { return normalizeSceneWalls(parsed?.activeSceneWalls ?? []); } catch { return []; }
     })(),
@@ -1736,7 +1740,7 @@ function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
 
   if (!canTokenIgnoreObstacles(token, user)) {
     const blockers = collectMovementBlockers(
-      battleMapState.tokens, battleMapState.activeSceneElements, getTokenFootprint,
+      battleMapState.tokens, battleMapState.activeSceneElements, getTokenFootprint, battleMapState.activeSceneWallCells,
     );
     for (let index = 0; index < waypoints.length - 1; index += 1) {
       const blockingObstacle = findBlockedMovement(

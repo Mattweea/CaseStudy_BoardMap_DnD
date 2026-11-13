@@ -221,6 +221,7 @@ export interface BattleMapState {
   sceneCatalog?: SceneSummary[];
   activeSceneBackground: SceneBackground;
   activeSceneDrawings: import('../../shared/scene-model.mjs').SceneDrawing[];
+  activeSceneWallCells: GridPosition[];
   activeSceneWalls: import('../../shared/scene-model.mjs').SceneDrawing[];
   exploredRegions: import('../../shared/explored-regions.mjs').ExploredRegions;
   activeSceneElements: import('../../shared/scene-model.mjs').SceneElement[];
@@ -258,6 +259,7 @@ export interface BattleMapSharedState {
   sceneCatalog?: SceneSummary[];
   activeSceneBackground: SceneBackground;
   activeSceneDrawings: import('../../shared/scene-model.mjs').SceneDrawing[];
+  activeSceneWallCells: GridPosition[];
   activeSceneWalls: import('../../shared/scene-model.mjs').SceneDrawing[];
   exploredRegions: import('../../shared/explored-regions.mjs').ExploredRegions;
   activeSceneElements: import('../../shared/scene-model.mjs').SceneElement[];

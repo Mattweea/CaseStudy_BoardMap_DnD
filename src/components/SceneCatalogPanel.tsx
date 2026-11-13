@@ -1,3 +1,4 @@
+import { WallCellsLayer } from './WallCellsLayer';
 import { SceneWallEditor } from './SceneWallEditor';
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { BoardDimensions, SceneDrawing } from '../types';
@@ -513,6 +514,7 @@ export function SceneCatalogPanel({ onOpenCreatureSheet,
                         }}
                       />
                     ) : null}
+                    <WallCellsLayer cells={selectedScene.document.wallCells} left={previewLeft / CELL_SIZE} top={previewTop / CELL_SIZE} width={previewWidth / CELL_SIZE} height={previewHeight / CELL_SIZE} />
                     <svg className="scene-catalog__drawing-layer" width={previewWidth * previewScale} height={previewHeight * previewScale}
                       viewBox={`0 0 ${previewWidth} ${previewHeight}`} aria-hidden="true">
                       {selectedScene.document.drawings.filter((drawing) => !pendingEraseIds.includes(drawing.id) && !(drawingGesture?.mode === 'eraser' && drawingGesture.ids.includes(drawing.id))).map((drawing) => (

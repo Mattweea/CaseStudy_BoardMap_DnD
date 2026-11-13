@@ -1,3 +1,5 @@
+import { footprintsOverlap } from '../shared/scene-blockers.mjs';
+import { projectEncounterEntityToken } from '../shared/encounter-token.mjs';
 import { planEncounterBatch } from '../shared/encounter-batch.mjs';
 import { randomUUID } from 'node:crypto';
 import { normalizeSceneDrawings, normalizeSceneElements, normalizeSceneEncounters, normalizeSceneDocument, normalizeSceneWallCells, SCENE_LIMITS, SCENE_ENTITY_KINDS } from '../shared/scene-model.mjs';
@@ -451,6 +453,19 @@ export class SceneService {
         : placements.map((item) => item.id === placementId ? candidate : item);
     }
     const document = normalizeSceneDocument({ ...current.document, preparedPlacements: placements });
+    if (mode !== 'remove') {
+      const changed = document.preparedPlacements.filter((item) => item.id === placementId
+        || !current.document.preparedPlacements.some((before) => before.id === item.id));
+      for (const item of changed) {
+        const entity = document.entityReferences.find((e) => e.id === item.entityReferenceId);
+        const token = projectEncounterEntityToken({ entity, placement: item });
+        const size = { large: 2, huge: 3, gargantuan: 4 }[token.size] ?? 1;
+        if (document.wallCells.some((position) => footprintsOverlap(item.position,
+          { width: token.widthCells ?? size, height: token.heightCells ?? size }, { position, widthCells: 1, heightCells: 1 }))) {
+          throw new TypeError('La collocazione attraversa una parete.');
+        }
+      }
+    }
     const saved = this.updateScene({ id, expectedVersion, name: current.name, document, sortOrder: current.sortOrder });
     const entries = this.placementHistory.get(id) ?? [];
     entries.push({before:current.document.preparedPlacements,after:saved.document.preparedPlacements});

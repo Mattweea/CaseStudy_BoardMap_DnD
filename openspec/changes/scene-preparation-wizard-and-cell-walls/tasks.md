@@ -20,9 +20,9 @@ Commit indicativo: «Salva le pareti a celle nella configurazione versionata del
 
 Commit indicativo: «Integra le pareti a celle in movimento, visuale e board».
 
-- [ ] 3.1 Propagare `activeSceneWallCells` attraverso proiezione, normalizzatori, snapshot, reconnect e consumer, impedendo riscritture della configurazione dal full-state commit; verificare Master/Adventurer, scena inattiva privata e una sola pubblicazione attiva nei test active-scene views/projection e realtime.
-- [ ] 3.2 Integrare le celle nei bloccanti condivisi e in tutti i consumer di movimento, visione, luci, esplorazione e layout placement/trasferimento; aggiungere regressioni per muro chiuso, apertura, coesistenza con tracciati, footprint grandi, eccezioni Master/veicoli, terreno ricordato e fallimenti atomici, eseguendo i test scene-blockers/vision/movement/exploration e multiscena pertinenti.
-- [ ] 3.3 Introdurre resa comune delle pareti continue sotto i token, senza bordi interni né handler live, in preview e Board normale/fullscreen; verificare celle ortogonali/diagonali, zoom/pan, buio e scena densa in browser isolato, quindi aggiornare contratti frontend/gameplay pertinenti ed eseguire `npm test`, `npm run build`, `npm run docs:check` e `git diff --check`.
+- [x] 3.1 Propagare `activeSceneWallCells` attraverso proiezione, normalizzatori, snapshot, reconnect e consumer, impedendo riscritture della configurazione dal full-state commit; verificare Master/Adventurer, scena inattiva privata e una sola pubblicazione attiva nei test active-scene views/projection e realtime.
+- [x] 3.2 Integrare le celle nei bloccanti condivisi e in tutti i consumer di movimento, visione, luci, esplorazione e layout placement/trasferimento; aggiungere regressioni per muro chiuso, apertura, coesistenza con tracciati, footprint grandi, eccezioni Master/veicoli, terreno ricordato e fallimenti atomici, eseguendo i test scene-blockers/vision/movement/exploration e multiscena pertinenti.
+- [x] 3.3 Introdurre resa comune delle pareti continue sotto i token, senza bordi interni né handler live, in preview e Board normale/fullscreen; verificare celle ortogonali/diagonali, zoom/pan, buio e scena densa in browser isolato, quindi aggiornare contratti frontend/gameplay pertinenti ed eseguire `npm test`, `npm run build`, `npm run docs:check` e `git diff --check`.
 
 ## 4. Strumenti di costruzione a celle
 

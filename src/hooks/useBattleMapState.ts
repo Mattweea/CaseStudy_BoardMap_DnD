@@ -2,7 +2,7 @@ import { normalizeExploredRegions } from '../../shared/explored-regions.mjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { collectDiceDeliveries } from '../../shared/dice-3d-presentation.mjs';
 import { normalizeDiceLogDetail } from '../../shared/dice-log-normalization.mjs';
-import { normalizeSceneDrawings, normalizeSceneWalls, normalizeSceneElements } from '../../shared/scene-model.mjs';
+import { normalizeSceneDrawings, normalizeSceneWalls, normalizeSceneWallCells, normalizeSceneElements } from '../../shared/scene-model.mjs';
 import { insertInitiativeEntry } from '../../shared/initiative-order.mjs';
 import { BOARD_CONFIG } from '../constants/board';
 import type {
@@ -145,6 +145,7 @@ const initialSharedState: BattleMapSharedState = {
   activeSceneBackground: { kind: 'blank' },
   activeSceneDrawings: [],
   activeSceneWalls: [],
+  activeSceneWallCells: [],
   exploredRegions: [],
   activeSceneElements: [],
   tokens: [],
@@ -391,6 +392,9 @@ function normalizeSharedState(parsed?: Partial<BattleMapSharedState> | null): Ba
       typeof parsed?.activeSceneId === 'string' ? parsed.activeSceneId : null,
     ),
     exploredRegions: normalizeExploredRegions(parsed?.exploredRegions),
+    activeSceneWallCells: (() => {
+      try { return normalizeSceneWallCells(parsed?.activeSceneWallCells ?? []); } catch { return []; }
+    })(),
     activeSceneWalls: (() => {
       try { return normalizeSceneWalls(parsed?.activeSceneWalls ?? []); } catch { return []; }
     })(),

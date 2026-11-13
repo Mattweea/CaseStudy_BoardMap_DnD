@@ -431,7 +431,7 @@ function App() {
   const activeTurnToken =
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
   const darkvisionCells = darkvisionToCells(user?.darkvision);
-  const visionBlockers = collectVisionBlockers(state.tokens, state.activeSceneElements, getTokenFootprint, state.activeSceneWalls);
+  const visionBlockers = collectVisionBlockers(state.tokens, state.activeSceneElements, getTokenFootprint, state.activeSceneWalls, state.activeSceneWallCells);
   const playerVision = !canManageBattleMap && sessionToken && !state.isBoardFullyLit
     ? {
         enabled: true,
@@ -1729,6 +1729,7 @@ function App() {
           onToggleBoardLight={canManageBattleMap && state.activeSceneId ? toggleActiveSceneLight : undefined}
           isBoardLightPending={isBoardLightPending}
           background={state.activeSceneBackground}
+          wallCells={state.activeSceneWallCells}
           drawings={state.activeSceneDrawings}
           exploredRegions={state.exploredRegions}
           elements={state.activeSceneElements}
@@ -1821,7 +1822,8 @@ function App() {
             onToggleBoardLight={canManageBattleMap && state.activeSceneId ? toggleActiveSceneLight : undefined}
             isBoardLightPending={isBoardLightPending}
             background={state.activeSceneBackground}
-            drawings={state.activeSceneDrawings}
+            wallCells={state.activeSceneWallCells}
+          drawings={state.activeSceneDrawings}
           exploredRegions={state.exploredRegions}
             elements={state.activeSceneElements}
             dimensions={state.boardDimensions}

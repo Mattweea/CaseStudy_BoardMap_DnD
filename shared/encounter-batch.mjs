@@ -28,6 +28,7 @@ export function planEncounterBatch(document, encounterId, input, makeId = (i) =>
     const e = document.entityReferences.find((e) => e.id === p.entityReferenceId);
     return { position: p.position, ...footprint(projectEncounterEntityToken({ entity: e, placement: p })) };
   });
+  occupied.push(...(document.wallCells ?? []).map((position) => ({ position, width: 1, height: 1 })));
   const result = [];
   let x = placement.position.x,
     y = placement.position.y;

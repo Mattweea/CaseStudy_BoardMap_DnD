@@ -160,3 +160,18 @@ test('role views expose only summaries to the Master and only active identity to
   assert.equal(JSON.stringify(player).includes('Sala B'), false);
   assert.equal(JSON.stringify(player).includes('secret-stroke'), false);
 });
+
+test('structural cells belong to the authoritative active scene for both roles and legacy resume', () => {
+  const active = scene('cell-scene', 'Celle', 2);
+  active.document.wallCells = [{ x: 3, y: 4 }];
+  const forged = { activeSceneWallCells: [{ x: 9, y: 9 }], tokens: [] };
+  const service = { getActiveScene: () => active, getCatalog: () => [active] };
+  for (const role of ['master', 'adventurer']) {
+    const view = buildSceneStateView(forged, { role }, service);
+    assert.deepEqual(view.activeSceneWallCells, active.document.wallCells);
+    assert.notEqual(view.activeSceneWallCells, active.document.wallCells);
+  }
+  assert.deepEqual(prepareResumedSceneState({}, {}, active).activeSceneWallCells, active.document.wallCells);
+  delete active.document.wallCells;
+  assert.deepEqual(installActiveSceneProjection({}, active).activeSceneWallCells, []);
+});

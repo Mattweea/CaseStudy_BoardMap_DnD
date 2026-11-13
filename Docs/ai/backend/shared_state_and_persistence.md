@@ -158,3 +158,5 @@ Movement persists its candidate exploration before replacing live state or broad
 ## Structural wall cells
 
 Scene configuration additionally carries `wallCells`: deduplicated integer coordinates, sorted by row/column, defaulting to `[]` for legacy documents. Cells are structure, independent of tokens, polylines and furniture; maximum 5000, non-negative, within finite board bounds and the existing document/coordinate limits. They persist in the existing scene JSON with no SQL migration.
+
+`activeSceneWallCells` is authoritative active-scene projection data, default `[]` in legacy state. HTTP/SSE views reattach saved geometry rather than accepting cells from a generic live-state replacement. The cell adapter is shared by movement, vision, point lights, server exploration and transfer layout.

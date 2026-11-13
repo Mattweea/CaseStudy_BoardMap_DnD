@@ -73,3 +73,5 @@ Placement creation accepts an integer quantity from 1 through 100. One definitio
 ## Creature-sheet projections
 
 Bound creature tokens retain their own identity, numbered name, position and conditions. Common sheet edits may update maximum HP, initiative, movement and public aura data, while current/temporary HP and active aura switches come from the instance overlay. A new maximum does not heal or damage a creature. HP transitions use the shared unconscious/prone rule; healing from zero does not automatically remove prone. A monster block is distinct from the personal 5e character sheet, while a Master NPC uses the existing character layout. Sheet definition sharing never shares remaining resources or turns.
+
+Structural scene wall cells are not obstacle tokens and have no ownership, HP, initiative or movable group. They block movement and sight through the shared adapter, preserve the existing Master/vehicle movement exceptions, and participate in placement and party-transfer layout. Adding structure never relocates existing creatures automatically.

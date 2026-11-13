@@ -2,7 +2,7 @@ import type { GridPosition, SceneElement, UnitToken } from '../src/types';
 
 export interface SceneBlocker {
   id: string;
-  source: 'token' | 'element' | 'wall';
+  source: 'token' | 'element' | 'wall' | 'cell';
   points?: {x:number;y:number}[];
   name: string;
   groupId: string | null;
@@ -15,12 +15,14 @@ export function collectMovementBlockers(
   tokens: UnitToken[],
   elements: SceneElement[],
   getTokenFootprint: (token: UnitToken) => { width: number; height: number },
+  wallCells?: GridPosition[],
 ): SceneBlocker[];
 export function collectVisionBlockers(
   tokens: UnitToken[],
   elements: SceneElement[],
   getTokenFootprint: (token: UnitToken) => { width: number; height: number },
   walls?: {id:string;points:{x:number;y:number}[]}[],
+  wallCells?: GridPosition[],
 ): SceneBlocker[];
 export function footprintsOverlap(
   position: GridPosition,

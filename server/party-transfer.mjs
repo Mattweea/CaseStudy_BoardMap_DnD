@@ -91,6 +91,7 @@ export function planPartyTransfer({ sourceTokens, targetTokens, targetScene, anc
     ...targetTokens.map((token) => ({ position: token.position, widthCells: getTokenFootprint(token).width,
       heightCells: getTokenFootprint(token).height })),
     ...targetScene.document.elements.filter((element) => element.blocksMovement),
+    ...(targetScene.document.wallCells ?? []).map((position) => ({ position, widthCells: 1, heightCells: 1 })),
   ];
   const roots = [...members.values()].filter((token) => !token.containedInVehicleId)
     .sort((left, right) => (left.type === 'vehicle' ? -1 : 0) - (right.type === 'vehicle' ? -1 : 0)

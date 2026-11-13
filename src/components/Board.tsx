@@ -1,3 +1,4 @@
+import { WallCellsLayer } from './WallCellsLayer';
 import { regionPaths, mergeRegions, visibleRegions, type ExploredRegions } from '../../shared/explored-regions.mjs';
 import { DarknessLayer } from './DarknessLayer';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -93,6 +94,7 @@ interface BoardProps {
   background?: SceneBackground;
   drawings?: SceneDrawing[];
   elements?: SceneElement[];
+  wallCells?: GridPosition[];
   dimensions?: BoardDimensions;
   vision?: {
     enabled: boolean;
@@ -473,6 +475,7 @@ export function Board({
   drawings = [],
   exploredRegions = [],
   elements = [],
+  wallCells = [],
   dimensions = { columns: 30, rows: 30 },
   vision = null,
   lightSources = [],
@@ -1009,9 +1012,9 @@ export function Board({
       || (planPathCost?.exceedsLimit ?? false)) {
       return false;
     }
-    const blockers = collectMovementBlockers(tokens, elements, getTokenFootprint);
+    const blockers = collectMovementBlockers(tokens, elements, getTokenFootprint, wallCells);
     return isPathBlocked(blockers, planTargetToken.id, getTokenFootprint(planTargetToken), planPath);
-  }, [planPath, planPathCost?.exceedsLimit, planTargetToken, tokens, elements, canManageTokens]);
+  }, [planPath, planPathCost?.exceedsLimit, planTargetToken, tokens, elements, wallCells, canManageTokens]);
   const planExceedsBudget =
     planBudget?.totalCells != null && planPathCost ? planBudget.usedCells + planPathCost.cells > planBudget.totalCells : false;
 
@@ -2426,6 +2429,8 @@ export function Board({
               />
             ))}
 
+            <WallCellsLayer cells={wallCells} left={camera.x} top={camera.y}
+              width={width / (BOARD_CONFIG.cellSize * zoom)} height={height / (BOARD_CONFIG.cellSize * zoom)} />
             {darknessRegions ? <DarknessLayer width={width} height={height}
               cellSize={BOARD_CONFIG.cellSize * zoom}
               opacity={canManageTokens ? 0.45 : 1}

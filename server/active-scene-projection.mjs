@@ -23,6 +23,7 @@ export function attachActiveSceneMetadata(state, activeScene) {
     activeSceneId: summary?.id ?? null,
     activeSceneVersion: summary?.version ?? null,
     activeSceneSummary: summary,
+    activeSceneWallCells: clone(activeScene?.document.wallCells ?? []),
     activeSceneWalls: clone(activeScene?.document.walls ?? []),
     activeSceneDrawings: clone(activeScene?.document.drawings ?? []),
     activeSceneElements: clone(activeScene?.document.elements ?? []),

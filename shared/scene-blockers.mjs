@@ -25,19 +25,25 @@ function elementBlocker(element) {
   };
 }
 
-export function collectMovementBlockers(tokens, elements, getTokenFootprint) {
+function cellBlockers(cells) {
+  return cells.map((position) => ({ id: `cell:${position.x}:${position.y}`, source: 'cell', name: 'Parete', groupId: null, position, widthCells: 1, heightCells: 1 }));
+}
+
+export function collectMovementBlockers(tokens, elements, getTokenFootprint, wallCells = []) {
   return [
     ...tokens.filter((token) => token.blocksMovement === true)
       .map((token) => tokenBlocker(token, getTokenFootprint)),
     ...elements.filter((element) => element.blocksMovement === true).map(elementBlocker),
+    ...cellBlockers(wallCells),
   ];
 }
 
-export function collectVisionBlockers(tokens, elements, getTokenFootprint, walls = []) {
+export function collectVisionBlockers(tokens, elements, getTokenFootprint, walls = [], wallCells = []) {
   return [
     ...tokens.filter((token) => token.blocksMovement === true)
       .map((token) => tokenBlocker(token, getTokenFootprint)),
     ...elements.filter((element) => element.blocksVision === true).map(elementBlocker),
+    ...cellBlockers(wallCells),
     ...walls.map((wall) => ({ id: wall.id, source: 'wall', name: 'Muro', groupId: null, position: { x: 0, y: 0 }, widthCells: 0, heightCells: 0, points: wall.points })),
   ];
 }

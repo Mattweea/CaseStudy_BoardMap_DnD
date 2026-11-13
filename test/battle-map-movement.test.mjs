@@ -647,3 +647,18 @@ test('il Master resta libero di muovere un token Afferrato o Prono senza riduzio
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.json().state.tokens[0].position, { x: 5, y: 0 });
 });
+
+test('structural wall rejects a Player path atomically and preserves Master bypass', async () => {
+  const document = createDefaultSceneDocument();
+  document.wallCells = [{ x: 2, y: 0 }];
+  __testing.setSceneService({ getActiveScene: () => ({ id: 'cell-wall', name: 'Pareti', version: 1, document }) });
+  try {
+    __testing.setBattleMapState(withActiveTurn({ tokens: [heroToken()] }));
+    const blocked = await move(PLAYER, { tokenId: 'hero-1', waypoints: [{ x: 0, y: 0 }, { x: 4, y: 0 }] });
+    assert.equal(blocked.statusCode, 400, blocked.body);
+    assert.match(blocked.json().message, /Parete blocca/);
+    assert.deepEqual(__testing.getBattleMapState().tokens[0].position, { x: 0, y: 0 });
+    assert.equal(__testing.getBattleMapState().movementUsedByTokenId['hero-1'] ?? 0, 0);
+    assert.equal((await move(MASTER, { tokenId: 'hero-1', x: 4, y: 0 })).statusCode, 200);
+  } finally { __testing.setSceneService(null); }
+});
