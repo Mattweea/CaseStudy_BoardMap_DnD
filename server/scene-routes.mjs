@@ -34,9 +34,10 @@ function validateUpdateBody(body) {
     || !Number.isSafeInteger(body.baseVersion)
     || body.baseVersion < 1
     || (body.name === undefined && body.backgroundCalibration === undefined && body.boardDimensions === undefined
-      && body.isFullyLit === undefined)
+      && body.isFullyLit === undefined && body.lightSources === undefined)
     || (body.name !== undefined && typeof body.name !== 'string')
     || (body.isFullyLit !== undefined && typeof body.isFullyLit !== 'boolean')
+    || (body.lightSources !== undefined && !Array.isArray(body.lightSources))
     || (
       body.backgroundCalibration !== undefined
       && (
@@ -72,6 +73,7 @@ function validateUpdateBody(body) {
     backgroundCalibration: body.backgroundCalibration,
     boardDimensions: body.boardDimensions,
     isFullyLit: body.isFullyLit,
+    lightSources: body.lightSources,
   };
 }
 
@@ -193,7 +195,7 @@ export function registerSceneRoutes(app, {
   app.patch('/api/scenes/:id', async (request, reply) => {
     if (!masterOnly(request, reply)) return;
     try {
-      const { baseVersion, name, backgroundCalibration, boardDimensions, isFullyLit } = validateUpdateBody(request.body);
+      const { baseVersion, name, backgroundCalibration, boardDimensions, isFullyLit, lightSources } = validateUpdateBody(request.body);
       const current = service.getScene(request.params.id);
       if (!current) return reply.code(404).send({ message: 'Scena non trovata.' });
       if (backgroundCalibration !== undefined && current.document.background.kind !== 'image') {
@@ -219,11 +221,12 @@ export function registerSceneRoutes(app, {
         ...(backgroundCalibration === undefined ? {} : {
           background: { ...current.document.background, ...backgroundCalibration },
         }),
-        ...(boardDimensions === undefined && isFullyLit === undefined ? {} : {
+        ...(boardDimensions === undefined && isFullyLit === undefined && lightSources === undefined ? {} : {
           board: {
             ...current.document.board,
             ...(boardDimensions === undefined ? {} : { dimensions: boardDimensions }),
             ...(isFullyLit === undefined ? {} : { isFullyLit }),
+            ...(lightSources === undefined ? {} : { lightSources }),
           },
         }),
       };

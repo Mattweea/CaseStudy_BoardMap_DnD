@@ -127,3 +127,5 @@ Polygon unions and intersections go through `shared/explored-regions.mjs` on bot
 Structural `wallCells` are rendered by the shared WallCellsLayer in preview and both Board views. Orthogonally adjacent cells have no internal border; cells remain non-interactive on the live board. Movement/vision use the shared cell adapter, and camera changes reproject the same geometry.
 
 Cell-wall gestures use the transformed preview rectangle and integer world cells. Brush interpolation fills intermediate cells, rectangle selection is inclusive, and the wall eraser touches only structure. Release commits once; Escape, pointer cancellation/lost capture and tool/scene changes discard drafts. The editor offers equivalent keyboard coordinate commands. These operations do not enter drawing, polyline-wall or live history.
+
+SceneLightEditor owns only selection/drag; the preparation parent owns light drafts. Pointer movement changes a local draft; Save lights commits position and radius, Cancel restores saved lights. Coordinates and radius are keyboard-editable. A failed or stale save is reconciled by the catalog and is never presented as committed.

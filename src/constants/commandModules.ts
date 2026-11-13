@@ -352,6 +352,7 @@ export const COMMAND_MODULES: readonly CommandModule[] = [
           { keys: ['Illumina tutto', 'Riattiva buio'], text: 'Alterna l’illuminazione completa della mappa.', audience: 'master' },
           { keys: ['Costruisci pareti', 'Pennello / Rettangolo / Gomma pareti'], text: 'Dipingi celle strutturali unite: il rilascio salva, Esc annulla. Le coordinate da tastiera permettono aggiunta e rimozione. Le celle bloccano movimento, luce e visuale.', audience: 'master' },
           { keys: ['Disegna muri', 'Libero / Segmenti'], text: 'In Preparazione scene scegli il ricalco libero o aggiungi un vertice per clic. In Segmenti, Spazio/Invio conferma, Backspace rimuove l’ultimo vertice ed Esc annulla la bozza; Frecce e V permettono il disegno da tastiera, Shift usa passi fini.', audience: 'master' },
+          { keys: ['Aggiungi luce', 'Salva luci'], text: 'In preparazione imposta posizione e raggio delle luci anche nelle scene inattive. Le modifiche restano in bozza fino a Salva luci.', audience: 'master' },
           { keys: ['Posa luce'], text: 'Piazza una nuova luce puntuale con il raggio impostato.', audience: 'master' },
           { keys: ['Ctrl+Z'], text: 'Annulla globale, per qualunque azione della sessione.', audience: 'master' },
         ],

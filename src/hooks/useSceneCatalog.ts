@@ -180,6 +180,7 @@ export function useSceneCatalog(enabled: boolean) {
     backgroundCalibration: SceneBackgroundCalibration | null = null,
     boardDimensions: BoardDimensions | null = null,
     isFullyLit: boolean | null = null,
+    lightSources: import('../types').LightSource[] | null = null,
   ) => {
     if (!selectedScene) return false;
     setIsMutating(true);
@@ -196,6 +197,7 @@ export function useSceneCatalog(enabled: boolean) {
         backgroundCalibration?: SceneBackgroundCalibration;
         boardDimensions?: BoardDimensions;
         isFullyLit?: boolean;
+        lightSources?: import('../types').LightSource[];
       } = {};
       if (name.trim() !== updated.name) patch.name = name;
       if (backgroundCalibration && updated.document.background.kind === 'image') {
@@ -217,6 +219,7 @@ export function useSceneCatalog(enabled: boolean) {
       if (isFullyLit !== null && updated.document.board.isFullyLit !== isFullyLit) {
         patch.isFullyLit = isFullyLit;
       }
+      if (lightSources !== null && JSON.stringify(lightSources) !== JSON.stringify(updated.document.board.lightSources)) patch.lightSources = lightSources;
       if (Object.keys(patch).length > 0) {
         updated = await sceneApi.update(selectedScene.id, updated.version, patch);
       }
@@ -265,6 +268,8 @@ export function useSceneCatalog(enabled: boolean) {
   };
 
   return {
+    saveLights: (lights: import('../types').LightSource[]) => writeLayer(
+      (scene) => sceneApi.update(scene.id, scene.version, { lightSources: lights }), 'Luci non salvate. Riprova.'),
     mutateWallCells: (operation: 'add' | 'remove', cells: { x: number; y: number }[]) => writeLayer(
       (scene) => sceneApi.mutateWallCells(scene.id, scene.version, operation, cells), 'Pareti non salvate. Riprova.'),
     undoPlacement: () => writeLayer((scene)=>sceneApi.undoPlacement(scene.id,scene.version),'Annullamento collocazione non riuscito.'),

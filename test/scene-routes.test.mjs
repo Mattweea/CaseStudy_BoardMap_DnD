@@ -851,3 +851,33 @@ test('cell walls are authorized, versioned, idempotent and persisted before publ
     assert.deepEqual(events, [2, 3]);
   } finally { await close(); }
 });
+
+test('scene light preparation persists privately and rejects invalid, stale and failed writes atomically', async () => {
+  const events=[];
+  const { app,service,repository,close }=await createApp({onActiveSceneUpdated:scene=>events.push(scene.version)});
+  const headers={'x-test-user':'master'};
+  const lights=[{id:'torch',position:{x:4,y:5},radiusCells:6}];
+  const url='/api/scenes/scene-initial';
+  const patch=(data,user=headers)=>app.inject({method:'PATCH',url,headers:user,payload:data});
+  try {
+    assert.equal((await patch({baseVersion:1,lightSources:lights},{})).statusCode,401);
+    assert.equal((await patch({baseVersion:1,lightSources:lights},{'x-test-user':'player'})).statusCode,403);
+    const saved=await patch({baseVersion:1,lightSources:lights});assert.equal(saved.statusCode,200,saved.body);
+    service.load();assert.deepEqual(service.getActiveScene().document.board.lightSources,lights);
+    assert.deepEqual(events,[2]);
+    assert.equal((await patch({baseVersion:1,lightSources:[]})).statusCode,409);
+    for(const value of [null,[{...lights[0],radiusCells:-1}],[{...lights[0],radiusCells:1001}]]){
+      assert.equal((await patch({baseVersion:2,lightSources:value})).statusCode,400);
+    }
+    const persist=repository.saveVersion;repository.saveVersion=()=>{throw Error('disk full');};
+    assert.equal((await patch({baseVersion:2,lightSources:[]})).statusCode,500);
+    assert.deepEqual(service.getActiveScene().document.board.lightSources,lights);assert.deepEqual(events,[2]);
+    repository.saveVersion=persist;
+    const other=service.createScene({id:'private-light',name:'Privata',sortOrder:1,document:createDefaultSceneDocument()});
+    const privateWrite=await app.inject({method:'PATCH',url:'/api/scenes/private-light',headers,payload:{baseVersion:other.version,lightSources:lights}});
+    assert.equal(privateWrite.statusCode,200);assert.deepEqual(events,[2]);
+    assert.deepEqual(repository.findById('private-light').document.board.lightSources,lights);
+    assert.equal((await patch({baseVersion:2,lightSources:[]})).statusCode,200);
+    assert.deepEqual(events,[2,3]);
+  } finally {await close();}
+});

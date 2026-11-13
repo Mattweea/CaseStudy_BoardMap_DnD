@@ -36,9 +36,9 @@ Commit indicativo: «Permette di dipingere e cancellare pareti sulla griglia».
 
 Commit indicativo: «Aggiunge la preparazione delle luci anche nelle scene inattive».
 
-- [ ] 5.1 Estendere PATCH scene, API client e hook con `lightSources` validata e salvataggi versionati; testare CRUD della configurazione, riapertura, raggi invalidi, accessi, conflitti, storage failure e isolamento delle scene, verificando una sola proiezione attiva e conservazione della memoria.
-- [ ] 5.2 Introdurre editor luci con posizione/raggio da mappa e tastiera, bozza esplicita, conferma e annullamento; verificare in browser che trascinamento e digitazione non scrivano prima del salvataggio e che una risposta fallita non rappresenti una luce come salvata.
-- [ ] 5.3 Aggiornare contratti API/frontend e guida comandi per la preparazione luci; eseguire i test del gruppo, `npm test`, `npm run build`, `npm run docs:check` e `git diff --check` prima del commit.
+- [x] 5.1 Estendere PATCH scene, API client e hook con `lightSources` validata e salvataggi versionati; testare CRUD della configurazione, riapertura, raggi invalidi, accessi, conflitti, storage failure e isolamento delle scene, verificando una sola proiezione attiva e conservazione della memoria.
+- [x] 5.2 Introdurre editor luci con posizione/raggio da mappa e tastiera, bozza esplicita, conferma e annullamento; verificare in browser che trascinamento e digitazione non scrivano prima del salvataggio e che una risposta fallita non rappresenti una luce come salvata.
+- [x] 5.3 Aggiornare contratti API/frontend e guida comandi per la preparazione luci; eseguire i test del gruppo, `npm test`, `npm run build`, `npm run docs:check` e `git diff --check` prima del commit.
 
 ## 6. Wizard, switch e gestione delle bozze
 

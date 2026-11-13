@@ -115,6 +115,7 @@ export const sceneApi = {
     backgroundCalibration?: SceneBackgroundCalibration;
     boardDimensions?: { columns: number; rows: number };
     isFullyLit?: boolean;
+    lightSources?: import('../types').LightSource[];
   }) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify({ baseVersion, ...patch }),

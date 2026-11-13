@@ -97,3 +97,5 @@ Scene details expose `placementHistory.canUndo`; Master-only POST `/api/scenes/:
 ## Structural cell mutations
 
 Master-only `POST /api/scenes/:id/wall-cells` accepts `{ baseVersion, operation: "add" | "remove", cells }` and returns scene detail. Reject stale versions before idempotence checks; repeated additions/removals that leave geometry identical do not persist, advance versions or publish. Invalid coordinates or limits reject the whole command. Persist before projecting; inactive scene changes stay private.
+
+Scene PATCH also accepts `lightSources`, validated through the existing scene light normalizer. It replaces the selected scene’s saved point lights with one optimistic write; only active-scene commits project and broadcast. Preparation never uses a generic live-state commit.
