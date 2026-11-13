@@ -14,6 +14,7 @@ export const SCENE_LIMITS: Readonly<{
   maxNameLength: number;
   maxReferenceTypeLength: number;
   maxLayerItems: number;
+  maxWallCells: number;
   maxDrawingPoints: number;
   maxElementFootprintCells: number;
   minDrawingWidthCells: number;
@@ -134,6 +135,7 @@ export interface SceneConfigurationDocument {
   board: SceneBoardConfig;
   drawings: SceneDrawing[];
   walls: SceneDrawing[];
+  wallCells: { x: number; y: number }[];
   elements: SceneElement[];
   encounters: SceneEncounter[];
   entityReferences: SceneEntityReference[];
@@ -168,3 +170,4 @@ export function projectSceneRuntime(
 ): SceneDocument;
 
 export function normalizeSceneWalls(value: unknown): SceneDrawing[];
+export function normalizeSceneWallCells(value: unknown, dimensions?: { columns: number; rows: number }): { x: number; y: number }[];

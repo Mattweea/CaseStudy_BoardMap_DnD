@@ -12,9 +12,9 @@ Ogni gruppo è un confine di micro commit, con messaggio indicativo in italiano.
 
 Commit indicativo: «Salva le pareti a celle nella configurazione versionata delle scene».
 
-- [ ] 2.1 Estendere modello, dichiarazioni e cattura/proiezione configurazione con `wallCells` canoniche e limiti del design; aggiungere test in `scene-model` per default legacy, deduplicazione, ordinamento, coordinate, limite celle/documento e conservazione di tracciati e ostacoli esistenti, verificandoli con il runner Node.
-- [ ] 2.2 Aggiungere mutazione celle Master-only versionata e relativo client/hook, con controllo no-op e persist-before-project; testare aggiunta/rimozione, `401/403/400/409`, no-op, errore storage, riapertura del database e assenza di pubblicazioni parziali nei test scene service/routes/repository.
-- [ ] 2.3 Documentare schema additivo, endpoint e confine di persistenza nei contratti backend esistenti; verificare `npm run docs:check`, `npm test`, `npm run build` e `git diff --check` prima del commit. Non cambiare migrazioni storiche.
+- [x] 2.1 Estendere modello, dichiarazioni e cattura/proiezione configurazione con `wallCells` canoniche e limiti del design; aggiungere test in `scene-model` per default legacy, deduplicazione, ordinamento, coordinate, limite celle/documento e conservazione di tracciati e ostacoli esistenti, verificandoli con il runner Node.
+- [x] 2.2 Aggiungere mutazione celle Master-only versionata e relativo client/hook, con controllo no-op e persist-before-project; testare aggiunta/rimozione, `401/403/400/409`, no-op, errore storage, riapertura del database e assenza di pubblicazioni parziali nei test scene service/routes/repository.
+- [x] 2.3 Documentare schema additivo, endpoint e confine di persistenza nei contratti backend esistenti; verificare `npm run docs:check`, `npm test`, `npm run build` e `git diff --check` prima del commit. Non cambiare migrazioni storiche.
 
 ## 3. Blocchi, sincronizzazione e resa delle celle
 

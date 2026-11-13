@@ -811,3 +811,43 @@ test('master saves unlimited dimensions in a versioned update and rejects mixed 
     await close();
   }
 });
+
+test('cell walls are authorized, versioned, idempotent and persisted before publication', async () => {
+  const events = [];
+  const { app, service, repository, close } = await createApp({ onActiveSceneUpdated: (scene) => events.push(scene.version) });
+  const url = '/api/scenes/scene-initial/wall-cells';
+  const payload = { baseVersion: 1, operation: 'add', cells: [{ x: 2, y: 3 }, { x: 2, y: 3 }] };
+  const write = (body, user = 'master') => app.inject({ method: 'POST', url, headers: { 'x-test-user': user }, payload: body });
+  try {
+    assert.equal((await write(payload, 'unknown')).statusCode, 401);
+    assert.equal((await write(payload, 'player')).statusCode, 403);
+    const saved = await write(payload);
+    assert.equal(saved.statusCode, 200, saved.body);
+    assert.deepEqual(saved.json().document.wallCells, [{ x: 2, y: 3 }]);
+    assert.deepEqual(repository.findById('scene-initial').document.wallCells, [{ x: 2, y: 3 }]);
+    service.load();
+    assert.deepEqual(service.getActiveScene().document.wallCells, [{ x: 2, y: 3 }]);
+    assert.deepEqual(events, [2]);
+    assert.equal((await write({ ...payload, baseVersion: 2 })).json().version, 2);
+    assert.deepEqual(events, [2]);
+    assert.equal((await write(payload)).statusCode, 409);
+    for (const cells of [[{ x: -1, y: 0 }], [{ x: 30, y: 0 }], [{ x: 0.5, y: 0 }]]) {
+      assert.equal((await write({ ...payload, baseVersion: 2, cells })).statusCode, 400);
+    }
+    const persist = repository.saveVersion;
+    repository.saveVersion = () => { throw Error('disk full'); };
+    const failed = await write({ ...payload, baseVersion: 2, cells: [{ x: 4, y: 4 }] });
+    assert.equal(failed.statusCode, 500);
+    assert.equal(service.getActiveScene().version, 2);
+    assert.deepEqual(events, [2]);
+    repository.saveVersion = persist;
+    const removed = await write({ ...payload, baseVersion: 2, operation: 'remove' });
+    assert.deepEqual(removed.json().document.wallCells, []);
+    const inactive = service.createScene({ id: 'private-cells', name: 'Privata', sortOrder: 1,
+      document: createDefaultSceneDocument() });
+    const privateWrite = await app.inject({ method: 'POST', url: '/api/scenes/private-cells/wall-cells',
+      headers: { 'x-test-user': 'master' }, payload: { ...payload, baseVersion: inactive.version } });
+    assert.equal(privateWrite.statusCode, 200);
+    assert.deepEqual(events, [2, 3]);
+  } finally { await close(); }
+});

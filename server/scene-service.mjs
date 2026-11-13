@@ -1,6 +1,6 @@
 import { planEncounterBatch } from '../shared/encounter-batch.mjs';
 import { randomUUID } from 'node:crypto';
-import { normalizeSceneDrawings, normalizeSceneElements, normalizeSceneEncounters, normalizeSceneDocument, SCENE_LIMITS, SCENE_ENTITY_KINDS } from '../shared/scene-model.mjs';
+import { normalizeSceneDrawings, normalizeSceneElements, normalizeSceneEncounters, normalizeSceneDocument, normalizeSceneWallCells, SCENE_LIMITS, SCENE_ENTITY_KINDS } from '../shared/scene-model.mjs';
 
 const DRAWING_HISTORY_LIMIT = 40;
 
@@ -172,6 +172,22 @@ export class SceneService {
       sortOrder: current.sortOrder,
       preserveDrawingHistory: true,
     });
+  }
+
+  mutateWallCells({ id, expectedVersion, operation, cells }) {
+    const current = this.versionedScene(id, expectedVersion);
+    if (!['add', 'remove'].includes(operation)) throw new TypeError('Operazione pareti non valida.');
+    const changes = normalizeSceneWallCells(cells, current.document.board.dimensions);
+    const after = new Map(current.document.wallCells.map((cell) => [`${cell.x}:${cell.y}`, cell]));
+    for (const cell of changes) {
+      const key = `${cell.x}:${cell.y}`;
+      if (operation === 'add') after.set(key, cell);
+      else after.delete(key);
+    }
+    const wallCells = normalizeSceneWallCells([...after.values()], current.document.board.dimensions);
+    if (JSON.stringify(wallCells) === JSON.stringify(current.document.wallCells)) return current;
+    return this.updateScene({ id, expectedVersion, name: current.name, sortOrder: current.sortOrder,
+      document: { ...current.document, wallCells } });
   }
 
   recordDrawingChange(id, entry) {

@@ -265,6 +265,8 @@ export function useSceneCatalog(enabled: boolean) {
   };
 
   return {
+    mutateWallCells: (operation: 'add' | 'remove', cells: { x: number; y: number }[]) => writeLayer(
+      (scene) => sceneApi.mutateWallCells(scene.id, scene.version, operation, cells), 'Pareti non salvate. Riprova.'),
     undoPlacement: () => writeLayer((scene)=>sceneApi.undoPlacement(scene.id,scene.version),'Annullamento collocazione non riuscito.'),
     mutateWall: (operation: 'add'|'remove'|'undo'|'redo', wall?: SceneDrawing, wallId?: string) => writeLayer(
       (scene) => sceneApi.mutateWall(scene.id,scene.version,operation,wall,wallId), 'Operazione muri non riuscita.'),

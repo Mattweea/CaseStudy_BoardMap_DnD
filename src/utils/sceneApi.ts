@@ -74,6 +74,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const sceneApi = {
+  mutateWallCells: (id: string, baseVersion: number, operation: 'add' | 'remove', cells: { x: number; y: number }[]) =>
+    request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/wall-cells`, {
+      method: 'POST', body: JSON.stringify({ baseVersion, operation, cells }),
+    }),
   undoPlacement: (id:string,baseVersion:number)=>request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/placements/undo`,{method:'POST',body:JSON.stringify({baseVersion})}),
   mutateWall: (id: string, baseVersion: number, operation: 'add'|'remove'|'undo'|'redo', wall?: SceneDrawing, wallId?: string) => request<PersistedScene>(`/scenes/${encodeURIComponent(id)}/walls${operation==='remove'?`/${encodeURIComponent(wallId ?? '')}`:operation==='add'?'':`/${operation}`}`, {
     method: operation==='remove'?'DELETE':'POST', body:JSON.stringify({baseVersion,wall}),

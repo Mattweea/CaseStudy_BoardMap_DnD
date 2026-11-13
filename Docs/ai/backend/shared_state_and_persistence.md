@@ -154,3 +154,7 @@ Wall polylines are scene configuration in `walls` (legacy default `[]`) and proj
 `ExplorationService` owns the SQLite `explored_regions` union for each scene. Only canonical PGs contribute; accepted path steps and transported PGs contribute actual traversed positions, while direct relocations reveal the destination. Rejected moves, previews and temporary full lighting do not explore. Exploration is monotonic and is not rolled back by movement undo or an older session snapshot. The union is sparse polygon geometry with holes, computed with the same shared vision rules as presentation. It is separate from the scene preparation version and from full runtime recovery.
 
 Movement persists its candidate exploration before replacing live state or broadcasting. Read-only snapshots deliver only the active scene's memory; clients cannot replace it through a full-state commit. Rendering remembered terrain does not grant live sight of creatures.
+
+## Structural wall cells
+
+Scene configuration additionally carries `wallCells`: deduplicated integer coordinates, sorted by row/column, defaulting to `[]` for legacy documents. Cells are structure, independent of tokens, polylines and furniture; maximum 5000, non-negative, within finite board bounds and the existing document/coordinate limits. They persist in the existing scene JSON with no SQL migration.

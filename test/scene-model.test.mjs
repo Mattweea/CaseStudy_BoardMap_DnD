@@ -180,7 +180,7 @@ test('valid data is cloned and normalized while preserving layer-specific fields
   const source = validScene();
   const normalized = normalizeSceneDocument(source);
 
-  assert.deepEqual(normalized, { ...source, walls: source.walls ?? [] });
+  assert.deepEqual(normalized, { ...source, walls: source.walls ?? [], wallCells: [] });
   assert.notEqual(normalized, source);
   assert.notEqual(normalized.runtime.tokens[0], source.runtime.tokens[0]);
   assert.equal(normalized.drawings[0].color, '#123456');
@@ -389,4 +389,21 @@ test('capture and projection keep live runtime outside persistent configuration'
 
   projection.drawings[0].points[0].x = 999;
   assert.equal(configuration.drawings[0].points[0].x, 1);
+});
+
+test('structural cells normalize without converting existing walls and enforce scene bounds', async () => {
+  const { normalizeSceneWallCells } = await import('../shared/scene-model.mjs');
+  const document = validScene();
+  assert.deepEqual(normalizeSceneDocument(document).wallCells, []);
+  document.wallCells = [{ x: 3, y: 2 }, { x: 1, y: 2 }, { x: 3, y: 2 }];
+  const saved = captureSceneConfiguration(document);
+  assert.deepEqual(saved.wallCells, [{ x: 1, y: 2 }, { x: 3, y: 2 }]);
+  assert.deepEqual(projectSceneRuntime(saved).wallCells, saved.wallCells);
+  assert.deepEqual(saved.elements, normalizeSceneDocument(document).elements);
+  for (const value of [[{ x: -1, y: 1 }], [{ x: 1.5, y: 1 }], [{ x: 42, y: 1 }], null]) {
+    assert.throws(() => normalizeSceneDocument({ ...document, wallCells: value }));
+  }
+  assert.throws(() => normalizeSceneWallCells(Array.from({ length: 5001 }, (_, x) => ({ x, y: 0 }))));
+  assert.equal(normalizeSceneWallCells([{ x: 999999, y: 0 }]).length, 1);
+  assert.throws(() => normalizeSceneWallCells([{ x: 1000000, y: 0 }]));
 });

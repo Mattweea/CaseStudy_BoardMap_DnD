@@ -8,6 +8,7 @@ export const SCENE_LIMITS = Object.freeze({
   maxNameLength: 120,
   maxReferenceTypeLength: 64,
   maxLayerItems: 5000,
+  maxWallCells: 5000,
   maxDrawingPoints: 20000,
   minDrawingWidthCells: 0.05,
   maxDrawingWidthCells: 20,
@@ -318,6 +319,23 @@ export function normalizeSceneWalls(value) {
   return walls;
 }
 
+export function normalizeSceneWallCells(value, dimensions = { columns: 0, rows: 0 }) {
+  if (!Array.isArray(value) || value.length > SCENE_LIMITS.maxWallCells) {
+    fail('wallCells', 'must be an array of at most ' + SCENE_LIMITS.maxWallCells + ' cells');
+  }
+  const cells = new Map();
+  for (const cell of value) {
+    if (!isRecord(cell) || !Number.isSafeInteger(cell.x) || !Number.isSafeInteger(cell.y)
+      || cell.x < 0 || cell.y < 0 || cell.x >= SCENE_LIMITS.maxCoordinateMagnitude
+      || cell.y >= SCENE_LIMITS.maxCoordinateMagnitude
+      || (dimensions.columns > 0 && (cell.x >= dimensions.columns || cell.y >= dimensions.rows))) {
+      fail('wallCells', 'coordinate fuori dai limiti della scena');
+    }
+    cells.set(`${cell.x}:${cell.y}`, { x: cell.x, y: cell.y });
+  }
+  return [...cells.values()].sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
 export function normalizeSceneDrawings(value) {
   return normalizeDrawings(value, 'drawings');
 }
@@ -500,6 +518,7 @@ export function createDefaultSceneDocument() {
     },
     drawings: [],
     walls: [],
+    wallCells: [],
     elements: [],
     encounters: [],
     entityReferences: [],
@@ -568,6 +587,7 @@ export function normalizeSceneDocument(value) {
     board,
     drawings: normalizeDrawings(value.drawings ?? [], 'scene.drawings'),
     walls: normalizeSceneWalls(value.walls ?? []),
+    wallCells: normalizeSceneWallCells(value.wallCells === undefined ? [] : value.wallCells, board.dimensions),
     elements: normalizeElements(value.elements ?? [], 'scene.elements', board.dimensions),
     encounters,
     entityReferences,
@@ -598,6 +618,7 @@ export function captureSceneConfiguration(scene) {
     board: normalized.board,
     drawings: normalized.drawings,
     walls: normalized.walls,
+    wallCells: normalized.wallCells,
     elements: normalized.elements,
     encounters: normalized.encounters,
     entityReferences: normalized.entityReferences,

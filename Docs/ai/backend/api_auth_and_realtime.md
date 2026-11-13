@@ -93,3 +93,7 @@ Free-roll `/api/battle-map/rolls` accepts optional `name` (1–120 Unicode chara
 The existing `/api/battle-map/rolls` dispatches `creature:` binding sources only for the Master and the active scene. Initiative uses the bound token; other actions use the stored creature document and preserve normal roll visibility filtering. No client-supplied formula replaces a stored creature action. `creature-sheet-saved` is emitted only to Master stream clients.
 
 Scene details expose `placementHistory.canUndo`; Master-only POST `/api/scenes/:id/placements/undo` atomically reverses the last compatible placement mutation, including a whole batch. This history is process-local, capped at 40, and separate from drawing and live-state undo.
+
+## Structural cell mutations
+
+Master-only `POST /api/scenes/:id/wall-cells` accepts `{ baseVersion, operation: "add" | "remove", cells }` and returns scene detail. Reject stale versions before idempotence checks; repeated additions/removals that leave geometry identical do not persist, advance versions or publish. Invalid coordinates or limits reject the whole command. Persist before projecting; inactive scene changes stay private.

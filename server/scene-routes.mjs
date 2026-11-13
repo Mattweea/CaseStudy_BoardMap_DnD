@@ -166,6 +166,22 @@ export function registerSceneRoutes(app, {
     }
   });
 
+  app.post('/api/scenes/:id/wall-cells', (request, reply) => {
+    if (!masterOnly(request, reply)) return;
+    try {
+      const body = request.body;
+      if (!body || !Number.isSafeInteger(body.baseVersion) || body.baseVersion < 1) {
+        throw new TypeError('La versione base della scena è obbligatoria.');
+      }
+      const scene = service.mutateWallCells({ id: request.params.id, expectedVersion: body.baseVersion,
+        operation: body.operation, cells: body.cells });
+      if (scene.version !== body.baseVersion && scene.id === service.getActiveScene()?.id) {
+        onActiveSceneUpdated?.(scene);
+      }
+      return sceneDetail(scene);
+    } catch (error) { return sendError(reply, error); }
+  });
+
   // La lettura del dettaglio e la selezione gestionale: non cambia la scena attiva.
   app.get('/api/scenes/:id', async (request, reply) => {
     if (!masterOnly(request, reply)) return;
