@@ -28,9 +28,9 @@ Commit indicativo: «Integra le pareti a celle in movimento, visuale e board».
 
 Commit indicativo: «Permette di dipingere e cancellare pareti sulla griglia».
 
-- [ ] 4.1 Implementare pennello interpolato, rettangolo inclusivo, gomma e bozza del gesto con conversioni della preview esistente; verificare con test geometrici significativi e browser che ogni gesto invii al massimo una mutazione, una pennellata rapida non lasci buchi, i duplicati non crescano e un rettangolo oltre limite sia fermato prima dell'espansione.
-- [ ] 4.2 Aggiungere controlli da tastiera, cancellazione selettiva e arbitraggio con pan, drawing, elementi, tracciati e placement; verificare Escape, pointercancel, perdita cattura, cambio scena/strumento, zoom/pan e touch, conservando i campi editabili e la singola conferma di Segmenti.
-- [ ] 4.3 Aggiornare guida comandi e contratto di interazione delle pareti a celle, inclusa la correzione tramite gomma e le history separate; verificare scenari «Pareti strutturali a celle» in browser, `npm run build`, `npm run docs:check` e `git diff --check` prima del commit.
+- [x] 4.1 Implementare pennello interpolato, rettangolo inclusivo, gomma e bozza del gesto con conversioni della preview esistente; verificare con test geometrici significativi e browser che ogni gesto invii al massimo una mutazione, una pennellata rapida non lasci buchi, i duplicati non crescano e un rettangolo oltre limite sia fermato prima dell'espansione.
+- [x] 4.2 Aggiungere controlli da tastiera, cancellazione selettiva e arbitraggio con pan, drawing, elementi, tracciati e placement; verificare Escape, pointercancel, perdita cattura, cambio scena/strumento, zoom/pan e touch, conservando i campi editabili e la singola conferma di Segmenti.
+- [x] 4.3 Aggiornare guida comandi e contratto di interazione delle pareti a celle, inclusa la correzione tramite gomma e le history separate; verificare scenari «Pareti strutturali a celle» in browser, `npm run build`, `npm run docs:check` e `git diff --check` prima del commit.
 
 ## 5. Luci persistenti della scena
 
