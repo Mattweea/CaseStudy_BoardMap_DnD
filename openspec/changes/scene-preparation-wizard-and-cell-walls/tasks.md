@@ -44,10 +44,10 @@ Commit indicativo: «Aggiunge la preparazione delle luci anche nelle scene inatt
 
 Commit indicativo: «Organizza la preparazione delle scene in cinque passaggi».
 
-- [ ] 6.1 Estrarre preview comune e contenuti dei cinque passaggi, mantenendo catalogo, editor esistenti e accessi alle schede; implementare switch locale reversibile senza API e selezione iniziale dal background, verificando in browser percorsi vuoto/immagine, uso combinato celle/tracciati e conservazione di tutti i layer dopo gli switch.
-- [ ] 6.2 Implementare navigazione accessibile, salto degli encounter, accesso diretto alle scene esistenti e un solo strumento attivo; verificare tastiera, focus, viewport stretto, gestione di più encounter, batch, placement e coerenza della preview dopo cambio passaggio.
-- [ ] 6.3 Unificare controllo di uscita dirty, Salva e continua, scarto, permanenza e annullamento gesti anche nella chiusura del dialog padre; verificare errori di salvataggio, `409`, doppie conferme, cambio scena con risposta tardiva e riapertura, assicurando nessun avanzamento o sovrascrittura obsoleta.
-- [ ] 6.4 Aggiornare architettura frontend e contratto delle bozze; eseguire la verifica browser dei requisiti «Percorso di preparazione navigabile», «Due percorsi di partenza combinabili» e «Bozze e salvataggi espliciti», più `npm run build`, `npm run docs:check` e `git diff --check` prima del commit.
+- [x] 6.1 Estrarre preview comune e contenuti dei cinque passaggi, mantenendo catalogo, editor esistenti e accessi alle schede; implementare switch locale reversibile senza API e selezione iniziale dal background, verificando in browser percorsi vuoto/immagine, uso combinato celle/tracciati e conservazione di tutti i layer dopo gli switch.
+- [x] 6.2 Implementare navigazione accessibile, salto degli encounter, accesso diretto alle scene esistenti e un solo strumento attivo; verificare tastiera, focus, viewport stretto, gestione di più encounter, batch, placement e coerenza della preview dopo cambio passaggio.
+- [x] 6.3 Unificare controllo di uscita dirty, Salva e continua, scarto, permanenza e annullamento gesti anche nella chiusura del dialog padre; verificare errori di salvataggio, `409`, doppie conferme, cambio scena con risposta tardiva e riapertura, assicurando nessun avanzamento o sovrascrittura obsoleta.
+- [x] 6.4 Aggiornare architettura frontend e contratto delle bozze; eseguire la verifica browser dei requisiti «Percorso di preparazione navigabile», «Due percorsi di partenza combinabili» e «Bozze e salvataggi espliciti», più `npm run build`, `npm run docs:check` e `git diff --check` prima del commit.
 
 ## 7. Prova della visuale e riepilogo
 

@@ -1,3 +1,4 @@
+import { useSceneDraft } from './SceneDraftContext';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { EncounterTokenProperties, SceneEncounterEntityReference } from '../types';
 import type { EncounterEntityInput, PersistedScene } from '../utils/sceneApi';
@@ -88,10 +89,9 @@ export function SceneEncounterEntitySection({ scene, encounterId, disabled, onCr
     setNotice(null);
   };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+  const saveDraft = async () => {
     setNotice(null);
-    if (!draft.name.trim()) return;
+    if (!draft.name.trim()) { setNotice('Inserisci un nome prima di salvare.'); return false; }
     const payload = payloadFromDraft(draft);
     const saved = selected
       ? await onUpdate(encounterId, selected.id, payload)
@@ -100,7 +100,11 @@ export function SceneEncounterEntitySection({ scene, encounterId, disabled, onCr
       if (!selected) choose(null);
       setNotice(selected ? 'Figura aggiornata.' : 'Figura aggiunta all’encounter.');
     }
+    return saved;
   };
+  const submit = async (event: FormEvent) => { event.preventDefault(); await saveDraft(); };
+  useSceneDraft(JSON.stringify(draft) !== JSON.stringify(selected ? draftFromEntity(selected) : EMPTY_DRAFT), saveDraft, () => choose(selected));
+
 
   const textField = (key: 'widthCells' | 'heightCells' | 'color' | 'initiativeModifier' |
     'movementCells' | 'hitPoints' | 'maxHitPoints', label: string, options: {

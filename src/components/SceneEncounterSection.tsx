@@ -1,3 +1,4 @@
+import { useSceneDraft } from './SceneDraftContext';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { SceneEncounter } from '../types';
 import type { EncounterEntityInput, PersistedScene } from '../utils/sceneApi';
@@ -50,17 +51,20 @@ export function SceneEncounterSection({ onOpenSheet, onUndoPlacement, scene, dis
     setNotice(null);
   };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+  const saveDraft = async () => {
     setNotice(null);
     const payload = { ...draft, name: draft.name.trim(), description: draft.description.trim() };
-    if (!payload.name) return;
+    if (!payload.name) { setNotice('Inserisci un nome prima di salvare.'); return false; }
     const saved = selected ? await onUpdate(selected.id, payload) : await onCreate(payload);
     if (saved) {
       if (!selected) choose(null);
       setNotice(selected ? 'Encounter aggiornato.' : 'Encounter creato.');
     }
+    return saved;
   };
+  const submit = async (event: FormEvent) => { event.preventDefault(); await saveDraft(); };
+  useSceneDraft(JSON.stringify(draft) !== JSON.stringify(selected ? { name: selected.name, kind: selected.kind, description: selected.description } : EMPTY_DRAFT), saveDraft, () => choose(selected));
+
 
   const remove = async () => {
     if (!selected || !confirmRemove) return;

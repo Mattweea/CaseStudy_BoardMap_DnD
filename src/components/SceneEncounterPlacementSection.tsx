@@ -1,3 +1,4 @@
+import { useSceneDraft } from './SceneDraftContext';
 import { planEncounterBatch } from '../../shared/encounter-batch.mjs';
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -79,16 +80,20 @@ export function SceneEncounterPlacementSection({ scene, encounterId, disabled, p
     return () => window.removeEventListener('keydown', cancel, true);
   }, []);
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (disabled || pending.current || !draft.entityReferenceId) return;
+  const saveDraft = async () => {
+    if (disabled || pending.current) return false;
+    if (!draft.entityReferenceId) { setNotice('Scegli una figura prima di salvare.'); return false; }
     pending.current = true; setNotice(null);
     try {
       const saved = selected ? await onUpdatePlacement(encounterId, selected.id, payloadOf(draft))
         : await onCreatePlacement(encounterId, { ...payloadOf(draft), ...(quantity === '1' ? {} : { quantity: Number(quantity) }) });
-      if (saved) { setNotice(selected ? 'Collocazione aggiornata.' : 'Figura collocata sulla scena.'); if (!selected) setDraft(EMPTY); }
+      if (saved) { setNotice(selected ? 'Collocazione aggiornata.' : 'Figura collocata sulla scena.'); if (!selected) { setDraft(EMPTY); setQuantity('1'); } }
+      return saved;
     } finally { pending.current = false; }
   };
+  const submit = async (event: FormEvent) => { event.preventDefault(); await saveDraft(); };
+  useSceneDraft(JSON.stringify(draft) !== JSON.stringify(selected ? draftOf(selected) : EMPTY) || (!selected && quantity !== '1'), saveDraft, () => { reset(); setQuantity('1'); });
+
   const point = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const rect = preview.host!.getBoundingClientRect();
     return { x: ((event.clientX - rect.left) / rect.width * preview.width + preview.left) / 48,

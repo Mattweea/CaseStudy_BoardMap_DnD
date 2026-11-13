@@ -431,6 +431,7 @@ function App() {
   const activeTurnToken =
     state.tokens.find((token) => token.id === state.activeTurnTokenId) ?? null;
   const darkvisionCells = darkvisionToCells(user?.darkvision);
+  const sceneCloseRequestRef = useRef<(() => void) | null>(null);
   const visionBlockers = collectVisionBlockers(state.tokens, state.activeSceneElements, getTokenFootprint, state.activeSceneWalls, state.activeSceneWallCells);
   const playerVision = !canManageBattleMap && sessionToken && !state.isBoardFullyLit
     ? {
@@ -2010,10 +2011,10 @@ function App() {
       <Modal
         title="Preparazione scene"
         isOpen={canManageBattleMap && isSceneCatalogModalOpen}
-        onClose={() => setIsSceneCatalogModalOpen(false)}
+        onClose={() => { if (sceneCloseRequestRef.current) sceneCloseRequestRef.current(); else setIsSceneCatalogModalOpen(false); }}
         className="modal-card--scene-catalog"
       >
-        <SceneCatalogPanel onOpenCreatureSheet={(sceneId,tokenId)=>setOpenCreature({sceneId,tokenId})}
+        <SceneCatalogPanel closeRequestRef={sceneCloseRequestRef} onRequestClose={() => setIsSceneCatalogModalOpen(false)} onOpenCreatureSheet={(sceneId,tokenId)=>setOpenCreature({sceneId,tokenId})}
           isActiveSceneBackgroundHidden={state.isBoardBackgroundHidden}
           onActiveSceneBackgroundVisibilityChange={setBoardBackgroundHidden}
         />

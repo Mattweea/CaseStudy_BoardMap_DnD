@@ -81,6 +81,7 @@ try {
   await m.getByRole('button', { name: 'Apri preparazione scene' }).click();
   await m.getByRole('dialog', { name: 'Preparazione scene' }).waitFor();
   await m.locator('.scene-catalog__list button').first().click();
+  await m.getByRole('navigation',{name:'Passaggi di preparazione'}).getByRole('button').nth(1).click();
   await m.getByRole('button', { name: 'Disegna muri', exact: true }).waitFor();
   assert.equal(await m.getByText('Segmento da tastiera', { exact: true }).count(), 0);
   assert.equal(await m.getByRole('button', { name: 'Segmenti', exact: true }).getAttribute('aria-pressed'), 'true');
@@ -155,6 +156,7 @@ try {
   const mobile=await touch.newPage();mobile.setDefaultTimeout(10000);await mobile.goto(base);
   await mobile.getByRole('button',{name:'Apri preparazione scene'}).click();
   await mobile.locator('.scene-catalog__list button').first().click();
+  await mobile.getByRole('navigation',{name:'Passaggi di preparazione'}).getByRole('button').nth(1).click();
   await mobile.getByRole('button',{name:'Disegna muri',exact:true}).click();
   const mobileOverlay=mobile.getByLabel('Tracciamento muri',{exact:true});await mobileOverlay.scrollIntoViewIfNeeded();
   const mobileBox=await mobileOverlay.boundingBox();

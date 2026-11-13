@@ -43,6 +43,8 @@ export function useSceneCatalog(enabled: boolean) {
   const [transferNotice, setTransferNotice] = useState<string | null>(null);
   const [transferError, setTransferError] = useState<string | null>(null);
   const layerWritePending = useRef(false);
+  const selectionRequest = useRef(0);
+  const selectedRef = useRef(selectedScene); selectedRef.current = selectedScene;
 
   const loadCatalog = useCallback(async () => {
     if (!enabled) return;
@@ -73,17 +75,19 @@ export function useSceneCatalog(enabled: boolean) {
   }, [enabled, loadCatalog]);
 
   const selectScene = async (sceneId: string) => {
+    const requestId = ++selectionRequest.current;
     setIsLoading(true);
     setError(null);
     setTransferPreview(null);
     setTransferNotice(null);
     setTransferError(null);
     try {
-      setSelectedScene(await sceneApi.get(sceneId));
+      const scene = await sceneApi.get(sceneId);
+      if (selectionRequest.current === requestId) setSelectedScene(scene);
     } catch (requestError) {
-      setError(readableError(requestError, 'Dettaglio scena non disponibile.'));
+      if (selectionRequest.current === requestId) setError(readableError(requestError, 'Dettaglio scena non disponibile.'));
     } finally {
-      setIsLoading(false);
+      if (selectionRequest.current === requestId) setIsLoading(false);
     }
   };
 
@@ -92,6 +96,7 @@ export function useSceneCatalog(enabled: boolean) {
     setError(null);
     try {
       const created = await sceneApi.create(name);
+      selectionRequest.current += 1;
       setCatalog((current) => replaceEntry(current, created));
       setSelectedScene(created);
       return true;
@@ -182,7 +187,9 @@ export function useSceneCatalog(enabled: boolean) {
     isFullyLit: boolean | null = null,
     lightSources: import('../types').LightSource[] | null = null,
   ) => {
-    if (!selectedScene) return false;
+    if (!selectedScene || layerWritePending.current) return false;
+    layerWritePending.current = true;
+    const requestId = selectionRequest.current;
     setIsMutating(true);
     setError(null);
     try {
@@ -224,9 +231,12 @@ export function useSceneCatalog(enabled: boolean) {
         updated = await sceneApi.update(selectedScene.id, updated.version, patch);
       }
       setCatalog((current) => replaceEntry(current, updated));
+      if (selectionRequest.current !== requestId) return false;
+      selectedRef.current = updated;
       setSelectedScene(updated);
       return true;
     } catch (requestError) {
+      if (selectionRequest.current !== requestId) return false;
       if (requestError instanceof SceneApiError && requestError.status === 409 && requestError.payload.currentScene) {
         const current = requestError.payload.currentScene;
         setCatalog((catalogState) => replaceEntry(catalogState, current));
@@ -237,6 +247,7 @@ export function useSceneCatalog(enabled: boolean) {
       }
       return false;
     } finally {
+      layerWritePending.current = false;
       setIsMutating(false);
     }
   };
@@ -244,14 +255,20 @@ export function useSceneCatalog(enabled: boolean) {
   const writeLayer = async (action: (scene: PersistedScene) => Promise<PersistedScene>, fallback: string) => {
     if (!selectedScene || layerWritePending.current) return false;
     layerWritePending.current = true;
+    const requestId = selectionRequest.current;
     setIsMutating(true);
     setError(null);
     try {
-      const updated = await action(selectedScene);
+      const currentSelection = selectedRef.current;
+      if (!currentSelection) return false;
+      const updated = await action(currentSelection);
       setCatalog((current) => replaceEntry(current, updated));
+      if (selectionRequest.current !== requestId || selectedRef.current?.id !== updated.id) return false;
+      selectedRef.current = updated;
       setSelectedScene(updated);
       return true;
     } catch (requestError) {
+      if (selectionRequest.current !== requestId) return false;
       if (requestError instanceof SceneApiError && requestError.status === 409 && requestError.payload.currentScene) {
         const current = requestError.payload.currentScene;
         setCatalog((catalogState) => replaceEntry(catalogState, current));

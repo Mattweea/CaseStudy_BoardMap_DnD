@@ -36,6 +36,8 @@ function editor(t, options = {}) {
   const slots = []; let cursor = 0, tree, dirty = true;
   const effects = [];
   const hooks = {
+    useContext(context) { return context._currentValue; },
+    useId() { return hooks.useRef('test-draft').current; },
     useState(initial) {
       const i = cursor++; slots[i] ??= { value: initial };
       return [slots[i].value, (value) => { const next = typeof value === 'function' ? value(slots[i].value) : value;
@@ -44,7 +46,7 @@ function editor(t, options = {}) {
     useRef(initial) { return slots[cursor++] ??= { current: initial }; },
     useEffect(effect, deps) {
       const i = cursor++, previous = slots[i];
-      if (!previous || deps.some((dep, index) => !Object.is(dep, previous.deps[index]))) {
+      if (!deps || !previous || deps.some((dep, index) => !Object.is(dep, previous.deps[index]))) {
         slots[i] = { deps }; effects.push(() => { previous?.cleanup?.(); slots[i].cleanup = effect(); });
       }
     },
