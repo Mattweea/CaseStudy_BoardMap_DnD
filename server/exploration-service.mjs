@@ -31,7 +31,12 @@ export class ExplorationService {
         if (token.type !== 'player' || token.isFamiliar || !profile || profile.role === 'master') continue;
         const radius = darkvisionToCells(profile.darkvision);
         const positions = travels.filter((t) => t.id === token.id).map((t) => t.position);
+        const visited = new Set();
         for (const position of [...positions, token.position]) {
+          // Segment joins and the final destination can occur repeatedly in the same path.
+          const key = `${position.x}:${position.y}`;
+          if (visited.has(key)) continue;
+          visited.add(key);
           regions = mergeRegions(
             regions,
             clipRegions(

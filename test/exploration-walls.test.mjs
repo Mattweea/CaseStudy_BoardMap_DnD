@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import polygonClipping from 'polygon-clipping';
+import * as polygonClipping from 'polyclip-ts';
 import { openDatabase } from '../database/connection.mjs';
 import { migrate } from '../database/migrator.mjs';
 import { SceneRepository } from '../server/scene-repository.mjs';
@@ -12,7 +12,7 @@ import { SceneWalls } from '../server/scene-walls.mjs';
 import { ExplorationService } from '../server/exploration-service.mjs';
 import { createDefaultSceneDocument, normalizeSceneWalls } from '../shared/scene-model.mjs';
 import { firstWallIntersection } from '../shared/vision-walls.mjs';
-import { visibleRegions, asRegion } from '../shared/explored-regions.mjs';
+import { visibleRegions, asRegion, mergeRegions } from '../shared/explored-regions.mjs';
 import { collectVisionBlockers } from '../shared/scene-blockers.mjs';
 const wall = {
   id: 'wall',
@@ -144,4 +144,80 @@ test('diagonal walls, closed joins and real openings use segments instead of bou
  assert.equal(firstWallIntersection({x:0,y:2},{x:6,y:2},joined).fraction,.5);
  const opening=collectVisionBlockers([],[],footprint,[{...wall,points:[{x:3,y:0},{x:3,y:1}]},{...wall,id:'wall-2',points:[{x:3,y:3},{x:3,y:8}]}]);
  assert.equal(firstWallIntersection({x:0,y:2},{x:6,y:2},opening).fraction,1);
+});
+
+test('Master and Player moves persist exploration with dense walls; failed writes publish nothing', async (t) => {
+  const { db, repository, service } = await fixture(t);
+  const scene = service.getScene('scene');
+  const denseWall = {
+    ...wall,
+    points: Array.from({ length: 601 }, (_, i) => ({ x: 3 + Math.sin(i) * 1e-9, y: i * 8 / 600 })),
+  };
+  repository.saveVersion({
+    id: scene.id, campaignId: scene.campaignId, expectedVersion: scene.version, name: scene.name,
+    sortOrder: scene.sortOrder, document: { ...scene.document, walls: [denseWall] },
+  });
+  service.load();
+  process.env.BATTLE_MAP_TEST_MODE = '1';
+  const { __testing } = await import('../server/index.mjs');
+  const master = { id: 'master-user', role: 'master' };
+  const player = { id: 'player-ilthar', role: 'adventurer' };
+  const memory = new ExplorationService(db, [{ id: player.id, role: player.role, darkvision: '6 m' }]);
+  const hero = { ...token, ownerUserId: player.id };
+  const events = [];
+  const client = { user: player, write: (data) => events.push(data) };
+  __testing.setUserRepository({ findById: (id) => [master, player].find((user) => user.id === id) });
+  __testing.setSceneService(service);
+  __testing.setExplorationService(memory);
+  __testing.streamClients.add(client);
+  t.after(async () => {
+    __testing.streamClients.delete(client);
+    __testing.setExplorationService(null);
+    __testing.setSceneService(null);
+    await __testing.app.close();
+  });
+  const move = (user, destination) => {
+    const state = __testing.getBattleMapState();
+    return __testing.app.inject({
+      method: 'POST', url: '/api/battle-map/move',
+      headers: { cookie: `battle_map_session=${__testing.createSession(user)}` },
+      payload: {
+        tokenId: hero.id, waypoints: [state.tokens[0].position, destination],
+        sceneId: state.activeSceneId, sceneVersion: state.activeSceneVersion,
+      },
+    });
+  };
+  __testing.setBattleMapState({ tokens: [hero], sessionMode: 'exploration' });
+  for (const [user, destination] of [[master, { x: 1, y: 2 }], [player, { x: 1, y: 3 }]]) {
+    const response = await move(user, destination);
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(response.json().state.tokens[0].position, destination);
+    assert.ok(response.json().state.exploredRegions.length);
+    assert.equal(includes(memory.read('scene').regions, 2, 2), true);
+    assert.equal(includes(memory.read('scene').regions, 4, 2), false);
+    assert.deepEqual(new ExplorationService(db, []).read('scene'), memory.read('scene'));
+    const saved = memory.read('scene');
+    memory.remember(__testing.getBattleMapState(), [
+      { id: hero.id, position: destination }, { id: hero.id, position: destination },
+    ]);
+    const repeated = memory.read('scene');
+    // Equivalent unions may remove redundant collinear vertices without losing terrain.
+    assert.deepEqual(mergeRegions(repeated.regions, saved.regions), repeated.regions);
+    assert.ok(events.some((data) => data.startsWith('data: ')));
+    events.length = 0;
+  }
+
+  const before = structuredClone(__testing.getBattleMapState());
+  const saved = memory.read('scene');
+  const version = __testing.getBattleMapVersion();
+  db.exec(`CREATE TRIGGER fail_exploration BEFORE UPDATE ON explored_regions BEGIN SELECT RAISE(ABORT,'failure'); END`);
+  for (const user of [master, player]) {
+    const response = await move(user, { x: 1, y: 5 });
+    assert.equal(response.statusCode, 500, response.body);
+    assert.match(response.json().message, /Esplorazione non salvata: failure/);
+    assert.deepEqual(__testing.getBattleMapState(), before);
+    assert.deepEqual(memory.read('scene'), saved);
+    assert.equal(__testing.getBattleMapVersion(), version);
+    assert.deepEqual(events, []);
+  }
 });
