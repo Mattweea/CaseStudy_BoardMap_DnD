@@ -13,7 +13,9 @@ export function SceneLightEditor({ sceneId, lights, dirty, disabled, preview, ac
   const drag = useRef<{ id: number; before: LightSource[] } | null>(null);
   const selected = lights.find((light) => light.id === selectedId) ?? null;
   const lightsRef = useRef(lights); lightsRef.current = lights;
-  const cancelDrag = () => { if (drag.current) { onChange(drag.current.before); drag.current = null; } };
+  const updateLights = (next: LightSource[]) => { lightsRef.current = next; onChange(next); };
+  const selectLight = (id: string) => { drag.current = null; select(id); onActive(true); };
+  const cancelDrag = () => { if (drag.current) { updateLights(drag.current.before); drag.current = null; } };
   useEffect(() => { select(null); drag.current = null; }, [sceneId]);
   useEffect(() => {
     if (!active) cancelDrag();
@@ -27,7 +29,7 @@ export function SceneLightEditor({ sceneId, lights, dirty, disabled, preview, ac
     window.addEventListener('keydown', key, true); return () => window.removeEventListener('keydown', key, true);
   });
   const patch = (value: Partial<LightSource>) => {
-    if (selectedId) onChange(lightsRef.current.map((light) => light.id === selectedId ? { ...light, ...value } : light));
+    if (selectedId) updateLights(lightsRef.current.map((light) => light.id === selectedId ? { ...light, ...value } : light));
   };
   const point = (event: React.PointerEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
@@ -36,18 +38,18 @@ export function SceneLightEditor({ sceneId, lights, dirty, disabled, preview, ac
   };
   return <section className="scene-light-editor scene-encounters" aria-label="Luci della scena">
     <h4>Luci puntuali</h4>
-    <p className="scene-catalog__hint">Aggiungi una luce, poi posizionala sulla mappa o inserisci le coordinate. Conferma per salvarla nella scena.</p>
+    <p className="scene-catalog__hint">Aggiungi e posiziona le luci sulla mappa o inserisci le coordinate. Puoi modificarne più di una, poi confermarle tutte con Salva luci.</p>
     <div className="scene-catalog__drawing-tools">
-      <button type="button" className="secondary-button" disabled={disabled || dirty} onClick={() => {
+      <button type="button" className="secondary-button" disabled={disabled} onClick={() => {
         const light = { id: crypto.randomUUID(), position: { x: 0, y: 0 }, radiusCells: 6 };
-        onChange([...lights, light]); select(light.id); onActive(true);
+        updateLights([...lightsRef.current, light]); selectLight(light.id);
       }}>Aggiungi luce</button>
       <button type="button" className="secondary-button" disabled={disabled || !selected} aria-pressed={active}
         onClick={() => onActive(!active)}>Posiziona luce</button>
     </div>
     <ul className="scene-light-editor__list">{lights.map((light, index) => <li key={light.id}>
-      <button type="button" disabled={disabled || (dirty && light.id !== selectedId)} aria-pressed={light.id === selectedId}
-        onClick={() => { select(light.id); onActive(true); }}>Luce {index + 1} · {light.radiusCells} caselle</button>
+      <button type="button" disabled={disabled} aria-pressed={light.id === selectedId}
+        onClick={() => selectLight(light.id)}>Luce {index + 1} · {Number.isFinite(light.radiusCells) ? `${light.radiusCells} caselle` : 'raggio da impostare'}</button>
     </li>)}</ul>
     {selected ? <div className="scene-entity-editor__fields">
       {(['x', 'y', 'radius'] as const).map((axis) => {
@@ -61,14 +63,14 @@ export function SceneLightEditor({ sceneId, lights, dirty, disabled, preview, ac
             }} /></label>;
       })}
       <button type="button" className="secondary-button" disabled={disabled} onClick={() => {
-        onChange(lights.filter((light) => light.id !== selected.id)); select(null); onActive(false);
+        drag.current = null; updateLights(lightsRef.current.filter((light) => light.id !== selected.id)); select(null); onActive(false);
       }}>Rimuovi luce</button>
     </div> : null}
     <div className="scene-catalog__draft-actions">
       <button type="button" className="secondary-button" disabled={disabled || !dirty} onClick={onCancel}>Annulla luci</button>
       <button type="button" className="primary-button" disabled={disabled || !dirty} onClick={() => void onSave()}>Salva luci</button>
     </div>
-    <small role="status">{dirty ? 'Luci in bozza · non ancora salvate' : `${lights.length} luci salvate`}</small>
+    <small role="status">{dirty ? `${lights.length} luci in bozza · modifiche non ancora salvate` : `${lights.length} luci salvate`}</small>
     {preview.host && preview.width > 0 ? createPortal(<svg aria-label="Posizionamento luci"
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 8, touchAction: 'none', pointerEvents: active && !disabled && selected ? 'auto' : 'none' }}
       viewBox={`${preview.left / BOARD_CONFIG.cellSize} ${preview.top / BOARD_CONFIG.cellSize} ${preview.width / BOARD_CONFIG.cellSize} ${preview.height / BOARD_CONFIG.cellSize}`}
