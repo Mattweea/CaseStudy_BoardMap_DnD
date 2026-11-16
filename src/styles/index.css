@@ -139,7 +139,7 @@ button {
 .dice-panel label { display: grid; gap: .2rem; font-size: .72rem; color: #e5c5b3; }
 .dice-panel input, .dice-panel select { min-width: 0; }
 .dice-panel__error { color: #ffb4a1; margin: 0; font-size: .8rem; }
-.character-roster { display: grid; gap: .5rem; }
+.character-roster { display: grid; align-content: start; gap: .5rem; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: thin; padding-right: .3rem; }
 .character-roster__entry { display: grid; grid-template-columns: 2.25rem 1fr auto; gap: .55rem; align-items: center; }
 .character-roster__entry img { width: 2.25rem; height: 2.25rem; border-radius: 50%; object-fit: cover; }
 .character-roster__entry span { font-size: .75rem; color: #c8a99c; }

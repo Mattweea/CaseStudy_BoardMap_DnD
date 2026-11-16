@@ -1164,8 +1164,8 @@ function broadcastEphemeralEvent(type, payload, { filterByOriginToken = null } =
 // Puramente presentazionale: non tocca battleMapState, la versione o lo snapshot.
 // `showTrack` è falso per un passo singolo da tastiera o dal pad: il token si anima comunque, ma
 // senza il binario del percorso, che serve solo a leggere un movimento pianificato.
-function broadcastTokenWalk(token, waypoints, showTrack = true) {
-  broadcastEphemeralEvent('token-walk', { tokenId: token.id, waypoints, showTrack }, { filterByOriginToken: token });
+function broadcastTokenWalk(token, walk) {
+  broadcastEphemeralEvent('token-walk', walk, { filterByOriginToken: token });
 }
 
 function sendPing(user, position) {
@@ -1273,7 +1273,7 @@ function validateActiveTokenIdentity(tokens, ownSceneId = battleMapState.activeS
 }
 
 function commitBattleMapState(nextState, options = {}) {
-  const { recordMasterUndo = false, validate = true, travels = [] } = options;
+  const { recordMasterUndo = false, validate = true, travels = [], tokenWalk = null } = options;
 
   if (recordMasterUndo) {
     pushMasterUndoState();
@@ -1305,6 +1305,7 @@ function commitBattleMapState(nextState, options = {}) {
   if (normalizedState.activeTurnTokenId !== battleMapState.activeTurnTokenId) turnTransitionId += 1;
   battleMapState = normalizedState;
   bumpBattleMapVersion();
+  if (tokenWalk) broadcastTokenWalk(tokenWalk.token, tokenWalk.event);
   broadcastSnapshot();
   return nextSnapshot();
 }
@@ -1801,11 +1802,15 @@ function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
         travels.push({id:occupant.id,position:{x:position.x+occupant.position.x-token.position.x,y:position.y+occupant.position.y-token.position.y}});
     }
   }
+  // HTTP e SSE consegnano la stessa camminata: l'id evita una seconda riproduzione
+  // se la risposta arriva prima dello stream (o viceversa).
+  const walk = { id: randomUUID(), sceneId: battleMapState.activeSceneId, tokenId, waypoints, showTrack };
   if (user.role === 'master') {
-    const result = commitBattleMapState(nextState, { recordMasterUndo: true, validate: false, travels });
+    const result = commitBattleMapState(nextState, {
+      recordMasterUndo: true, validate: false, travels, tokenWalk: { token, event: walk },
+    });
     if (result.status && result.status !== 200) return result;
-    broadcastTokenWalk(token, waypoints, showTrack);
-    return result;
+    return { ...result, walk };
   }
 
   try { explorationService?.remember(nextState, travels); }
@@ -1822,9 +1827,9 @@ function moveOwnedToken(user, tokenId, waypoints, { showTrack = true } = {}) {
     });
   }
   bumpBattleMapVersion();
+  broadcastTokenWalk(token, walk);
   broadcastSnapshot();
-  broadcastTokenWalk(token, waypoints, showTrack);
-  return { status: 200, snapshot: nextSnapshot() };
+  return { status: 200, snapshot: nextSnapshot(), walk };
 }
 
 function useDashAction(user, tokenId) {
@@ -3021,7 +3026,7 @@ app.post('/api/battle-map/move', async (request, reply) => {
     };
   }
 
-  return nextSnapshot(user);
+  return { ...nextSnapshot(user), walk: result.walk };
 });
 
 app.post('/api/battle-map/settings', async (request, reply) => {

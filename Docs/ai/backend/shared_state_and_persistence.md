@@ -82,6 +82,8 @@ Ping, template-drawing, and token-walk events (`ephemeral-ping`, `ephemeral-temp
 
 `token-walk` carries the exact waypoints of a move that `moveOwnedToken` just accepted, purely so every connected client can play the same walking animation instead of only seeing the token's final cell once the snapshot arrives; it is broadcast in addition to, never instead of, the normal snapshot broadcast for that move. `showTrack` is `false` for an `x`/`y` single-step request (keyboard or movement pad), so clients animate it without the path track.
 
+An accepted move publishes its walk before its destination snapshot, after validation and exploration persistence succeed. The move's HTTP response also includes the same ephemeral `walk` delivery with the same server-generated `id`. Clients deduplicate HTTP/SSE deliveries by that identity, so either transport may arrive first without a second animation. The delivery stays outside shared state, saved snapshots and undo; rejected moves include no walk.
+
 A client that reconnects after a ping, a template, or a walk animation has finished receives no trace of it in either the snapshot or a replayed event, because nothing about them is retained anywhere once the SSE write completes.
 
 ## Persistence

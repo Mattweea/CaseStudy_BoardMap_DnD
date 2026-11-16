@@ -1,7 +1,7 @@
 import { WallCellsLayer } from './WallCellsLayer';
 import { regionPaths, mergeRegions, visibleRegions, type ExploredRegions } from '../../shared/explored-regions.mjs';
 import { DarknessLayer } from './DarknessLayer';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   BlockIcon, BookIcon, CircleTemplateIcon, CloseIcon, CollapseIcon, ConeTemplateIcon, ExpandIcon, LineTemplateIcon, MapIcon,
   MoonIcon, PingIcon, RulerIcon, SearchIcon, SparkIcon, SunIcon,
@@ -1086,7 +1086,7 @@ export function Board({
     followContextRef.current = { followTokenId, tokens, dimensions, visibleViewport };
   }, [followTokenId, tokens, dimensions, visibleViewport]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setCamera(INITIAL_CAMERA);
     setInteraction(null);
     setActiveTool(null);
@@ -1157,6 +1157,9 @@ export function Board({
         duration: Math.min(maxDuration, Math.max(minDuration, (points.length - 1) * msPerCell)),
       },
     };
+    // Il primo frame deve essere già l'origine, anche se lo snapshot contiene
+    // la destinazione. Aspettare il prossimo rAF mostrerebbe prima l'arrivo.
+    setWalkAnimatedPositions((current) => ({ ...current, [tokenId]: points[0] }));
     setWalkTrackPaths((current) => {
       if (showTrack) return { ...current, [tokenId]: points };
       if (!(tokenId in current)) return current;
@@ -1233,7 +1236,7 @@ export function Board({
   // il movimento — anche a chi lo ha richiesto. Anticiparla in locale farebbe camminare il token
   // per intero anche quando la mossa viene poi rifiutata, e il ritorno indietro sembrerebbe un
   // errore invece di un rifiuto.
-  useEffect(() => {
+  useLayoutEffect(() => {
     for (const event of tokenWalkEvents) {
       if (event.sceneId !== sceneId || processedTokenWalkEventIdsRef.current.has(event.id)) {
         continue;

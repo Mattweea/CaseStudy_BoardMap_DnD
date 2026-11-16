@@ -30,7 +30,7 @@ import type {
   UnitToken,
 } from '../types';
 import { clampZoom, getTokenFootprint } from '../utils/board';
-import { isValidCellsValue, pathCost } from '../../shared/grid-movement';
+import { isValidCellsValue } from '../../shared/grid-movement';
 import { normalizeConditionsForType } from '../../shared/token-conditions.mjs';
 import {
   DEFAULT_TOKEN_COLORS,
@@ -580,6 +580,8 @@ export function useBattleMapState(isAuthenticated: boolean) {
   const [movementNotice, setMovementNotice] = useState<MovementNotice | null>(null);
   const pingTimeoutsRef = useRef(new Map<string, ReturnType<typeof window.setTimeout>>());
   const templateTimeoutsRef = useRef(new Map<string, ReturnType<typeof window.setTimeout>>());
+  const tokenWalkTimeoutsRef = useRef(new Set<ReturnType<typeof window.setTimeout>>());
+  const tokenWalkSeenIdsRef = useRef(new Set<string>());
   const diceDeliverySeenIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -628,6 +630,18 @@ export function useBattleMapState(isAuthenticated: boolean) {
     }
   }, []);
 
+  const receiveTokenWalk = useCallback((walk: TokenWalkEvent) => {
+    if (!eventBelongsToActiveScene(walk, sharedStateRef.current.activeSceneId)) return;
+    if (tokenWalkSeenIdsRef.current.has(walk.id)) return;
+    tokenWalkSeenIdsRef.current.add(walk.id);
+    setTokenWalkEvents((current) => [...current, walk]);
+    const timeout = window.setTimeout(() => {
+      setTokenWalkEvents((current) => current.filter((entry) => entry.id !== walk.id));
+      tokenWalkTimeoutsRef.current.delete(timeout);
+    }, TOKEN_WALK_EVENT_TTL_MS);
+    tokenWalkTimeoutsRef.current.add(timeout);
+  }, []);
+
   const applySnapshot = useCallback((
     nextState: BattleMapSharedState,
     nextVersion: number,
@@ -642,6 +656,9 @@ export function useBattleMapState(isAuthenticated: boolean) {
       templateTimeoutsRef.current.clear();
       setEphemeralPings([]);
       setEphemeralTemplates([]);
+      tokenWalkTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
+      tokenWalkTimeoutsRef.current.clear();
+      tokenWalkSeenIdsRef.current.clear();
       setTokenWalkEvents([]);
       setMovementNotice(null);
     }
@@ -798,18 +815,14 @@ export function useBattleMapState(isAuthenticated: boolean) {
       }
     };
 
-    const tokenWalkTimeoutsRef = new Set<ReturnType<typeof window.setTimeout>>();
     const handleTokenWalk = (event: MessageEvent) => {
       try {
-        const payload = JSON.parse(event.data) as { sceneId: string; tokenId: string; waypoints: GridPosition[]; showTrack?: boolean };
-        if (!eventBelongsToActiveScene(payload, sharedStateRef.current.activeSceneId)) return;
-        const id = `${payload.tokenId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        setTokenWalkEvents((current) => [...current, { id, sceneId: payload.sceneId, tokenId: payload.tokenId, waypoints: payload.waypoints, showTrack: payload.showTrack !== false }]);
-        const timeout = window.setTimeout(() => {
-          setTokenWalkEvents((current) => current.filter((entry) => entry.id !== id));
-          tokenWalkTimeoutsRef.delete(timeout);
-        }, TOKEN_WALK_EVENT_TTL_MS);
-        tokenWalkTimeoutsRef.add(timeout);
+        const payload = JSON.parse(event.data) as Omit<TokenWalkEvent, 'id'> & { id?: string };
+        receiveTokenWalk({
+          ...payload,
+          id: payload.id ?? crypto.randomUUID(),
+          showTrack: payload.showTrack !== false,
+        });
       } catch (error) {
         console.error(error);
       }
@@ -829,10 +842,11 @@ export function useBattleMapState(isAuthenticated: boolean) {
       pingTimeoutsRef.current.clear();
       templateTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
       templateTimeoutsRef.current.clear();
-      tokenWalkTimeoutsRef.forEach((timeout) => window.clearTimeout(timeout));
-      tokenWalkTimeoutsRef.clear();
+      tokenWalkTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
+      tokenWalkTimeoutsRef.current.clear();
+      tokenWalkSeenIdsRef.current.clear();
     };
-  }, [applySnapshot, isAuthenticated, isReady]);
+  }, [applySnapshot, isAuthenticated, isReady, receiveTokenWalk]);
 
   const setOptimisticState = (nextState: BattleMapSharedState) => {
     sharedStateRef.current = nextState;
@@ -1051,51 +1065,15 @@ export function useBattleMapState(isAuthenticated: boolean) {
     }));
   };
 
-  // Legge sempre sharedStateRef.current al momento dell'esecuzione (non un valore catturato in
-  // precedenza), cosicché due chiamate consecutive in coda vedano ciascuna l'esito ottimistico
-  // della precedente invece di partire entrambe dalla stessa posizione di partenza obsoleta.
+  // La coda legge l'ultima posizione confermata. Anticipare la destinazione qui
+  // teletrasporterebbe il token prima della camminata ricevuta dal server.
   const performOwnedMove = async (tokenId: string, x: number, y: number, waypoints?: GridPosition[]) => {
-    const previousState = sharedStateRef.current;
-    const previousVersion = versionRef.current;
-    const optimisticToken = previousState.tokens.find((token) => token.id === tokenId);
-    if (!optimisticToken) {
+    if (!sharedStateRef.current.tokens.some((token) => token.id === tokenId)) {
       return;
     }
 
-    const path = waypoints && waypoints.length > 0 ? waypoints : [optimisticToken.position, { x, y }];
-    const destination = path[path.length - 1];
-    const budgetApplies = isMovementBudgetActive(previousState);
-    const usedCells = previousState.movementUsedByTokenId[tokenId] ?? 0;
-    const previousDiagonalParity = previousState.diagonalParityByTokenId[tokenId] ?? 0;
-    const { cells: moveDistance, nextDiagonalParity } = pathCost(path, {
-      rule: previousState.diagonalRule,
-      diagonalParity: previousDiagonalParity,
-    });
-    const optimisticState = normalizeSharedState({
-      ...previousState,
-      tokens: applyVehicleAwareUpdates(
-        previousState.tokens.map((token) =>
-          token.id === tokenId ? { ...token, position: destination } : token,
-        ),
-      ),
-      movementUsedByTokenId: budgetApplies
-        ? {
-            ...previousState.movementUsedByTokenId,
-            [tokenId]: usedCells + moveDistance,
-          }
-        : previousState.movementUsedByTokenId,
-      diagonalParityByTokenId: budgetApplies
-        ? {
-            ...previousState.diagonalParityByTokenId,
-            [tokenId]: nextDiagonalParity,
-          }
-        : previousState.diagonalParityByTokenId,
-      dashUsedByTokenId: previousState.dashUsedByTokenId,
-    });
-    setOptimisticState(optimisticState);
-
     try {
-      const payload = await requestJson<{ state: BattleMapSharedState; version: number }>(
+      const payload = await requestJson<{ state: BattleMapSharedState; version: number; walk?: TokenWalkEvent }>(
         '/battle-map/move',
         {
           method: 'POST',
@@ -1104,6 +1082,9 @@ export function useBattleMapState(isAuthenticated: boolean) {
           ),
         },
       );
+      // La risposta può precedere SSE: consegna percorso e snapshot insieme,
+      // usando lo stesso id per non riavviare la camminata al secondo arrivo.
+      if (payload.walk) receiveTokenWalk(payload.walk);
       applySnapshot(payload.state, payload.version);
       // Un movimento accettato chiude il rifiuto precedente: l'avviso descrive l'ultimo tentativo,
       // non resta appeso sopra una mossa andata a buon fine.
@@ -1117,8 +1098,6 @@ export function useBattleMapState(isAuthenticated: boolean) {
 
       if (payload?.state && typeof payload.version === 'number') {
         applySnapshot(payload.state, payload.version);
-      } else {
-        applySnapshot(previousState, previousVersion);
       }
 
       setMovementNotice({
@@ -1135,7 +1114,7 @@ export function useBattleMapState(isAuthenticated: boolean) {
   // Il movimento da tastiera deve leggere la posizione corrente al momento dell'esecuzione in
   // coda, non quella catturata dal render al momento della pressione del tasto: altrimenti
   // pressioni rapide consecutive calcolano tutte la destinazione dalla stessa posizione di
-  // partenza obsoleta invece che dall'ultima posizione ottimistica.
+  // partenza obsoleta invece che dall'ultima posizione confermata.
   const moveOwnedTokenBy = async (tokenId: string, deltaX: number, deltaY: number) => {
     return enqueueMutation(() => {
       const currentToken = sharedStateRef.current.tokens.find((token) => token.id === tokenId);

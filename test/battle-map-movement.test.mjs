@@ -419,6 +419,7 @@ function fakeClient(user) {
   const rawChunks = [];
   return {
     user,
+    rawChunks,
     write: (chunk) => rawChunks.push(chunk),
     // Un client reale riceve anche gli snapshot semplici (`data: ...` senza `event:`), che qui
     // vengono scartati: interessano solo gli eventi SSE nominati come token-walk.
@@ -455,6 +456,9 @@ test('a successful move broadcasts the walked path so every client can animate i
 
     const ownWalkEvent = bystander.events().find((event) => event.event === 'token-walk');
     assert.ok(ownWalkEvent);
+    assert.equal(typeof ownWalkEvent.data.id, 'string');
+    assert.equal(response.json().walk.id, ownWalkEvent.data.id, 'HTTP and SSE share the accepted walk identity');
+    assert.ok(bystander.rawChunks[0].startsWith('event: token-walk\n'), 'walk precedes the destination snapshot');
     assert.equal(ownWalkEvent.data.tokenId, 'hero-1');
     assert.deepEqual(ownWalkEvent.data.waypoints, [{ x: 0, y: 0 }, { x: 3, y: 0 }]);
 
@@ -473,6 +477,32 @@ test('a successful move broadcasts the walked path so every client can animate i
     );
   } finally {
     __testing.streamClients.delete(bystander);
+    __testing.streamClients.delete(master);
+  }
+});
+
+test('master acceptance sends one walk before the snapshot; rejected movement sends neither', async () => {
+  __testing.setBattleMapState({ tokens: [heroToken()], sessionMode: 'exploration' });
+  const master = fakeClient(MASTER);
+  __testing.streamClients.add(master);
+  try {
+    const accepted = await move(MASTER, { tokenId: 'hero-1', x: 2, y: 0 });
+    assert.equal(accepted.statusCode, 200);
+    assert.ok(master.rawChunks[0].startsWith('event: token-walk\n'));
+    const walks = master.events().filter((event) => event.event === 'token-walk');
+    assert.equal(walks.length, 1);
+    assert.equal(walks[0].data.id, accepted.json().walk.id);
+    assert.equal(walks[0].data.showTrack, false);
+    const snapshot = JSON.parse(master.rawChunks[1].trim().slice('data: '.length));
+    assert.deepEqual(snapshot.state.tokens[0].position, { x: 2, y: 0 });
+    assert.equal('walk' in snapshot, false, 'walk delivery never enters snapshots');
+    assert.equal('walk' in snapshot.state, false);
+    const count = master.rawChunks.length;
+    const rejected = await move(PLAYER, { tokenId: 'hero-1', x: -1, y: 0 });
+    assert.equal(rejected.statusCode, 400);
+    assert.equal('walk' in rejected.json(), false);
+    assert.equal(master.rawChunks.length, count);
+  } finally {
     __testing.streamClients.delete(master);
   }
 });

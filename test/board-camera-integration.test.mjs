@@ -90,6 +90,7 @@ function environment(t) {
           effects.push(() => { previous?.cleanup?.(); slot.cleanup = effect(); });
         }
       },
+      useLayoutEffect(effect, deps) { this.useEffect(effect, deps); },
     };
     const board = {
       flush() {
@@ -153,6 +154,7 @@ test('optimistic destinations do not move the camera; confirmed walking follows 
   board.update({ tokens: [pg(5, 5)] });
   board.update({ tokens: [pg(5, 25)], tokenWalkEvents: [walk('walk-1', { x: 5, y: 5 }, { x: 5, y: 25 })] });
   assert.deepEqual(board.camera(), { x: 0, y: 0 });
+  assert.deepEqual(board.token('pg').displayPosition, { x: 5, y: 5 }, 'first frame is the origin, never the destination');
   env.frame(725); // quarter of the 2500ms animation, from time 100
   assert.deepEqual(board.camera(), { x: 0, y: 3 });
   assert.equal(board.token('pg').displayPosition.y, 7);
@@ -200,6 +202,8 @@ test('independent viewports follow only their PG, including the passenger seat d
   const fullscreen = env.mount({ tokens, isFullscreen: true }, { width: 750, height: 798 });
   const event = walk('vehicle-walk', { x: 2, y: 5 }, { x: 20, y: 25 }, 'vehicle');
   for (const board of [first, second, fullscreen]) board.update({ tokenWalkEvents: [event] });
+  assert.deepEqual(first.token('pg').displayPosition, { x: 3, y: 6 }, 'passenger starts at the vehicle origin plus seat offset');
+  assert.deepEqual(fullscreen.token('pg').displayPosition, { x: 3, y: 6 });
   env.frame(1250);
   assert.ok(first.camera().y > 0);
   assert.deepEqual(second.camera(), { x: 0, y: 0 });
