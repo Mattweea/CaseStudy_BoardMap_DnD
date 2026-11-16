@@ -12,10 +12,12 @@ import { useSceneCatalog } from '../hooks/useSceneCatalog';
 import { sceneBackgroundUrl } from '../utils/sceneApi';
 import { SceneElementEditor } from './SceneElementEditor';
 import { SceneEncounterSection } from './SceneEncounterSection';
+import { SceneCreaturePreparationSection } from './SceneCreaturePreparationSection';
 
 const DEFAULT_CALIBRATION = { scale: 1, offsetX: 0, offsetY: 0 };
 const CELL_SIZE = 48;
 const ERASER_RADIUS_CELLS = 0.35;
+const SUMMARY_STEP = SCENE_STEPS.length - 1;
 type DrawingPoint = SceneDrawing['points'][number];
 type DrawingGesture = { mode: 'pencil'; pointerId: number; points: DrawingPoint[] }
   | { mode: 'eraser'; pointerId: number; points: DrawingPoint[]; ids: string[] };
@@ -110,6 +112,13 @@ export function SceneCatalogPanel({ onOpenCreatureSheet, closeRequestRef, onRequ
     setEncounterDirty(encounterDrafts.current.size > 0);
   } }), []);
   const [step, setStep] = useState(0);
+  const [creatureEncounter, setCreatureEncounter] = useState<{ sceneId: string; encounterId: string } | null>(null);
+  const creatureEncounterId = creatureEncounter && creatureEncounter.sceneId === selectedScene?.id
+    && selectedScene?.document.encounters.some((encounter) => encounter.id === creatureEncounter.encounterId)
+    ? creatureEncounter.encounterId : null;
+  useEffect(() => {
+    if (!creatureEncounterId) setCreatureEncounter(null);
+  }, [selectedScene?.id, creatureEncounterId]);
   const [origin, setOrigin] = useState<'scratch' | 'image'>('scratch');
   const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
   const stepHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -295,13 +304,13 @@ export function SceneCatalogPanel({ onOpenCreatureSheet, closeRequestRef, onRequ
   };
   const leave = (action: () => void) => {
     if (isMutating || isLoading || navigationSaving.current) return;
-    if (hasDraftChanges || lightsDirty || encounterDirty) {
+    if (hasDraftChanges || lightsDirty || encounterDrafts.current.size > 0) {
       leaveTriggerRef.current = document.activeElement as HTMLElement;
       setPendingLeave(() => action);
     } else { resetTools(); action(); }
   };
   const stay = () => { setPendingLeave(null); requestAnimationFrame(() => leaveTriggerRef.current?.focus()); };
-  const continueStep = async () => { if (await saveDrafts()) changeStep(Math.min(4, step + 1)); };
+  const continueStep = async () => { if (await saveDrafts()) changeStep(Math.min(SUMMARY_STEP, step + 1)); };
   useEffect(() => {
     if (closeRequestRef) closeRequestRef.current = () => pendingLeave ? stay() : leave(onRequestClose);
     return () => { if (closeRequestRef) closeRequestRef.current = null; };
@@ -777,20 +786,27 @@ export function SceneCatalogPanel({ onOpenCreatureSheet, closeRequestRef, onRequ
             <SceneVisionPreview scene={selectedScene} lights={lightDraft} fullyLit={!isDarknessEnabledDraft}
               enabled={step === 2 && observerEnabled} onEnabled={(value) => { resetTools(); setObserverEnabled(value); }} scale={previewScale}
               preview={{ host: previewHost, left: previewLeft, top: previewTop, width: previewWidth, height: previewHeight, interactive: true, onBeginEdit: () => {} }} /></div>
-              <div hidden={step !== 3}><SceneEncounterSection onOpenSheet={(tokenId)=>onOpenCreatureSheet?.(selectedScene.id,tokenId)} onUndoPlacement={undoPlacement} scene={selectedScene} disabled={step !== 3 || lightsDirty || isMutating || isLoading || hasDraftChanges} error={error}
-            onCreate={createEncounter} onUpdate={updateEncounter} onRemove={removeEncounter}
+              <div hidden={step !== 3}><SceneEncounterSection scene={selectedScene}
+                disabled={step !== 3 || lightsDirty || isMutating || isLoading || hasDraftChanges} error={error}
+                onCreate={createEncounter} onUpdate={updateEncounter} onRemove={removeEncounter} /></div>
+              <div hidden={step !== 4}><SceneCreaturePreparationSection scene={selectedScene} encounterId={creatureEncounterId}
+            disabled={step !== 4 || lightsDirty || isMutating || isLoading || hasDraftChanges} error={error}
+            onSelectEncounter={(encounterId) => leave(() => setCreatureEncounter(encounterId ? { sceneId: selectedScene.id, encounterId } : null))}
+            onGoToEncounters={() => leave(() => changeStep(3))}
+            onOpenSheet={(tokenId) => onOpenCreatureSheet?.(selectedScene.id, tokenId)} onUndoPlacement={undoPlacement}
             onCreateEntity={createEncounterEntity} onUpdateEntity={updateEncounterEntity}
             onCreatePlacement={createEncounterPlacement} onUpdatePlacement={updateEncounterPlacement} onRemovePlacement={removeEncounterPlacement}
             placementPreview={{ host: previewHost, left: previewLeft, top: previewTop, width: previewWidth, height: previewHeight,
-              interactive: step === 3 && drawingTool === null && !wallActive && !cellActive && !lightActive && !isPreviewPanMode,
+              interactive: step === 4 && drawingTool === null && !wallActive && !cellActive && !lightActive && !isPreviewPanMode,
               onBeginEdit: () => { setDrawingTool(null); setIsPreviewPanMode(false); } }} /></div>
-              {step === 4 ? <section className="scene-wizard__summary" aria-label="Riepilogo della scena">
+              {step === SUMMARY_STEP ? <section className="scene-wizard__summary" aria-label="Riepilogo della scena">
                 <dl>
                   <div><dt><button type="button" onClick={() => leave(() => changeStep(0))}>Base · Modifica</button></dt><dd>{selectedScene.document.background.kind === 'image' ? 'Immagine calibrata' : 'Griglia vuota'}</dd></div>
                   <div><dt><button type="button" onClick={() => leave(() => changeStep(0))}>Dimensioni · Modifica</button></dt><dd>{isPreviewUnlimited ? 'Illimitata' : `${previewBoard.columns} × ${previewBoard.rows} celle`}</dd></div>
                   <div><dt><button type="button" onClick={() => leave(() => changeStep(1))}>Pareti · Modifica</button></dt><dd>{selectedScene.document.wallCells.length} celle · {selectedScene.document.walls.length} tracciati</dd></div>
                   <div><dt><button type="button" onClick={() => leave(() => changeStep(2))}>Luci · Modifica</button></dt><dd>{selectedScene.document.board.lightSources.length} sorgenti · {selectedScene.document.board.isFullyLit ? 'Luce completa' : 'Buio attivo'}</dd></div>
-                  <div><dt><button type="button" onClick={() => leave(() => changeStep(3))}>Encounter · Modifica</button></dt><dd>{selectedScene.document.encounters.length} incontri · {selectedScene.document.preparedPlacements.length} figure collocate</dd></div>
+                  <div><dt><button type="button" onClick={() => leave(() => changeStep(3))}>Encounter · Modifica</button></dt><dd>{selectedScene.document.encounters.length} incontri</dd></div>
+                  <div><dt><button type="button" onClick={() => leave(() => changeStep(4))}>Mostri e PNG · Modifica</button></dt><dd>{selectedScene.document.entityReferences.filter((entity) => (entity.entityType === 'monster' || entity.entityType === 'npc') && selectedScene.document.encounters.some((encounter) => encounter.id === entity.encounterId)).length} figure preparate · {selectedScene.document.preparedPlacements.length} istanze collocate</dd></div>
                 </dl>
                 <p className="scene-catalog__hint">La preparazione è salvata. Puoi riaprire ogni passaggio per modificarla.</p>
 <div className={`scene-catalog__visibility ${selectedScene.isActive ? 'scene-catalog__visibility--active' : ''}`}>
@@ -882,7 +898,7 @@ export function SceneCatalogPanel({ onOpenCreatureSheet, closeRequestRef, onRequ
             <div>
               <button type="button" className="secondary-button" disabled={isMutating || step === 0} onClick={() => leave(() => changeStep(step - 1))}>Indietro</button>
               {(hasDraftChanges || lightsDirty || encounterDirty) ? <button type="button" className="secondary-button" disabled={isMutating} onClick={() => void saveDrafts()}>Salva modifiche</button> : null}
-              {step < 4 ? <button type="button" className="primary-button" disabled={isMutating || isLoading} onClick={() => void continueStep()}>{hasDraftChanges || lightsDirty || encounterDirty ? 'Salva e continua' : step === 3 ? 'Vai al riepilogo' : 'Continua'}</button> : <button type="button" className="secondary-button" disabled={isMutating} onClick={() => leave(onRequestClose)}>Chiudi preparazione</button>}
+              {step < SUMMARY_STEP ? <button type="button" className="primary-button" disabled={isMutating || isLoading} onClick={() => void continueStep()}>{hasDraftChanges || lightsDirty || encounterDirty ? 'Salva e continua' : step === SUMMARY_STEP - 1 ? 'Vai al riepilogo' : 'Continua'}</button> : <button type="button" className="secondary-button" disabled={isMutating} onClick={() => leave(onRequestClose)}>Chiudi preparazione</button>}
             </div>
           </footer>
         </> : <div className="scene-catalog__empty-workspace"><strong>Scegli una scena dal catalogo</strong><p>Crea una scena per costruire sulla griglia o partire da un’immagine.</p></div>}

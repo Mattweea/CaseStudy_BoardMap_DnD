@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId } from 'react';
+import { createContext, useContext, useId, useLayoutEffect } from 'react';
 export interface SceneDraft {
   save: () => Promise<boolean>;
   discard: () => void;
@@ -8,6 +8,8 @@ export const SceneDraftContext = createContext<{ register: (id: string, draft: S
 export function useSceneDraft(dirty: boolean, save: SceneDraft['save'], discard: SceneDraft['discard']) {
   const registry = useContext(SceneDraftContext);
   const id = useId();
-  useEffect(() => { registry?.register(id, dirty ? { save, discard } : null); });
-  useEffect(() => () => registry?.register(id, null), [registry, id]);
+  // Il selettore può cambiare subito dopo un campo: il registro deve essere
+  // aggiornato prima del prossimo gesto, anche quando un editor viene smontato.
+  useLayoutEffect(() => { registry?.register(id, dirty ? { save, discard } : null); });
+  useLayoutEffect(() => () => registry?.register(id, null), [registry, id]);
 }

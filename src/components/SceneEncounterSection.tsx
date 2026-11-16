@@ -1,27 +1,21 @@
 import { useSceneDraft } from './SceneDraftContext';
 import { useEffect, useState, type FormEvent } from 'react';
 import type { SceneEncounter } from '../types';
-import type { EncounterEntityInput, PersistedScene } from '../utils/sceneApi';
-import { SceneEncounterEntitySection } from './SceneEncounterEntitySection';
-import { SceneEncounterPlacementSection, type EncounterPlacementActions, type PlacementPreview } from './SceneEncounterPlacementSection';
+import type { PersistedScene } from '../utils/sceneApi';
 
 type EncounterDraft = Omit<SceneEncounter, 'id'>;
 const EMPTY_DRAFT: EncounterDraft = { name: '', kind: 'narrative', description: '' };
 
-interface SceneEncounterSectionProps extends EncounterPlacementActions {
+interface SceneEncounterSectionProps {
   scene: PersistedScene;
   disabled: boolean;
   error: string | null;
   onCreate: (encounter: EncounterDraft) => Promise<boolean>;
   onUpdate: (encounterId: string, patch: EncounterDraft) => Promise<boolean>;
   onRemove: (encounterId: string) => Promise<boolean>;
-  onCreateEntity: (encounterId: string, entity: EncounterEntityInput) => Promise<boolean>;
-  onUpdateEntity: (encounterId: string, referenceId: string, entity: EncounterEntityInput) => Promise<boolean>;
-  placementPreview: PlacementPreview;
 }
 
-export function SceneEncounterSection({ onOpenSheet, onUndoPlacement, scene, disabled, error, onCreate, onUpdate, onRemove,
-  onCreateEntity, onUpdateEntity, placementPreview, onCreatePlacement, onUpdatePlacement, onRemovePlacement }: SceneEncounterSectionProps) {
+export function SceneEncounterSection({ scene, disabled, error, onCreate, onUpdate, onRemove }: SceneEncounterSectionProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EncounterDraft>(EMPTY_DRAFT);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -129,11 +123,6 @@ export function SceneEncounterSection({ onOpenSheet, onUndoPlacement, scene, dis
         {notice ? <p className="scene-catalog__status" role="status">{notice}</p> : null}
       </form>
     </div>
-    {selected ? <SceneEncounterEntitySection scene={scene} encounterId={selected.id} disabled={disabled}
-      onCreate={onCreateEntity} onUpdate={onUpdateEntity} /> : null}
-    {selected ? <SceneEncounterPlacementSection onOpenSheet={onOpenSheet} onUndoPlacement={onUndoPlacement} scene={scene} encounterId={selected.id} disabled={disabled}
-      preview={placementPreview} onCreatePlacement={onCreatePlacement} onUpdatePlacement={onUpdatePlacement}
-      onRemovePlacement={onRemovePlacement} /> : null}
     {error ? <p className="scene-catalog__error" role="alert">{error}</p> : null}
   </section>;
 }

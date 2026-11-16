@@ -50,6 +50,7 @@ function editor(t, options = {}) {
         slots[i] = { deps }; effects.push(() => { previous?.cleanup?.(); slots[i].cleanup = effect(); });
       }
     },
+    useLayoutEffect(effect, deps) { hooks.useEffect(effect, deps); },
   };
   function flush() {
     for (let pass = 0; dirty; pass++) {
