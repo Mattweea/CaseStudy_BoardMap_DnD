@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { auraPresenceFor } from '../../shared/token-auras.mjs';
 import type { AuraPresenceRow } from '../../shared/token-auras.mjs';
 import type { BattleMapSharedState } from '../types';
+import { SparkIcon } from './UiIcons';
 
 interface AuraPresenceBannerProps {
   // Host attivo della mappa (normale o schermo intero), come l'overlay dei dadi (design,
@@ -18,9 +19,18 @@ interface AuraPresenceBannerProps {
 // per il Master, come doppia sicurezza.
 export function AuraPresenceBanner({ host, state, userId }: AuraPresenceBannerProps) {
   const rows = auraPresenceFor(state, userId) as AuraPresenceRow[];
+  const [isOpen, setIsOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
+  const panelId = useId();
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set());
   const previousKeysRef = useRef<ReadonlySet<string>>(new Set());
   const [announcement, setAnnouncement] = useState('');
+
+  useEffect(() => {
+    setIsOpen(false);
+    setExpandedKeys(new Set());
+    previousKeysRef.current = new Set();
+  }, [state.activeSceneId, userId]);
 
   // Annuncia solo le righe nuove rispetto al render precedente, senza spostare il fuoco: un
   // ingresso in un'aura non deve interrompere quello che l'Adventurer stava facendo.
@@ -36,6 +46,10 @@ export function AuraPresenceBanner({ host, state, userId }: AuraPresenceBannerPr
     }
     const currentKeys = new Set(rows.map((row) => row.key));
     previousKeysRef.current = currentKeys;
+    if (rows.length === 0) {
+      setIsOpen(false);
+      setAnnouncement('');
+    }
     setExpandedKeys((current) => {
       const next = new Set([...current].filter((key) => currentKeys.has(key)));
       return next.size === current.size ? current : next;
@@ -47,11 +61,29 @@ export function AuraPresenceBanner({ host, state, userId }: AuraPresenceBannerPr
   }
 
   return createPortal(
-    <div className="aura-presence-banner">
+    <div className={`aura-presence-banner${isOpen ? ' aura-presence-banner--open' : ''}`}
+      onKeyDown={(event) => {
+        // Le scorciatoie della board non devono muovere il PG mentre si consulta il pannello.
+        event.stopPropagation();
+        if (event.key === 'Escape' && isOpen) {
+          event.preventDefault();
+          setIsOpen(false);
+          toggleRef.current?.focus();
+        }
+      }}>
       <span className="visually-hidden" role="status" aria-live="polite">
         {announcement}
       </span>
-      <ul className="aura-presence-banner__list">
+      <button ref={toggleRef} type="button" className="board-tool-button aura-presence-banner__toggle"
+        aria-label={`Aure applicate: ${rows.length}`} aria-expanded={isOpen} aria-controls={panelId}
+        onClick={() => setIsOpen((current) => !current)}>
+        <SparkIcon size={18} /><span>Aure</span>
+        <span className="aura-presence-banner__count" aria-hidden="true">{rows.length}</span>
+        <svg className="aura-presence-banner__chevron" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="m3.5 6 4.5 4 4.5-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {isOpen ? <ul id={panelId} className="aura-presence-banner__list" aria-label="Aure applicate" tabIndex={0}>
         {rows.map((row) => {
           const isExpanded = expandedKeys.has(row.key);
           return (
@@ -86,7 +118,7 @@ export function AuraPresenceBanner({ host, state, userId }: AuraPresenceBannerPr
             </li>
           );
         })}
-      </ul>
+      </ul> : null}
     </div>,
     host,
   );

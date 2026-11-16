@@ -286,6 +286,11 @@ export const COMMAND_MODULES: readonly CommandModule[] = [
           { keys: ['Invio', 'Spazio'], text: 'Accendono o spengono l’aura con il fuoco.', audience: 'all' },
           { keys: ['Esc'], text: 'Torna dal pannello aure alla corona del menu.', audience: 'all' },
           {
+            keys: ['Aure'],
+            text: 'Il pulsante con contatore in alto a destra della mappa apre o richiude le aure altrui in cui ti trovi. Esc richiude l’elenco e riporta il fuoco al pulsante.',
+            audience: 'player',
+          },
+          {
             keys: ['Mostra dettagli', 'Nascondi dettagli'],
             text: 'Nel pannello delle aure altrui in cui ti trovi, rivela o nasconde l’effetto.',
             audience: 'player',
